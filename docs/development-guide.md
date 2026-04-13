@@ -886,16 +886,45 @@ AI 目前主要用于：
   - `silhouette score`
   - `Davies-Bouldin`
   - cluster stability over bootstraps
-- 把簇标签从人工命名逐步升级为半自动命名工作流
+- 把“固定簇标签”降级为可选物，改做基于 RAG 的簇解释层
 
-### 10.4 第四优先级：把 AI 从“语言增强”推进到“研究辅助”
+### 10.4 关于 cluster id / cluster label 的建议
+
+如果后续继续沿这条线开发，我建议把下面几个概念彻底分开：
+
+- `cluster_version + cluster_index`
+  - 只作为系统内部锚点
+  - 用来指向当前聚类版本里的某个簇
+- `cluster evidence bundle`
+  - 该簇的代表会话、代表题目、top dimensions、top subdimensions、top modules、行为统计
+- `user-facing explanation`
+  - 面向用户的实时解释结果
+
+也就是说：
+
+- 系统内部仍然需要 `cluster_index`
+- 但用户侧未必需要看到“簇标签”
+- 更符合项目宗旨的做法，是让用户看到：
+  - `keyword_cloud`
+  - `cluster_summary`
+  - `evidence_points`
+  - `user_specific_explanation`
+
+这样做的好处是：
+
+- 避免把动态聚类误读成固定人格类型
+- 更适合边界态、混合态和过渡态
+- 让解释层可以根据实时行为和检索上下文动态生成
+- 让 cluster 成为内部分析骨架，而不是外部标签容器
+
+### 10.5 第四优先级：把 AI 从“语言增强”推进到“研究辅助”
 
 - 用 AI 审核题面重复与语义冲突
 - 用 AI 辅助生成候选题，但必须保留规则校验
 - 用 AI 解释可疑作答信号
 - 用 AI 生成面向研究者的“会话摘要”
 
-### 10.5 第五优先级：工程化
+### 10.6 第五优先级：工程化
 
 - 增加 CI 中对后端测试和前端构建的强约束
 - 把配置进一步环境变量化
