@@ -200,6 +200,88 @@ cd frontend
 npm run dev
 ```
 
+## 构建指南
+
+如果你准备把这个项目从“本地开发”切到“可分发 / 可部署”状态，建议至少完成下面两部分构建。
+
+### 前端构建
+
+在 `frontend` 目录执行：
+
+```powershell
+cd frontend
+npm install
+npm run build
+```
+
+构建成功后可用下面命令本地以生产模式启动：
+
+```powershell
+npm run start
+```
+
+默认仍监听在：
+
+- `http://127.0.0.1:3000`
+
+### 后端生产启动
+
+后端当前不需要前端那种“编译产物”，更接近 Python 服务部署。  
+开发时用的是 `--reload`，生产启动建议改为不带热重载：
+
+Public API：
+
+```powershell
+cd backend
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Admin API：
+
+```powershell
+cd backend
+python -m uvicorn app.admin_main:app --host 127.0.0.1 --port 8001
+```
+
+### 后端打包为分发产物
+
+如果你想把后端打成标准 Python 包，可以在 `backend` 目录执行：
+
+```powershell
+cd backend
+python -m pip install build
+python -m build
+```
+
+成功后通常会在 `backend/dist/` 下得到：
+
+- `*.whl`
+- `*.tar.gz`
+
+### 构建前检查
+
+建议在构建前至少确认：
+
+- 前端依赖已安装完成
+- 后端虚拟环境可正常导入 `fastapi`、`uvicorn`、`scikit-learn`
+- 本地管理端和公共端口没有被占用
+- 不要把本地 `SQLite` 数据库、缓存目录和 `.env` 类文件一起打包上传
+
+### 当前阶段说明
+
+这个仓库现在已经具备：
+
+- 前端可正式执行 `npm run build`
+- 后端可正式作为 Python 服务启动
+- 后端可通过 `python -m build` 打包
+
+但它还没有完整覆盖：
+
+- Docker 镜像构建
+- CI 自动构建与发布
+- 线上环境变量模板
+- 反向代理、HTTPS、进程守护等生产部署说明
+
 ## 使用流程
 
 建议首次体验顺序如下：
