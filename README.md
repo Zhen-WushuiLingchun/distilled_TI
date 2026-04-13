@@ -445,6 +445,8 @@ pytest
 
 ## 文档入口
 
+- `docs/plans/2026-04-13-embedding-vector-layer-adr.md`
+- `docs/development-guide.md`
 - `docs/dimensions.md`
 - `Distilled_TI_Architecture_v1.md`
 - `item_bank_rewrite_v1.md`
