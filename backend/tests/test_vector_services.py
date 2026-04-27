@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from uuid import UUID
 
 import httpx
 import pytest
@@ -137,7 +138,9 @@ def test_vector_store_uses_qdrant_client_methods(monkeypatch):
     vector_store.delete_point("point-1")
 
     assert calls["create_collection"] == (settings.qdrant_collection_item_vectors, 3)
-    assert calls["upsert"] == (settings.qdrant_collection_item_vectors, "point-1", True)
+    assert calls["upsert"][0] == settings.qdrant_collection_item_vectors
+    assert str(UUID(calls["upsert"][1])) == calls["upsert"][1]
+    assert calls["upsert"][2] is True
     assert len(hits) == 1
     assert calls["delete"][0] == settings.qdrant_collection_item_vectors
 

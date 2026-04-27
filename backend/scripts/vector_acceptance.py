@@ -19,6 +19,7 @@ from app.services.embedding_service import embedding_service
 from app.services.reranker_service import reranker_service
 from app.services.storage import local_session_store
 from app.services.vector_indexer import vector_indexer
+from app.services.vector_store import vector_store
 
 
 def _has_real_key(value: str) -> bool:
@@ -129,4 +130,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    finally:
+        vector_store.close()

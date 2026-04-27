@@ -81,9 +81,9 @@ class AIService:
                     },
                     json={
                         "model": config.model,
-                        "messages": [{"role": "user", "content": "只回复ok"}],
+                        "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
                         "temperature": 0,
-                        "max_tokens": 10,
+                        "max_tokens": 128,
                     },
                 )
                 response.raise_for_status()

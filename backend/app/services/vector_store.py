@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -41,7 +42,7 @@ class VectorStore:
         self._ensure_collection(client, resolved_collection, len(vector))
         client.upsert(
             collection_name=resolved_collection,
-            points=[models.PointStruct(id=point_id, vector=vector, payload=payload)],
+            points=[models.PointStruct(id=self._point_id(point_id), vector=vector, payload=payload)],
             wait=True,
         )
 
@@ -52,7 +53,7 @@ class VectorStore:
             return
         client.delete(
             collection_name=resolved_collection,
-            points_selector=models.PointIdsList(points=[point_id]),
+            points_selector=models.PointIdsList(points=[self._point_id(point_id)]),
             wait=True,
         )
 
@@ -90,6 +91,13 @@ class VectorStore:
         )
         return list(response.points)
 
+    def close(self) -> None:
+        if self._client is None:
+            return
+        self._client.close()
+        self._client = None
+        self._collection_ready.clear()
+
     def _client_or_raise(self) -> QdrantClient:
         if not self.is_enabled():
             raise VectorStoreError("qdrant_not_configured")
@@ -126,6 +134,12 @@ class VectorStore:
 
     def _resolve_collection_name(self, collection_name: str | None) -> str:
         return collection_name or settings.qdrant_collection_item_vectors
+
+    def _point_id(self, point_id: str) -> str:
+        try:
+            return str(UUID(point_id))
+        except ValueError:
+            return str(uuid5(NAMESPACE_URL, point_id))
 
 
 vector_store = VectorStore()
