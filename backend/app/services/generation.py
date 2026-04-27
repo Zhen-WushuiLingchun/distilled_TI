@@ -9,10 +9,19 @@ import re
 from uuid import uuid4
 
 from app.core.config import settings
-from app.domain.models import ItemInstance, ItemTemplate, RewriteCandidate, RewritePreviewBundle, SessionRecord, TemplateRewritePreview
+from app.domain.models import (
+    EmbeddingScoreBreakdown,
+    ItemInstance,
+    ItemTemplate,
+    RewriteCandidate,
+    RewritePreviewBundle,
+    SessionRecord,
+    TemplateRewritePreview,
+)
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.storage import local_session_store
 from app.services.validators import validate_generated_prompt
+from app.services.vector_indexer import vector_indexer
 
 
 class GenerationService:
@@ -86,6 +95,7 @@ class GenerationService:
         allow_stored_config: bool = True,
     ) -> RewritePreviewBundle:
         active_runtime_ai = runtime_ai_config or (ai_service.get_config() if allow_stored_config else None)
+        retrieval_context = vector_indexer.build_rewrite_retrieval_context(template)
         if active_runtime_ai is None:
             raw_candidates = [
                 {
@@ -101,6 +111,7 @@ class GenerationService:
                 style_hint,
                 settings.rewrite_candidate_count,
                 runtime_ai_config=active_runtime_ai,
+                retrieval_context=retrieval_context.model_dump() if retrieval_context else None,
             )
         deduped = self._dedupe_candidates(template.id, raw_candidates)
         ranked = sorted(
@@ -127,8 +138,17 @@ class GenerationService:
             validator_passed=selected_candidate.validator_passed,
             score=selected_candidate.score,
             reasons=selected_candidate.reasons,
+            embedding_score_breakdown=selected_candidate.embedding_score_breakdown,
         )
-        return RewritePreviewBundle(template_id=template.id, selected=selected, candidates=ranked)
+        for index, candidate in enumerate(ranked):
+            candidate_status = "validator_failed" if not candidate.validator_passed else "selected" if index == 0 else "rejected"
+            vector_indexer.index_rewrite_candidate(template, candidate, candidate_status)
+        return RewritePreviewBundle(
+            template_id=template.id,
+            selected=selected,
+            candidates=ranked,
+            retrieval_context=retrieval_context if retrieval_context and retrieval_context.enabled else None,
+        )
 
     def _should_try_ai_rewrite(
         self,
@@ -209,6 +229,13 @@ class GenerationService:
         score -= similarity_penalty
         reasons.append(f"历史相似度惩罚 {similarity_penalty:.2f}")
 
+        embedding_breakdown = self._embedding_breakdown(template, prompt, generation_mode)
+        if embedding_breakdown is not None:
+            score += embedding_breakdown.total
+            reasons.append(f"向量源距离 {embedding_breakdown.source_distance_score:.2f}")
+            reasons.append(f"向量重复惩罚 {embedding_breakdown.duplicate_penalty:.2f}")
+            reasons.append(f"向量对齐奖励 {embedding_breakdown.alignment_bonus:.2f}")
+
         if generation_mode == "llm_rewrite":
             score += 0.35
             reasons.append("来自模型改写")
@@ -220,7 +247,16 @@ class GenerationService:
             validator_passed=validator_passed,
             score=round(score, 3),
             reasons=reasons,
+            embedding_score_breakdown=embedding_breakdown,
         )
+
+    def _embedding_breakdown(
+        self,
+        template: ItemTemplate,
+        prompt: str,
+        generation_mode: str,
+    ) -> EmbeddingScoreBreakdown | None:
+        return vector_indexer.score_rewrite_candidate(template, prompt, generation_mode)
 
     def _lexical_delta(self, source: str, target: str) -> float:
         source_terms = {term for term in re.split(r"[，。、“”\s]+", source) if term}

@@ -7,14 +7,19 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.domain.models import (
     ClusterOverview,
+    EmbeddingScoreBreakdown,
     ItemInstance,
     ItemTemplate,
     ItemTemplateCreate,
+    RewriteRetrievalContext,
     RewritePreviewBundle,
     SessionHistoryEntry,
     SessionReport,
     SessionState,
     SessionSummary,
+    VectorReindexSummary,
+    VectorSearchHit,
+    VectorSyncFailure,
 )
 
 
@@ -164,6 +169,31 @@ class AIConfigStatusResponse(BaseModel):
     provider: str | None = None
     model: str | None = None
     base_url: str | None = None
+
+
+class VectorReindexRequest(BaseModel):
+    scope: str = "all"
+
+
+class VectorReindexResponse(VectorReindexSummary):
+    pass
+
+
+class VectorSearchResponse(BaseModel):
+    enabled: bool = False
+    hits: list[VectorSearchHit] = Field(default_factory=list)
+
+
+class VectorSyncFailureResponse(BaseModel):
+    items: list[VectorSyncFailure] = Field(default_factory=list)
+
+
+class RewriteRetrievalContextResponse(RewriteRetrievalContext):
+    pass
+
+
+class EmbeddingScoreBreakdownResponse(EmbeddingScoreBreakdown):
+    pass
 
 
 class SessionSummaryResponse(SessionSummary):

@@ -205,12 +205,71 @@ export type RewritePreview = {
   validator_passed: boolean;
   score: number;
   reasons: string[];
+  embedding_score_breakdown?: EmbeddingScoreBreakdown | null;
 };
 
 export type RewritePreviewBundle = {
   template_id: string;
   selected: RewritePreview;
   candidates: RewritePreview[];
+  retrieval_context?: RewriteRetrievalContext | null;
+};
+
+export type EmbeddingScoreBreakdown = {
+  enabled: boolean;
+  source_similarity: number;
+  source_distance_score: number;
+  duplicate_similarity: number;
+  duplicate_penalty: number;
+  alignment_similarity: number;
+  alignment_bonus: number;
+  total: number;
+};
+
+export type VectorSearchHit = {
+  object_id: string;
+  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot";
+  template_id?: string | null;
+  instance_id?: string | null;
+  session_id?: string | null;
+  snapshot_milestone?: number | null;
+  layer: string;
+  generation_mode: string;
+  prompt_excerpt: string;
+  score: number;
+  rerank_score?: number | null;
+  scenario_tags: string[];
+};
+
+export type RewriteRetrievalContext = {
+  enabled: boolean;
+  reranker_applied: boolean;
+  template_hits: VectorSearchHit[];
+  item_instance_hits: VectorSearchHit[];
+  rewrite_candidate_hits: VectorSearchHit[];
+};
+
+export type VectorReindexResponse = {
+  scope: "templates" | "instances" | "sessions" | "all";
+  enabled: boolean;
+  indexed_count: number;
+  failed_count: number;
+  failure_ids: string[];
+};
+
+export type VectorSearchResponse = {
+  enabled: boolean;
+  hits: VectorSearchHit[];
+};
+
+export type VectorSyncFailure = {
+  failure_id: string;
+  object_type: string;
+  object_id: string;
+  operation: string;
+  error_message: string;
+  payload_json: string;
+  created_at: string;
 };
 
 export type ClusterVersionInfo = {
@@ -495,4 +554,31 @@ export function deleteTemplate(templateId: string) {
   return adminRequest<{ deleted: boolean }>(`/admin/item-template/${templateId}`, {
     method: "DELETE",
   });
+}
+
+export function reindexVectors(scope: "templates" | "instances" | "sessions" | "all") {
+  return adminRequest<VectorReindexResponse>("/admin/vector/reindex", {
+    method: "POST",
+    json: { scope },
+  });
+}
+
+export function searchSimilarTemplates(payload: { templateId?: string; prompt?: string; topK?: number }) {
+  const params = new URLSearchParams();
+  if (payload.templateId) params.set("template_id", payload.templateId);
+  if (payload.prompt) params.set("prompt", payload.prompt);
+  if (typeof payload.topK === "number") params.set("top_k", String(payload.topK));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return adminRequest<VectorSearchResponse>(`/admin/vector/templates/similar${suffix}`);
+}
+
+export function searchSimilarSessions(payload: { sessionId: string; topK?: number }) {
+  const params = new URLSearchParams();
+  params.set("session_id", payload.sessionId);
+  if (typeof payload.topK === "number") params.set("top_k", String(payload.topK));
+  return adminRequest<VectorSearchResponse>(`/admin/vector/sessions/similar?${params.toString()}`);
+}
+
+export function listVectorSyncFailures(limit = 25) {
+  return adminRequest<{ items: VectorSyncFailure[] }>(`/admin/vector/sync-failures?limit=${encodeURIComponent(String(limit))}`);
 }

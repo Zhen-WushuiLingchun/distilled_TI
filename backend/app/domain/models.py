@@ -206,6 +206,40 @@ class SessionAccessGrant(BaseModel):
     delete_token: str
 
 
+class EmbeddingScoreBreakdown(BaseModel):
+    enabled: bool = False
+    source_similarity: float = 0.0
+    source_distance_score: float = 0.0
+    duplicate_similarity: float = 0.0
+    duplicate_penalty: float = 0.0
+    alignment_similarity: float = 0.0
+    alignment_bonus: float = 0.0
+    total: float = 0.0
+
+
+class VectorSearchHit(BaseModel):
+    object_id: str
+    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot"]
+    template_id: str | None = None
+    instance_id: str | None = None
+    session_id: str | None = None
+    snapshot_milestone: int | None = None
+    layer: str
+    generation_mode: str
+    prompt_excerpt: str
+    score: float
+    rerank_score: float | None = None
+    scenario_tags: list[str] = Field(default_factory=list)
+
+
+class RewriteRetrievalContext(BaseModel):
+    enabled: bool = False
+    reranker_applied: bool = False
+    template_hits: list[VectorSearchHit] = Field(default_factory=list)
+    item_instance_hits: list[VectorSearchHit] = Field(default_factory=list)
+    rewrite_candidate_hits: list[VectorSearchHit] = Field(default_factory=list)
+
+
 class TemplateRewritePreview(BaseModel):
     template_id: str
     rewritten_prompt: str
@@ -213,6 +247,7 @@ class TemplateRewritePreview(BaseModel):
     validator_passed: bool
     score: float = 0.0
     reasons: list[str] = Field(default_factory=list)
+    embedding_score_breakdown: EmbeddingScoreBreakdown | None = None
 
 
 class RewriteCandidate(BaseModel):
@@ -222,12 +257,32 @@ class RewriteCandidate(BaseModel):
     validator_passed: bool
     score: float
     reasons: list[str] = Field(default_factory=list)
+    embedding_score_breakdown: EmbeddingScoreBreakdown | None = None
 
 
 class RewritePreviewBundle(BaseModel):
     template_id: str
     selected: TemplateRewritePreview
     candidates: list[RewriteCandidate]
+    retrieval_context: RewriteRetrievalContext | None = None
+
+
+class VectorSyncFailure(BaseModel):
+    failure_id: str
+    object_type: str
+    object_id: str
+    operation: str
+    error_message: str
+    payload_json: str
+    created_at: datetime
+
+
+class VectorReindexSummary(BaseModel):
+    scope: Literal["templates", "instances", "sessions", "all"]
+    enabled: bool = False
+    indexed_count: int = 0
+    failed_count: int = 0
+    failure_ids: list[str] = Field(default_factory=list)
 
 
 class SessionHistoryEntry(BaseModel):

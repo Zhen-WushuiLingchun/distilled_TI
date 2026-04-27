@@ -1,8 +1,14 @@
+from datetime import UTC, datetime
+
 from fastapi.testclient import TestClient
 
 from app.admin_main import app as admin_app
+from app.domain.item_bank import build_seed_item_bank
 from app.main import app as public_app
+from app.domain.models import RewriteRetrievalContext, VectorReindexSummary, VectorSearchHit, VectorSyncFailure
 from app.services.ai_service import ai_service
+from app.services.vector_indexer import vector_indexer
+from app.services.storage import local_session_store
 
 admin_client = TestClient(admin_app)
 public_client = TestClient(public_app)
@@ -41,26 +47,46 @@ def test_admin_can_issue_session_access_and_preview_rewrite():
     start_response = public_client.post("/api/session/start", json={"mode": "core"})
     payload = start_response.json()
 
-    access_response = admin_client.post(f"/api/session/{payload['session_id']}/access")
-    assert access_response.status_code == 200
-    access_payload = access_response.json()
-    assert access_payload["session_id"] == payload["session_id"]
-    assert access_payload["session_secret"]
-    assert access_payload["delete_token"]
-
-    preview_response = admin_client.post(
-        "/api/ai/rewrite-question",
-        json={
-            "session_id": payload["session_id"],
-            "item_id": payload["question"]["template_id"],
-            "style_hint": "higher-pressure scenario",
-        },
+    original = vector_indexer.build_rewrite_retrieval_context
+    vector_indexer.build_rewrite_retrieval_context = lambda _template: RewriteRetrievalContext(
+        enabled=True,
+        template_hits=[
+            VectorSearchHit(
+                object_id="seed-neighbor",
+                object_type="template",
+                template_id="seed-neighbor",
+                layer="core",
+                generation_mode="template",
+                prompt_excerpt="邻近模板",
+                score=0.83,
+            )
+        ],
     )
-    assert preview_response.status_code == 200
-    preview_payload = preview_response.json()
-    assert preview_payload["preview"]["template_id"] == payload["question"]["template_id"]
-    assert preview_payload["preview"]["selected"]["rewritten_prompt"]
-    assert len(preview_payload["preview"]["candidates"]) >= 1
+
+    try:
+        access_response = admin_client.post(f"/api/session/{payload['session_id']}/access")
+        assert access_response.status_code == 200
+        access_payload = access_response.json()
+        assert access_payload["session_id"] == payload["session_id"]
+        assert access_payload["session_secret"]
+        assert access_payload["delete_token"]
+
+        preview_response = admin_client.post(
+            "/api/ai/rewrite-question",
+            json={
+                "session_id": payload["session_id"],
+                "item_id": payload["question"]["template_id"],
+                "style_hint": "higher-pressure scenario",
+            },
+        )
+        assert preview_response.status_code == 200
+        preview_payload = preview_response.json()
+        assert preview_payload["preview"]["template_id"] == payload["question"]["template_id"]
+        assert preview_payload["preview"]["selected"]["rewritten_prompt"]
+        assert len(preview_payload["preview"]["candidates"]) >= 1
+        assert preview_payload["preview"]["retrieval_context"]["template_hits"][0]["object_id"] == "seed-neighbor"
+    finally:
+        vector_indexer.build_rewrite_retrieval_context = original
 
 
 def test_admin_template_and_history_endpoints():
@@ -139,3 +165,79 @@ def test_admin_template_and_history_endpoints():
     delete_response = admin_client.delete(f"/api/admin/item-template/{template_id}")
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted"] is True
+
+
+def test_admin_vector_endpoints():
+    template = build_seed_item_bank()[0]
+    original_reindex = vector_indexer.reindex
+    original_search = vector_indexer.search_similar_templates
+    original_search_sessions = vector_indexer.search_similar_sessions
+    original_enabled = vector_indexer.is_enabled
+    original_failures = local_session_store.list_vector_sync_failures
+    vector_indexer.reindex = lambda scope: VectorReindexSummary(
+        scope=scope,  # type: ignore[arg-type]
+        enabled=True,
+        indexed_count=4,
+        failed_count=1,
+        failure_ids=["vf-1"],
+    )
+    vector_indexer.search_similar_templates = lambda **_kwargs: [
+        VectorSearchHit(
+            object_id="core-social-2",
+            object_type="template",
+            template_id="core-social-2",
+            layer="core",
+            generation_mode="template",
+            prompt_excerpt="另一个相近模板",
+            score=0.89,
+        )
+    ]
+    vector_indexer.search_similar_sessions = lambda _session, top_k=None: [
+        VectorSearchHit(
+            object_id="session-snapshot-a",
+            object_type="session_snapshot",
+            session_id="session-similar",
+            snapshot_milestone=5,
+            layer="session",
+            generation_mode="session_snapshot",
+            prompt_excerpt="session summary",
+            score=0.91,
+        )
+    ]
+    vector_indexer.is_enabled = lambda: True
+    local_session_store.list_vector_sync_failures = lambda limit=25: [
+        VectorSyncFailure(
+            failure_id="vf-1",
+            object_type="template",
+            object_id=template.id,
+            operation="index_template",
+            error_message="boom",
+            payload_json='{"template_id":"x"}',
+            created_at=datetime.now(UTC),
+        )
+    ]
+
+    try:
+        reindex_response = admin_client.post("/api/admin/vector/reindex", json={"scope": "sessions"})
+        assert reindex_response.status_code == 200
+        assert reindex_response.json()["indexed_count"] == 4
+
+        similar_response = admin_client.get(f"/api/admin/vector/templates/similar?template_id={template.id}")
+        assert similar_response.status_code == 200
+        assert similar_response.json()["hits"][0]["object_id"] == "core-social-2"
+
+        start_response = public_client.post("/api/session/start", json={"mode": "core"})
+        session_id = start_response.json()["session_id"]
+        session_response = admin_client.get(f"/api/admin/vector/sessions/similar?session_id={session_id}")
+        assert session_response.status_code == 200
+        assert session_response.json()["hits"][0]["object_type"] == "session_snapshot"
+
+        failures_response = admin_client.get("/api/admin/vector/sync-failures")
+        assert failures_response.status_code == 200
+        assert failures_response.json()["items"][0]["failure_id"] == "vf-1"
+    finally:
+        vector_indexer.reindex = original_reindex
+        vector_indexer.search_similar_templates = original_search
+        vector_indexer.search_similar_sessions = original_search_sessions
+        vector_indexer.is_enabled = original_enabled
+        local_session_store.list_vector_sync_failures = original_failures

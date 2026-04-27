@@ -7,7 +7,15 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.core.config import settings
-from app.domain.models import ClusterLabelOverride, ClusterVersionInfo, ItemInstance, ItemTemplate, SessionHistoryEntry, SessionRecord
+from app.domain.models import (
+    ClusterLabelOverride,
+    ClusterVersionInfo,
+    ItemInstance,
+    ItemTemplate,
+    SessionHistoryEntry,
+    SessionRecord,
+    VectorSyncFailure,
+)
 
 
 class LocalSessionStore:
@@ -88,6 +96,19 @@ class LocalSessionStore:
                     config_key TEXT PRIMARY KEY,
                     payload_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS vector_sync_failures (
+                    failure_id TEXT PRIMARY KEY,
+                    object_type TEXT NOT NULL,
+                    object_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    error_message TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 )
                 """
             )
@@ -183,17 +204,22 @@ class LocalSessionStore:
             connection.execute("DELETE FROM item_templates WHERE template_id = ?", (template_id,))
             connection.commit()
 
-    def list_item_instances(self, session_id: str | None = None) -> list[ItemInstance]:
+    def list_item_instances(self, session_id: str | None = None, limit: int | None = 100) -> list[ItemInstance]:
         with self._connect() as connection:
             if session_id:
-                rows = connection.execute(
-                    "SELECT payload_json FROM item_instances WHERE session_id = ? ORDER BY created_at DESC",
-                    (session_id,),
-                ).fetchall()
+                query = "SELECT payload_json FROM item_instances WHERE session_id = ? ORDER BY created_at DESC"
+                params: tuple[object, ...] = (session_id,)
+                if limit is not None:
+                    query += " LIMIT ?"
+                    params = (session_id, limit)
+                rows = connection.execute(query, params).fetchall()
             else:
-                rows = connection.execute(
-                    "SELECT payload_json FROM item_instances ORDER BY created_at DESC LIMIT 100",
-                ).fetchall()
+                query = "SELECT payload_json FROM item_instances ORDER BY created_at DESC"
+                params = ()
+                if limit is not None:
+                    query += " LIMIT ?"
+                    params = (limit,)
+                rows = connection.execute(query, params).fetchall()
         return [ItemInstance.model_validate_json(row[0]) for row in rows]
 
     def list_sessions(self) -> list[SessionHistoryEntry]:
@@ -230,6 +256,16 @@ class LocalSessionStore:
                 )
             )
         return entries
+
+    def list_session_records(self, limit: int | None = 100) -> list[SessionRecord]:
+        query = "SELECT payload_json FROM sessions ORDER BY updated_at DESC"
+        params: tuple[object, ...] = ()
+        if limit is not None:
+            query += " LIMIT ?"
+            params = (limit,)
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [SessionRecord.model_validate_json(row[0]) for row in rows]
 
     def cleanup_expired(self) -> int:
         now = datetime.now(UTC).isoformat()
@@ -334,6 +370,62 @@ class LocalSessionStore:
         if row is None:
             return None
         return str(row[0])
+
+    def save_vector_sync_failure(self, failure: VectorSyncFailure) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO vector_sync_failures (
+                    failure_id,
+                    object_type,
+                    object_id,
+                    operation,
+                    error_message,
+                    payload_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    failure.failure_id,
+                    failure.object_type,
+                    failure.object_id,
+                    failure.operation,
+                    failure.error_message,
+                    failure.model_dump_json(),
+                    failure.created_at.isoformat(),
+                ),
+            )
+            connection.commit()
+
+    def list_vector_sync_failures(self, limit: int = 25) -> list[VectorSyncFailure]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT failure_id, object_type, object_id, operation, error_message, payload_json, created_at
+                FROM vector_sync_failures
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        failures: list[VectorSyncFailure] = []
+        for failure_id, object_type, object_id, operation, error_message, payload_json, created_at in rows:
+            try:
+                failures.append(VectorSyncFailure.model_validate_json(payload_json))
+            except Exception:
+                failures.append(
+                    VectorSyncFailure(
+                        failure_id=str(failure_id),
+                        object_type=str(object_type),
+                        object_id=str(object_id),
+                        operation=str(operation),
+                        error_message=str(error_message),
+                        payload_json=str(payload_json),
+                        created_at=datetime.fromisoformat(created_at),
+                    )
+                )
+        return failures
 
 
 local_session_store = LocalSessionStore(settings.local_db_path)

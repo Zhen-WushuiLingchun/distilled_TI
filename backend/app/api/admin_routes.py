@@ -19,10 +19,16 @@ from app.api.schemas import (
     SessionAccessIssueResponse,
     SessionHistoryListResponse,
     TemplateListResponse,
+    VectorReindexRequest,
+    VectorReindexResponse,
+    VectorSearchResponse,
+    VectorSyncFailureResponse,
 )
 from app.api.security import build_owner_key, require_local_admin
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.session_service import session_service
+from app.services.storage import local_session_store
+from app.services.vector_indexer import vector_indexer
 
 router = APIRouter()
 
@@ -92,6 +98,57 @@ def rewrite_question(payload: RewriteQuestionRequest, request: Request) -> Rewri
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     message = f"已为模板 {payload.item_id} 生成受限改写预览。"
     return RewriteQuestionResponse(enabled=True, message=message, preview=preview)
+
+
+@router.post("/admin/vector/reindex", response_model=VectorReindexResponse)
+def reindex_vectors(payload: VectorReindexRequest, request: Request) -> VectorReindexResponse:
+    require_local_admin(request)
+    scope = str(payload.scope or "all")
+    if scope not in {"templates", "instances", "sessions", "all"}:
+        raise HTTPException(status_code=422, detail="invalid_vector_scope")
+    summary = vector_indexer.reindex(scope)  # type: ignore[arg-type]
+    return VectorReindexResponse(**summary.model_dump())
+
+
+@router.get("/admin/vector/templates/similar", response_model=VectorSearchResponse)
+def similar_templates(
+    request: Request,
+    template_id: str | None = None,
+    prompt: str | None = None,
+    top_k: int | None = None,
+) -> VectorSearchResponse:
+    require_local_admin(request)
+    if not template_id and not prompt:
+        raise HTTPException(status_code=422, detail="template_id_or_prompt_required")
+
+    template = None
+    if template_id:
+        template = next((item for item in session_service.list_items(include_archived=True) if item.id == template_id), None)
+        if template is None:
+            raise HTTPException(status_code=404, detail="template_not_found")
+    hits = vector_indexer.search_similar_templates(template=template, prompt=prompt, top_k=top_k)
+    return VectorSearchResponse(enabled=vector_indexer.is_enabled(), hits=hits)
+
+
+@router.get("/admin/vector/sessions/similar", response_model=VectorSearchResponse)
+def similar_sessions(
+    request: Request,
+    session_id: str,
+    top_k: int | None = None,
+) -> VectorSearchResponse:
+    require_local_admin(request)
+    try:
+        session = session_service.get_session(session_id, force_reload=True)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    hits = vector_indexer.search_similar_sessions(session, top_k=top_k)
+    return VectorSearchResponse(enabled=vector_indexer.is_enabled(), hits=hits)
+
+
+@router.get("/admin/vector/sync-failures", response_model=VectorSyncFailureResponse)
+def vector_sync_failures(request: Request, limit: int = 25) -> VectorSyncFailureResponse:
+    require_local_admin(request)
+    return VectorSyncFailureResponse(items=local_session_store.list_vector_sync_failures(limit))
 
 
 @router.post("/admin/item-template/create", response_model=ItemTemplateCreateResponse)

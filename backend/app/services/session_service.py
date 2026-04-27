@@ -42,6 +42,7 @@ from app.services.generation import generation_service
 from app.services.scoring import ScoringEngine
 from app.services.storage import local_session_store
 from app.services.validators import validate_item_template
+from app.services.vector_indexer import vector_indexer
 
 
 class SessionService:
@@ -196,6 +197,7 @@ class SessionService:
         )
         self._items[item.id] = item
         local_session_store.save_template(item)
+        vector_indexer.index_template(item)
         return item
 
     def update_item(self, template_id: str, payload: ItemTemplateCreate) -> ItemTemplate:
@@ -223,6 +225,7 @@ class SessionService:
         )
         self._items[template_id] = updated
         local_session_store.save_template(updated)
+        vector_indexer.index_template(updated)
         return updated
 
     def preview_rewrite(
@@ -325,6 +328,7 @@ class SessionService:
             if probe_instance is not None:
                 self._instances[probe_instance.id] = probe_instance
                 local_session_store.save_item_instance(probe_instance)
+                vector_indexer.index_item_instance(probe_instance)
                 session.current_item_id = probe_instance.id
                 session.current_template_id = probe_instance.template_id
                 session.updated_at = datetime.now(UTC)
@@ -335,6 +339,7 @@ class SessionService:
         instance, _preview = generation_service.materialize_instance(session, template, style_hint, active_ai_config)
         self._instances[instance.id] = instance
         local_session_store.save_item_instance(instance)
+        vector_indexer.index_item_instance(instance)
         session.current_item_id = instance.id
         session.current_template_id = template.id
         session.updated_at = datetime.now(UTC)
@@ -526,6 +531,7 @@ class SessionService:
             session.current_item_id = None
             session.current_template_id = None
         local_session_store.save_session(session)
+        vector_indexer.index_session_snapshot(session)
         return session, next_item
 
     def build_report(
@@ -629,6 +635,7 @@ class SessionService:
         )
         self._items[template_id] = template
         local_session_store.save_template(template)
+        vector_indexer.index_template(template)
         return template
 
     def delete_item(self, template_id: str) -> None:
@@ -638,6 +645,7 @@ class SessionService:
             raise ValueError("seed_template_cannot_be_deleted")
         self._items.pop(template_id, None)
         local_session_store.delete_template(template_id)
+        vector_indexer.delete_template(template_id)
 
     def build_summary(self, session_id: str) -> SessionSummary:
         session = self.get_session(session_id)
@@ -662,6 +670,7 @@ class SessionService:
     def discard_session(self, session_id: str) -> None:
         _session = self.get_session(session_id)
         local_session_store.delete_session(session_id)
+        vector_indexer.delete_session_snapshots(session_id)
         self._sessions.pop(session_id, None)
 
     def _recent_template_ids(self, session: SessionRecord) -> set[str]:
