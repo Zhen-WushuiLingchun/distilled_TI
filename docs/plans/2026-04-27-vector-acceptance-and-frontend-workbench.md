@@ -1,17 +1,38 @@
 # Plan: Vector Acceptance And Frontend Workbench
 
 - Date: 2026-04-27
-- Status: Active
+- Status: Phase 1/2 live acceptance complete; frontend workbench pending
 - Scope: close Phase 1/2 vector acceptance first, then upgrade the user-facing session frontend from a question loop into a workbench.
 
 ## Current Status
 
-- Phase 1 `item_vectors` is implemented for templates, generated item instances, and rewrite candidates.
-- Phase 2 `session_vectors` is implemented for milestone session snapshots.
-- Reranker is implemented in the retrieval layer as a second-stage rerank step for similar templates, rewrite evidence, and similar sessions.
-- Admin APIs and Admin UI now expose reindex, similar templates, similar sessions, sync failures, and rewrite retrieval evidence.
-- The remaining blocker is live acceptance with a real local vector environment and SiliconFlow credentials.
+- Phase 1 `item_vectors` is implemented and live-tested for templates, generated item instances, and rewrite candidates.
+- Phase 2 `session_vectors` is implemented and live-tested for milestone session snapshots.
+- Reranker is implemented and live-tested in the retrieval layer as a second-stage rerank step for similar templates, rewrite evidence, and similar sessions.
+- Admin APIs and Admin UI expose reindex, similar templates, similar sessions, sync failures, and rewrite retrieval evidence.
+- DeepSeek provider acceptance is implemented and live-tested with `deepseek-v4-pro`.
+- SiliconFlow vector acceptance is implemented and live-tested with `BAAI/bge-m3` and `BAAI/bge-reranker-v2-m3`.
 - The SiliconFlow API key must stay in local environment files only and must not be committed.
+
+## Live Acceptance Record
+
+- Date: 2026-04-27
+- DeepSeek model: `deepseek-v4-pro`
+- Embedding model: `BAAI/bge-m3`
+- Embedding dimension: `1024`
+- Reranker model: `BAAI/bge-reranker-v2-m3`
+- Qdrant mode: local embedded storage through `QDRANT_LOCAL_PATH=.qdrant-local`
+- `templates` reindex: `123` indexed, `0` failed
+- `instances` reindex: `8` indexed, `0` failed
+- `sessions` reindex: `0` indexed, `0` failed because no milestone session snapshots existed locally
+- Similar template query returned stable hits with both embedding scores and rerank scores
+- `vector_sync_failures`: `0` after fixing Qdrant point id handling
+
+Fix discovered during live acceptance:
+
+- Qdrant local mode requires UUID-compatible point IDs.
+- Business IDs are now mapped to stable UUIDs before Qdrant write.
+- Original business IDs remain in payload metadata.
 
 ## Qdrant Decision
 
@@ -48,17 +69,17 @@
 
 ## Acceptance Gates Before More Feature Work
 
-- Reindex returns `enabled=true` and `failed=0` for templates.
-- Reindex returns `enabled=true` and `failed=0` for instances.
-- Reindex returns `enabled=true` and `failed=0` for sessions, or explicitly reports no sessions to index.
-- Rewrite preview includes retrieval context with stable hits.
-- Selected rewrite candidates do not show obvious near-duplicates or measurement-direction drift.
-- `vector_sync_failures` is empty after the acceptance run.
-- If failures exist, fix the vector integration or thresholds before adding new vector-dependent features.
+- Done: Reindex returned `enabled=true` and `failed=0` for templates.
+- Done: Reindex returned `enabled=true` and `failed=0` for instances.
+- Done: Reindex returned `enabled=true` and `failed=0` for sessions, with no local milestone sessions present.
+- Done: Similar templates returned meaningful hits and rerank scores.
+- Done: `vector_sync_failures` was empty after the final acceptance run.
+- Pending manual UI check: rewrite preview retrieval context in Admin UI.
+- Pending manual quality check: selected rewrite candidates should not show obvious near-duplicates or measurement-direction drift.
 
 ## Frontend Workbench Timing
 
-- The frontend should be upgraded after vector acceptance passes and before `cluster_vectors`.
+- The frontend should be upgraded now that vector acceptance has passed, and before `cluster_vectors`.
 - Reason: the next frontend version should consume retrieval evidence, session milestones, and similar-session context that now exist in the backend.
 - This is more valuable than adding another vector collection first, because the current user experience still hides most of the system intelligence.
 
@@ -88,3 +109,11 @@
 - Do not expose raw vector scores as user-facing truth.
 - Do not write SiliconFlow keys into repo files.
 - Do not add a background worker until manual reindex and best-effort writes prove insufficient.
+
+## Immediate Next Step
+
+- Build Session Workbench slice 1.
+- Keep the public answer flow compatible with existing session APIs.
+- Add UI panels for live profile, question rationale, trajectory, and report readiness.
+- Use existing backend fields first; only add API fields where the UI cannot derive the state safely.
+- Keep vector evidence user-facing only as explanation support, not as a final judgment.
