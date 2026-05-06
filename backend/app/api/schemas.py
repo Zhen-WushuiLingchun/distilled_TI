@@ -20,6 +20,7 @@ from app.domain.models import (
     VectorReindexSummary,
     VectorSearchHit,
     VectorSyncFailure,
+    WorkbenchCheckpoint,
 )
 
 
@@ -67,6 +68,7 @@ class StartSessionResponse(BaseModel):
     question: QuestionResponse
     min_questions_for_report: int = settings.min_questions_for_report
     max_questions_per_session: int = settings.max_questions_per_session
+    workbench_checkpoint: WorkbenchCheckpoint | None = None
 
 
 class NextQuestionRequest(BaseModel):
@@ -86,6 +88,7 @@ class SubmitResponseResponse(BaseModel):
     can_generate_report: bool
     remaining_until_report: int
     next_question: QuestionResponse | None = None
+    workbench_checkpoint: WorkbenchCheckpoint | None = None
 
 
 class MapPoint(BaseModel):
@@ -198,6 +201,7 @@ class EmbeddingScoreBreakdownResponse(EmbeddingScoreBreakdown):
 
 class SessionSummaryResponse(SessionSummary):
     current_question: QuestionResponse | None = None
+    workbench_checkpoint: WorkbenchCheckpoint | None = None
 
 
 class SessionHistoryListResponse(BaseModel):

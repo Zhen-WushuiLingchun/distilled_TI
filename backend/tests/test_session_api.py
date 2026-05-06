@@ -55,6 +55,9 @@ def test_public_session_flow_requires_tokens_and_supports_resume():
     assert payload["question"]["id"]
     assert payload["question"]["template_id"]
     assert payload["min_questions_for_report"] == 20
+    assert payload["workbench_checkpoint"]["question_count"] == 0
+    assert payload["workbench_checkpoint"]["report_ready"] is False
+    assert payload["workbench_checkpoint"]["milestones"][0]["milestone"] == 5
 
     summary_without_token = public_client.get(f"/api/session/{payload['session_id']}/summary")
     assert summary_without_token.status_code == 401
@@ -67,6 +70,8 @@ def test_public_session_flow_requires_tokens_and_supports_resume():
     summary_payload = summary_response.json()
     assert summary_payload["can_generate_report"] is False
     assert summary_payload["current_question"]["id"] == payload["question"]["id"]
+    assert summary_payload["workbench_checkpoint"]["remaining_until_report"] == 20
+    assert summary_payload["workbench_checkpoint"]["uncertainty_queue"]
 
     early_report_response = public_client.get(
         f"/api/session/{payload['session_id']}/report",
@@ -77,6 +82,8 @@ def test_public_session_flow_requires_tokens_and_supports_resume():
     submit_payload = advance_questions(payload, payload["question"], 20)
     assert submit_payload["state"]["question_count"] >= 20
     assert submit_payload["can_generate_report"] is True
+    assert submit_payload["workbench_checkpoint"]["report_ready"] is True
+    assert submit_payload["workbench_checkpoint"]["report_progress_percent"] == 100
 
     report_response = public_client.get(
         f"/api/session/{payload['session_id']}/report",

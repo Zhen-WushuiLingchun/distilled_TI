@@ -200,6 +200,41 @@ class SessionSummary(BaseModel):
     state: SessionState
 
 
+class WorkbenchSignal(BaseModel):
+    key: str
+    label: str
+    value: float
+    confidence_percent: float = 0.0
+    sample_count: int = 0
+    detail: str | None = None
+
+
+class WorkbenchMilestone(BaseModel):
+    milestone: int
+    status: Literal["completed", "current", "upcoming"]
+    question_delta: int
+    progress_percent: float
+    snapshot_expected: bool = False
+
+
+class WorkbenchCheckpoint(BaseModel):
+    question_count: int
+    report_ready: bool
+    report_target: int
+    remaining_until_report: int
+    report_progress_percent: float
+    previous_milestone: int | None = None
+    next_milestone: int | None = None
+    milestone_progress_percent: float
+    snapshot_due_now: bool = False
+    narrative: str
+    top_core_signals: list[WorkbenchSignal] = Field(default_factory=list)
+    uncertainty_queue: list[WorkbenchSignal] = Field(default_factory=list)
+    active_modules: list[WorkbenchSignal] = Field(default_factory=list)
+    unlocked_subdimensions: list[WorkbenchSignal] = Field(default_factory=list)
+    milestones: list[WorkbenchMilestone] = Field(default_factory=list)
+
+
 class SessionAccessGrant(BaseModel):
     session_id: str
     session_secret: str

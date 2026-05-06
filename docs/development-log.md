@@ -1,5 +1,43 @@
 # Development Log
 
+## 2026-05-06: Session Workbench Slice 2
+
+### Completed
+
+- Added backend `WorkbenchCheckpoint` payloads as optional public API fields.
+- Added checkpoint data to:
+  - `POST /api/session/start`
+  - `POST /api/response/submit`
+  - `GET /api/session/{session_id}/summary`
+- Kept existing public API fields compatible.
+- Added backend-derived milestone status for `5 / 10 / 20 / 40` session vector snapshots.
+- Added backend-derived report progress, snapshot readiness, top core signals, uncertainty queue, active modules, unlocked subdimensions, and a short workbench narrative.
+- Updated the frontend API types for `WorkbenchCheckpoint`, `WorkbenchSignal`, and `WorkbenchMilestone`.
+- Updated `/session` to prefer backend checkpoint data and fall back to local derivation if the field is absent.
+- Replaced the simple milestone progress block with explicit milestone cards.
+- Kept raw vector scores hidden from the public user experience.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false pytest` passed with `46 passed`.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+
+### Not Completed Yet
+
+- Manual browser visual pass on `/session` is still pending.
+- No user-facing retrieval evidence drawer yet.
+- No dedicated public similar-session explanation yet.
+- No `cluster_vectors` work yet.
+
+### Next Step
+
+- Do a real browser pass on `/session` with backend and frontend running.
+- Then build Workbench Slice 3:
+  - decide whether retrieval evidence should be user-facing or admin/internal only
+  - add an insight drawer if safe
+  - avoid exposing raw vector scores as personality conclusions
+
 ## 2026-05-06: Session Workbench Slice 1
 
 ### Completed

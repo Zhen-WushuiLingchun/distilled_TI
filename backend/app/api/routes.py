@@ -62,6 +62,7 @@ def start_session(payload: StartSessionRequest, request: Request) -> StartSessio
         delete_token=access.delete_token,
         state=session.state,
         question=QuestionResponse.from_item(item),
+        workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
 
 
@@ -104,6 +105,7 @@ def submit_response(
         can_generate_report=session.state.question_count >= settings.min_questions_for_report,
         remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
         next_question=QuestionResponse.from_item(next_item) if next_item else None,
+        workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
 
 
@@ -120,6 +122,7 @@ def get_summary(
         return SessionSummaryResponse(
             **summary.model_dump(),
             current_question=QuestionResponse.from_item(current_question) if current_question else None,
+            workbench_checkpoint=session_service.build_workbench_checkpoint(session_id),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

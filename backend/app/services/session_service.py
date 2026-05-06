@@ -35,6 +35,9 @@ from app.domain.models import (
     SessionReport,
     SessionState,
     SessionSummary,
+    WorkbenchCheckpoint,
+    WorkbenchMilestone,
+    WorkbenchSignal,
 )
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.clustering import clustering_service
@@ -661,6 +664,9 @@ class SessionService:
             state=session.state,
         )
 
+    def build_workbench_checkpoint(self, session_id: str) -> WorkbenchCheckpoint:
+        return self._workbench_checkpoint(self.get_session(session_id))
+
     def get_current_question(self, session_id: str) -> ItemInstance | None:
         session = self.get_session(session_id)
         if not session.current_item_id:
@@ -744,6 +750,164 @@ class SessionService:
         if active_ai_config is None:
             return "statement"
         return "contrast" if self._recent_contrast_ratio(session, 12) < settings.ai_contrast_target_ratio else "statement"
+
+    def _workbench_checkpoint(self, session: SessionRecord) -> WorkbenchCheckpoint:
+        question_count = session.state.question_count
+        milestones = self._session_vector_milestones()
+        previous_milestone = max((milestone for milestone in milestones if milestone <= question_count), default=None)
+        next_milestone = min((milestone for milestone in milestones if milestone > question_count), default=None)
+        previous_floor = previous_milestone or 0
+        milestone_ceiling = next_milestone or previous_milestone or max(milestones or (settings.min_questions_for_report,))
+        if milestone_ceiling == previous_floor:
+            milestone_progress = 100.0
+        else:
+            milestone_progress = self._percent((question_count - previous_floor) / (milestone_ceiling - previous_floor))
+
+        report_ready = question_count >= settings.min_questions_for_report
+        remaining_until_report = max(settings.min_questions_for_report - question_count, 0)
+        report_progress = 100.0 if report_ready else self._percent(question_count / max(settings.min_questions_for_report, 1))
+        snapshot_due_now = question_count in set(milestones)
+
+        return WorkbenchCheckpoint(
+            question_count=question_count,
+            report_ready=report_ready,
+            report_target=settings.min_questions_for_report,
+            remaining_until_report=remaining_until_report,
+            report_progress_percent=round(report_progress, 1),
+            previous_milestone=previous_milestone,
+            next_milestone=next_milestone,
+            milestone_progress_percent=round(milestone_progress, 1),
+            snapshot_due_now=snapshot_due_now,
+            narrative=self._workbench_narrative(session, report_ready, next_milestone),
+            top_core_signals=self._top_core_workbench_signals(session),
+            uncertainty_queue=self._uncertainty_workbench_signals(session),
+            active_modules=self._module_workbench_signals(session),
+            unlocked_subdimensions=self._subdimension_workbench_signals(session),
+            milestones=self._workbench_milestones(question_count, milestones),
+        )
+
+    def _top_core_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
+        ordered = sorted(session.state.core_mu.items(), key=lambda item: abs(item[1]), reverse=True)[:5]
+        return [
+            WorkbenchSignal(
+                key=key,
+                label=CORE_DIMENSION_LABELS.get(key, key),
+                value=round(value, 3),
+                confidence_percent=round(self._confidence_from_sigma(session.state.core_sigma.get(key, settings.default_sigma)), 1),
+                sample_count=session.state.dimension_counts.get(key, 0),
+                detail="当前画像中最突出的核心信号",
+            )
+            for key, value in ordered
+        ]
+
+    def _uncertainty_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
+        ordered = sorted(session.state.core_sigma.items(), key=lambda item: item[1], reverse=True)[:4]
+        return [
+            WorkbenchSignal(
+                key=key,
+                label=CORE_DIMENSION_LABELS.get(key, key),
+                value=round(sigma, 3),
+                confidence_percent=round(self._confidence_from_sigma(sigma), 1),
+                sample_count=session.state.dimension_counts.get(key, 0),
+                detail="sigma 越高，越需要后续题目继续压缩误差带",
+            )
+            for key, sigma in ordered
+        ]
+
+    def _module_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
+        active = set(session.state.active_modules)
+        ordered = sorted(
+            (
+                (key, value)
+                for key, value in session.state.module_scores.items()
+                if key in active or abs(value) > 0.01
+            ),
+            key=lambda item: abs(item[1]),
+            reverse=True,
+        )[:4]
+        return [
+            WorkbenchSignal(
+                key=key,
+                label=MODULE_LABELS.get(key, key),
+                value=round(value, 3),
+                confidence_percent=100.0 if key in active else 35.0,
+                sample_count=session.state.module_counts.get(key, 0),
+                detail="已出现足够场景证据" if key in active else "仍在观察",
+            )
+            for key, value in ordered
+        ]
+
+    def _subdimension_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
+        ordered = sorted(
+            (
+                (key, session.state.sub_mu.get(key, 0.0))
+                for key in session.state.unlocked_subdimensions
+            ),
+            key=lambda item: abs(item[1]),
+            reverse=True,
+        )[:6]
+        return [
+            WorkbenchSignal(
+                key=key,
+                label=SUBDIMENSION_LABELS.get(key, key),
+                value=round(value, 3),
+                confidence_percent=round(self._confidence_from_sigma(session.state.sub_sigma.get(key, settings.default_sigma)), 1),
+                sample_count=session.state.sub_counts.get(key, 0),
+                detail=f"父维度：{CORE_DIMENSION_LABELS.get(SUBDIMENSION_TO_PARENT.get(key, ''), SUBDIMENSION_TO_PARENT.get(key, 'unknown'))}",
+            )
+            for key, value in ordered
+        ]
+
+    def _workbench_milestones(self, question_count: int, milestones: tuple[int, ...]) -> list[WorkbenchMilestone]:
+        rows: list[WorkbenchMilestone] = []
+        next_milestone = min((milestone for milestone in milestones if milestone > question_count), default=None)
+        for milestone in milestones:
+            if question_count >= milestone:
+                status = "completed"
+                progress = 100.0
+            elif milestone == next_milestone:
+                status = "current"
+                previous = max((value for value in milestones if value < milestone), default=0)
+                progress = self._percent((question_count - previous) / max(milestone - previous, 1))
+            else:
+                status = "upcoming"
+                progress = 0.0
+            rows.append(
+                WorkbenchMilestone(
+                    milestone=milestone,
+                    status=status,  # type: ignore[arg-type]
+                    question_delta=max(milestone - question_count, 0),
+                    progress_percent=round(progress, 1),
+                    snapshot_expected=question_count == milestone,
+                )
+            )
+        return rows
+
+    def _workbench_narrative(self, session: SessionRecord, report_ready: bool, next_milestone: int | None) -> str:
+        if session.state.question_count == 0:
+            return "会话刚开始，系统正在建立第一批核心维度信号。"
+        top_signal = max(session.state.core_mu.items(), key=lambda item: abs(item[1]))
+        uncertain = max(session.state.core_sigma.items(), key=lambda item: item[1])
+        parts = [
+            f"当前最突出的信号是 {CORE_DIMENSION_LABELS.get(top_signal[0], top_signal[0])}。",
+            f"最需要继续压缩误差带的是 {CORE_DIMENSION_LABELS.get(uncertain[0], uncertain[0])}。",
+        ]
+        if report_ready:
+            parts.append("正式报告已经解锁，可以先查看，也可以继续细化画像。")
+        elif next_milestone is not None:
+            parts.append(f"下一次会话快照会在第 {next_milestone} 题写入向量层。")
+        return "".join(parts)
+
+    def _session_vector_milestones(self) -> tuple[int, ...]:
+        raw_values = [value.strip() for value in settings.session_vector_milestones.split(",")]
+        parsed = sorted({int(value) for value in raw_values if value})
+        return tuple(value for value in parsed if value > 0)
+
+    def _confidence_from_sigma(self, sigma: float) -> float:
+        return self._percent(1 - sigma / max(settings.default_sigma, 0.01))
+
+    def _percent(self, ratio: float) -> float:
+        return max(0.0, min(100.0, ratio * 100.0))
 
 
 session_service = SessionService()

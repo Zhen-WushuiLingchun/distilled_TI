@@ -14,6 +14,9 @@ import {
   type SessionMap,
   type SessionReport,
   type SessionState,
+  type WorkbenchCheckpoint,
+  type WorkbenchMilestone,
+  type WorkbenchSignal,
 } from "@/lib/api";
 import {
   clearActiveSessionAccess,
@@ -140,6 +143,12 @@ function answerQualityLabel(residual: number) {
   return "强偏移信号";
 }
 
+function signalTagLabel(signal: WorkbenchSignal) {
+  const confidence = Number.isFinite(signal.confidence_percent) ? ` · ${formatPercent(signal.confidence_percent)}` : "";
+  const count = signal.sample_count > 0 ? ` · n=${signal.sample_count}` : "";
+  return `${signal.label} ${formatSigned(signal.value)}${confidence}${count}`;
+}
+
 function buildQuestionRationale(question: Question | null, state: SessionState | null) {
   const rationale: string[] = [];
   if (!question) return rationale;
@@ -175,6 +184,7 @@ export function SessionClient() {
   const [state, setState] = useState<SessionState | null>(null);
   const [remainingUntilReport, setRemainingUntilReport] = useState(20);
   const [canGenerateReport, setCanGenerateReport] = useState(false);
+  const [checkpoint, setCheckpoint] = useState<WorkbenchCheckpoint | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const questionStartRef = useRef<number>(Date.now());
@@ -194,6 +204,7 @@ export function SessionClient() {
           setQuestion(summary.current_question ?? null);
           setCanGenerateReport(summary.can_generate_report);
           setRemainingUntilReport(summary.remaining_until_report);
+          setCheckpoint(summary.workbench_checkpoint ?? null);
           setError("");
         } else {
           clearFinalReportSnapshot();
@@ -208,6 +219,7 @@ export function SessionClient() {
           setAccess(nextAccess);
           setState(started.state);
           setQuestion(started.question);
+          setCheckpoint(started.workbench_checkpoint ?? null);
           setCanGenerateReport(false);
           setRemainingUntilReport(started.min_questions_for_report);
           setError("");
@@ -236,15 +248,28 @@ export function SessionClient() {
 
   const questionCount = state?.question_count ?? 0;
   const reportTarget = Math.max(questionCount + remainingUntilReport, 1);
-  const reportProgress = canGenerateReport ? 100 : clamp((questionCount / reportTarget) * 100);
-  const nextMilestone = MILESTONES.find((milestone) => milestone > questionCount) ?? MILESTONES[MILESTONES.length - 1];
+  const reportProgress =
+    checkpoint?.report_progress_percent ?? (canGenerateReport ? 100 : clamp((questionCount / reportTarget) * 100));
+  const fallbackNextMilestone =
+    MILESTONES.find((milestone) => milestone > questionCount) ?? MILESTONES[MILESTONES.length - 1];
+  const nextMilestone = checkpoint?.next_milestone ?? fallbackNextMilestone;
+  const nextMilestoneLabel = checkpoint && checkpoint.next_milestone === null ? "全部完成" : String(nextMilestone ?? fallbackNextMilestone);
   const previousMilestone = [...MILESTONES].reverse().find((milestone) => milestone <= questionCount) ?? 0;
-  const milestoneProgress =
-    nextMilestone === previousMilestone
-      ? 100
-      : clamp(((questionCount - previousMilestone) / (nextMilestone - previousMilestone)) * 100);
+  const localMilestoneProgress =
+    nextMilestone === previousMilestone ? 100 : clamp(((questionCount - previousMilestone) / (nextMilestone - previousMilestone)) * 100);
+  const milestoneProgress = checkpoint?.milestone_progress_percent ?? localMilestoneProgress;
 
   const topSignals = useMemo(() => {
+    if (checkpoint?.top_core_signals.length) {
+      return checkpoint.top_core_signals.map((signal) => ({
+        key: signal.key,
+        label: signal.label,
+        value: signal.value,
+        percent: scoreToPercent(signal.value),
+        confidence: signal.confidence_percent,
+        sampleCount: signal.sample_count,
+      }));
+    }
     if (!state) return [];
     return Object.entries(state.core_mu)
       .map(([key, value]) => ({
@@ -252,13 +277,24 @@ export function SessionClient() {
         label: coreLabel(key),
         value,
         percent: scoreToPercent(value),
-        sigma: state.core_sigma[key] ?? 1.5,
+        confidence: sigmaToConfidence(state.core_sigma[key] ?? 1.5),
+        sampleCount: state.dimension_counts[key] ?? 0,
       }))
       .sort((left, right) => Math.abs(right.value) - Math.abs(left.value))
       .slice(0, 5);
-  }, [state]);
+  }, [checkpoint, state]);
 
   const uncertaintySignals = useMemo(() => {
+    if (checkpoint?.uncertainty_queue.length) {
+      return checkpoint.uncertainty_queue.map((signal) => ({
+        key: signal.key,
+        label: signal.label,
+        sigma: signal.value,
+        confidence: signal.confidence_percent,
+        count: signal.sample_count,
+        detail: signal.detail,
+      }));
+    }
     if (!state) return [];
     return Object.entries(state.core_sigma)
       .map(([key, sigma]) => ({
@@ -267,12 +303,23 @@ export function SessionClient() {
         sigma,
         confidence: sigmaToConfidence(sigma),
         count: state.dimension_counts[key] ?? 0,
+        detail: "sigma 越高，越需要继续压缩误差带",
       }))
       .sort((left, right) => right.sigma - left.sigma)
       .slice(0, 4);
-  }, [state]);
+  }, [checkpoint, state]);
 
   const moduleSignals = useMemo(() => {
+    if (checkpoint?.active_modules.length) {
+      return checkpoint.active_modules.map((signal) => ({
+        key: signal.key,
+        label: signal.label,
+        value: signal.value,
+        count: signal.sample_count,
+        confidence: signal.confidence_percent,
+        detail: signal.detail,
+      }));
+    }
     if (!state) return [];
     const active = new Set(state.active_modules);
     return Object.entries(state.module_scores)
@@ -282,10 +329,48 @@ export function SessionClient() {
         label: moduleLabel(key),
         value,
         count: state.module_counts[key] ?? 0,
+        confidence: active.has(key) ? 100 : 35,
+        detail: active.has(key) ? "已出现足够场景证据" : "仍在观察",
       }))
       .sort((left, right) => Math.abs(right.value) - Math.abs(left.value))
       .slice(0, 4);
-  }, [state]);
+  }, [checkpoint, state]);
+
+  const unlockedSubdimensionSignals = useMemo(() => {
+    if (checkpoint?.unlocked_subdimensions.length) return checkpoint.unlocked_subdimensions;
+    return (state?.unlocked_subdimensions ?? []).map((key) => ({
+      key,
+      label: subdimensionLabel(key),
+      value: state?.sub_mu[key] ?? 0,
+      confidence_percent: sigmaToConfidence(state?.sub_sigma[key] ?? 1.5),
+      sample_count: state?.sub_counts[key] ?? 0,
+      detail: "已达到子维度展开条件",
+    }));
+  }, [checkpoint, state]);
+
+  const checkpointMilestones = useMemo<WorkbenchMilestone[]>(() => {
+    if (checkpoint?.milestones.length) return checkpoint.milestones;
+    const next = MILESTONES.find((milestone) => milestone > questionCount) ?? null;
+    return MILESTONES.map((milestone) => {
+      if (questionCount >= milestone) {
+        return {
+          milestone,
+          status: "completed",
+          question_delta: 0,
+          progress_percent: 100,
+          snapshot_expected: questionCount === milestone,
+        };
+      }
+      const previous = [...MILESTONES].reverse().find((value) => value < milestone) ?? 0;
+      return {
+        milestone,
+        status: milestone === next ? "current" : "upcoming",
+        question_delta: milestone - questionCount,
+        progress_percent: milestone === next ? clamp(((questionCount - previous) / Math.max(milestone - previous, 1)) * 100) : 0,
+        snapshot_expected: false,
+      };
+    }) as WorkbenchMilestone[];
+  }, [checkpoint, questionCount]);
 
   const recentAnswers = useMemo(() => {
     if (!state) return [];
@@ -306,6 +391,7 @@ export function SessionClient() {
       setQuestion(response.next_question);
       setCanGenerateReport(response.can_generate_report);
       setRemainingUntilReport(response.remaining_until_report);
+      setCheckpoint(response.workbench_checkpoint ?? null);
       questionStartRef.current = performance.now();
       setError("");
     } catch (reason) {
@@ -428,7 +514,9 @@ export function SessionClient() {
                           style={{ width: `${signal.percent}%` }}
                         />
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">置信度约 {formatPercent(sigmaToConfidence(signal.sigma))}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        置信度约 {formatPercent(signal.confidence)} · 样本 {signal.sampleCount}
+                      </p>
                     </div>
                   ))
                 ) : (
@@ -452,7 +540,10 @@ export function SessionClient() {
                     <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8">
                       <div className="h-full rounded-full bg-gradient-to-r from-amber-200 to-cyan-200" style={{ width: `${signal.confidence}%` }} />
                     </div>
-                    <p className="mt-2 text-xs text-slate-500">已覆盖 {signal.count} 次，置信度 {formatPercent(signal.confidence)}</p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      已覆盖 {signal.count} 次，置信度 {formatPercent(signal.confidence)}
+                      {signal.detail ? ` · ${signal.detail}` : ""}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -586,6 +677,11 @@ export function SessionClient() {
             <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "220ms" }}>
               <p className="label-mini">Checkpoint</p>
               <h2 className="mt-2 text-2xl text-white">报告与 milestone</h2>
+              {checkpoint?.narrative ? (
+                <p className="mt-4 rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4 text-sm leading-6 text-slate-200">
+                  {checkpoint.narrative}
+                </p>
+              ) : null}
               <div className="mt-5 rounded-[1.5rem] border border-cyan-200/15 bg-cyan-200/[0.07] p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -602,7 +698,7 @@ export function SessionClient() {
               <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-sm text-slate-300">下一次 session vector 快照</p>
-                  <span className="font-mono text-cyan-100">{nextMilestone}</span>
+                  <span className="font-mono text-cyan-100">{nextMilestoneLabel}</span>
                 </div>
                 <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
                   <div className="h-full rounded-full bg-gradient-to-r from-amber-200 to-cyan-200" style={{ width: `${milestoneProgress}%` }} />
@@ -610,6 +706,12 @@ export function SessionClient() {
                 <p className="mt-3 text-xs leading-5 text-slate-500">
                   命中 5 / 10 / 20 / 40 题时，后端会 best-effort 写入 `session_vectors`，用于相似会话检索和后续诊断。
                 </p>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                {checkpointMilestones.map((milestone) => (
+                  <MilestoneCard key={milestone.milestone} milestone={milestone} />
+                ))}
               </div>
 
               <div className="mt-4 flex flex-wrap gap-3">
@@ -639,7 +741,7 @@ export function SessionClient() {
                 <TagGroup
                   title="Subdimensions"
                   empty="还没有解锁子维度"
-                  items={(state?.unlocked_subdimensions ?? []).map(subdimensionLabel)}
+                  items={unlockedSubdimensionSignals.map(signalTagLabel)}
                 />
                 <TagGroup title="Modules" empty="还没有活跃模块" items={moduleSignals.map((module) => `${module.label} ${formatSigned(module.value)}`)} />
               </div>
@@ -675,6 +777,34 @@ function Badge({ children }: { children: React.ReactNode }) {
     <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs uppercase tracking-[0.22em] text-slate-300">
       {children}
     </span>
+  );
+}
+
+function MilestoneCard({ milestone }: { milestone: WorkbenchMilestone }) {
+  const statusLabel =
+    milestone.status === "completed" ? "已完成" : milestone.status === "current" ? "进行中" : "等待";
+  const tone =
+    milestone.status === "completed"
+      ? "border-lime-200/25 bg-lime-200/[0.08] text-lime-100"
+      : milestone.status === "current"
+        ? "border-cyan-200/25 bg-cyan-200/[0.08] text-cyan-100"
+        : "border-white/10 bg-white/[0.035] text-slate-300";
+
+  return (
+    <div className={`rounded-[1.15rem] border p-3 ${tone}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-mono text-lg">Q{milestone.milestone}</p>
+        <span className="rounded-full bg-black/20 px-2.5 py-1 text-[0.65rem] uppercase tracking-[0.18em]">
+          {milestone.snapshot_expected ? "snapshot" : statusLabel}
+        </span>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-black/20">
+        <div className="h-full rounded-full bg-current" style={{ width: `${milestone.progress_percent}%` }} />
+      </div>
+      <p className="mt-2 text-xs opacity-75">
+        {milestone.question_delta > 0 ? `还差 ${milestone.question_delta} 题` : "快照点已覆盖"}
+      </p>
+    </div>
   );
 }
 

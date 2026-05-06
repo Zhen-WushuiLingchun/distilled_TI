@@ -48,6 +48,41 @@ export type SessionState = {
   question_count: number;
 };
 
+export type WorkbenchSignal = {
+  key: string;
+  label: string;
+  value: number;
+  confidence_percent: number;
+  sample_count: number;
+  detail?: string | null;
+};
+
+export type WorkbenchMilestone = {
+  milestone: number;
+  status: "completed" | "current" | "upcoming";
+  question_delta: number;
+  progress_percent: number;
+  snapshot_expected: boolean;
+};
+
+export type WorkbenchCheckpoint = {
+  question_count: number;
+  report_ready: boolean;
+  report_target: number;
+  remaining_until_report: number;
+  report_progress_percent: number;
+  previous_milestone?: number | null;
+  next_milestone?: number | null;
+  milestone_progress_percent: number;
+  snapshot_due_now: boolean;
+  narrative: string;
+  top_core_signals: WorkbenchSignal[];
+  uncertainty_queue: WorkbenchSignal[];
+  active_modules: WorkbenchSignal[];
+  unlocked_subdimensions: WorkbenchSignal[];
+  milestones: WorkbenchMilestone[];
+};
+
 export type SessionSummary = {
   session_id: string;
   question_count: number;
@@ -59,6 +94,7 @@ export type SessionSummary = {
   current_template_id?: string | null;
   current_question?: Question | null;
   state: SessionState;
+  workbench_checkpoint?: WorkbenchCheckpoint | null;
 };
 
 export type SessionStartResponse = SessionAccessBundle & {
@@ -66,6 +102,7 @@ export type SessionStartResponse = SessionAccessBundle & {
   question: Question;
   min_questions_for_report: number;
   max_questions_per_session: number;
+  workbench_checkpoint?: WorkbenchCheckpoint | null;
 };
 
 export type SubmitResponse = {
@@ -74,6 +111,7 @@ export type SubmitResponse = {
   can_generate_report: boolean;
   remaining_until_report: number;
   next_question: Question | null;
+  workbench_checkpoint?: WorkbenchCheckpoint | null;
 };
 
 export type SessionReport = {
