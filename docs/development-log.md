@@ -1,5 +1,42 @@
 # Development Log
 
+## 2026-05-06: Session Workbench Slice 1
+
+### Completed
+
+- Reworked the public session page from a question-only layout into a first-pass Session Workbench.
+- Kept the existing session API and answer submission flow unchanged.
+- Added a live profile panel derived from `SessionState`.
+- Added top core signal bars with confidence estimates from `core_sigma`.
+- Added an uncertainty queue based on highest `core_sigma`.
+- Added a question rationale panel derived from question layer, generation mode, scenario tags, and current uncertainty.
+- Added a report readiness panel.
+- Added milestone progress for `5 / 10 / 20 / 40` session vector snapshots.
+- Added recent answer trajectory cards from `state.answers`.
+- Added unlocked subdimension and active module context display.
+- Added workbench-specific background, panel, option, and page-load motion styles.
+
+### Validation
+
+- `npm run lint`: passed.
+- `npm run build`: passed.
+
+### Not Completed Yet
+
+- No backend API changes were made for richer "why this question" evidence.
+- User-facing vector evidence is not displayed yet.
+- Session checkpoint summary cards are still derived locally; there is not yet a dedicated public checkpoint API.
+- No browser screenshot/manual visual pass has been recorded yet.
+
+### Next Step
+
+- Run a manual browser pass on `/session`.
+- Then build Workbench slice 2:
+  - expose stronger checkpoint summaries from backend if needed
+  - add better milestone cards
+  - decide which retrieval evidence can be safely shown to users
+  - keep raw vector scores hidden from public judgment
+
 ## 2026-04-27: Embedding Vector Layer, Reranker, Session Vectors, Local Acceptance
 
 ### Completed

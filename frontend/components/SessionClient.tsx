@@ -25,12 +25,90 @@ import {
   type SessionAccessBundle,
 } from "@/lib/runtime-store";
 
+const CORE_LABELS: Record<string, string> = {
+  social_initiative: "社交主动性",
+  social_stimulation_tolerance: "社交刺激耐受",
+  autonomous_judgment: "自主决断倾向",
+  planning_preference: "规划结构偏好",
+  risk_tolerance: "风险容忍度",
+  abstraction_tendency: "抽象化倾向",
+  novelty_seeking: "新奇寻求",
+  competition_cooperation: "竞争合作取向",
+  emotional_stability: "情绪稳定性",
+  execution_drive: "推进执行力",
+};
+
+const SUBDIMENSION_LABELS: Record<string, string> = {
+  entry_speed: "进入速度",
+  familiar_expression_intensity: "熟人表达强度",
+  conflict_speaking_threshold: "冲突开口阈值",
+  low_info_decision_speed: "低信息决断速度",
+  authority_dependence: "权威依赖度",
+  ambiguity_tolerance: "模糊容忍度",
+  start_speed: "启动速度",
+  switching_tendency: "中途切换倾向",
+  closure_strength: "收尾能力",
+  academic_utility_scope: "学科效用边界",
+  theory_application_balance: "理论-应用平衡",
+  canon_reliance: "经典依附度",
+  aesthetic_density: "审美密度偏好",
+};
+
+const MODULE_LABELS: Record<string, string> = {
+  study_style: "学习协作风格",
+  project_role: "项目组人格",
+  conflict_mode: "冲突处理风格",
+  chat_mode: "网聊人格",
+  creative_mode: "创作人格",
+  team_mode: "队友人格",
+};
+
+const MILESTONES = [5, 10, 20, 40];
+
+function clamp(value: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function formatKey(key: string) {
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function coreLabel(key: string) {
+  return CORE_LABELS[key] ?? formatKey(key);
+}
+
+function subdimensionLabel(key: string) {
+  return SUBDIMENSION_LABELS[key] ?? formatKey(key);
+}
+
+function moduleLabel(key: string) {
+  return MODULE_LABELS[key] ?? formatKey(key);
+}
+
 function formatPercent(value: number) {
   return `${value.toFixed(0)}%`;
 }
 
+function formatSigned(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+function formatLatency(value: number | null) {
+  if (value === null) return "未记录";
+  if (value < 1000) return `${value}ms`;
+  return `${(value / 1000).toFixed(1)}s`;
+}
+
 function scoreToPercent(score: number) {
-  return Math.max(0, Math.min(100, ((score + 3) / 6) * 100));
+  return clamp(((score + 3) / 6) * 100);
+}
+
+function sigmaToConfidence(sigma: number) {
+  return clamp((1 - sigma / 1.5) * 100);
 }
 
 function optionSideLabel(questionType: string, score: number) {
@@ -38,6 +116,56 @@ function optionSideLabel(questionType: string, score: number) {
     return score > 0 ? "偏向右侧" : score < 0 ? "偏向左侧" : "中间 / 看情况";
   }
   return score > 0 ? "趋向高侧" : score < 0 ? "趋向低侧" : "中性";
+}
+
+function generationLabel(mode?: string) {
+  if (mode === "llm_rewrite") return "AI Rewrite";
+  if (mode === "probe") return "AI Probe";
+  if (mode === "anchor") return "Anchor";
+  return "Template";
+}
+
+function layerLabel(layer?: string) {
+  if (layer === "probe") return "追问校准";
+  if (layer === "subdimension") return "子维度细化";
+  if (layer === "module") return "场景模块";
+  if (layer === "anchor") return "锚题复核";
+  return "核心维度";
+}
+
+function answerQualityLabel(residual: number) {
+  const abs = Math.abs(residual);
+  if (abs < 0.35) return "贴近预测";
+  if (abs < 0.85) return "提供新信息";
+  return "强偏移信号";
+}
+
+function buildQuestionRationale(question: Question | null, state: SessionState | null) {
+  const rationale: string[] = [];
+  if (!question) return rationale;
+
+  rationale.push(`${layerLabel(question.layer)}：这题用于继续压缩当前画像的不确定区域。`);
+
+  if (question.generation_mode === "probe") {
+    rationale.push("AI Probe：系统在当前模糊方向上插入追问，而不是继续按题库平铺。");
+  } else if (question.generation_mode === "llm_rewrite") {
+    rationale.push("AI Rewrite：题面经过改写，但仍保留原模板的测量方向。");
+  } else if (question.generation_mode === "anchor") {
+    rationale.push("Anchor：这类题用于复核前后稳定性，避免单一路径漂移。");
+  }
+
+  if (question.scenario_tags.length > 0) {
+    rationale.push(`场景锚点：${question.scenario_tags.slice(0, 3).join(" / ")}。`);
+  }
+
+  if (state) {
+    const uncertain = Object.entries(state.core_sigma).sort((left, right) => right[1] - left[1])[0];
+    if (uncertain) {
+      rationale.push(`当前最高不确定项是 ${coreLabel(uncertain[0])}，系统会继续用题目缩小误差带。`);
+    }
+  }
+
+  return rationale.slice(0, 4);
 }
 
 export function SessionClient() {
@@ -106,12 +234,65 @@ export function SessionClient() {
     };
   }, []);
 
+  const questionCount = state?.question_count ?? 0;
+  const reportTarget = Math.max(questionCount + remainingUntilReport, 1);
+  const reportProgress = canGenerateReport ? 100 : clamp((questionCount / reportTarget) * 100);
+  const nextMilestone = MILESTONES.find((milestone) => milestone > questionCount) ?? MILESTONES[MILESTONES.length - 1];
+  const previousMilestone = [...MILESTONES].reverse().find((milestone) => milestone <= questionCount) ?? 0;
+  const milestoneProgress =
+    nextMilestone === previousMilestone
+      ? 100
+      : clamp(((questionCount - previousMilestone) / (nextMilestone - previousMilestone)) * 100);
+
   const topSignals = useMemo(() => {
     if (!state) return [];
     return Object.entries(state.core_mu)
-      .sort((left, right) => Math.abs(right[1]) - Math.abs(left[1]))
+      .map(([key, value]) => ({
+        key,
+        label: coreLabel(key),
+        value,
+        percent: scoreToPercent(value),
+        sigma: state.core_sigma[key] ?? 1.5,
+      }))
+      .sort((left, right) => Math.abs(right.value) - Math.abs(left.value))
       .slice(0, 5);
   }, [state]);
+
+  const uncertaintySignals = useMemo(() => {
+    if (!state) return [];
+    return Object.entries(state.core_sigma)
+      .map(([key, sigma]) => ({
+        key,
+        label: coreLabel(key),
+        sigma,
+        confidence: sigmaToConfidence(sigma),
+        count: state.dimension_counts[key] ?? 0,
+      }))
+      .sort((left, right) => right.sigma - left.sigma)
+      .slice(0, 4);
+  }, [state]);
+
+  const moduleSignals = useMemo(() => {
+    if (!state) return [];
+    const active = new Set(state.active_modules);
+    return Object.entries(state.module_scores)
+      .filter(([key, value]) => active.has(key) || Math.abs(value) > 0.01)
+      .map(([key, value]) => ({
+        key,
+        label: moduleLabel(key),
+        value,
+        count: state.module_counts[key] ?? 0,
+      }))
+      .sort((left, right) => Math.abs(right.value) - Math.abs(left.value))
+      .slice(0, 4);
+  }, [state]);
+
+  const recentAnswers = useMemo(() => {
+    if (!state) return [];
+    return state.answers.slice(-6).reverse();
+  }, [state]);
+
+  const questionRationale = useMemo(() => buildQuestionRationale(question, state), [question, state]);
 
   async function handleAnswer(optionKey: string) {
     if (!question || !access) return;
@@ -173,146 +354,345 @@ export function SessionClient() {
   }
 
   if (busy && !question) {
-    return <main className="session-shell">正在构建本次测试会话...</main>;
+    return (
+      <main className="session-shell session-workbench">
+        <div className="mx-auto flex min-h-[72vh] max-w-4xl flex-col items-center justify-center text-center">
+          <p className="text-xs uppercase tracking-[0.45em] text-cyan-200/70">Distilled TI</p>
+          <h1 className="mt-5 text-5xl text-white">正在构建本次测量工作台</h1>
+          <p className="mt-5 max-w-xl text-slate-300">系统正在恢复会话状态、当前题目和可用报告进度。</p>
+        </div>
+      </main>
+    );
   }
 
   return (
-    <main className="session-shell">
-      <section className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
-        <aside className="rounded-[2rem] border border-white/10 bg-white/6 p-6 backdrop-blur-xl">
-          <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/70">Session</p>
-          <h1 className="mt-3 text-3xl text-white">连续作答中</h1>
-          <p className="mt-4 text-sm leading-6 text-slate-300">
-            你可以一路答下去，也可以在达到 20 题后先拿一份报告，再回来继续细化。
-          </p>
+    <main className="session-shell session-workbench">
+      <div className="workbench-orbit workbench-orbit-a" />
+      <div className="workbench-orbit workbench-orbit-b" />
 
-          <div className="mt-8 grid grid-cols-2 gap-4">
-            <div className="glass-card">
-              <p className="label-mini">已答题数</p>
-              <p className="metric-big">{state?.question_count ?? 0}</p>
-            </div>
-            <div className="glass-card">
-              <p className="label-mini">距报告</p>
-              <p className="metric-big">{remainingUntilReport}</p>
-            </div>
-            <div className="glass-card">
-              <p className="label-mini">已解锁 Sub</p>
-              <p className="metric-big">{state?.unlocked_subdimensions.length ?? 0}</p>
-            </div>
-            <div className="glass-card">
-              <p className="label-mini">活跃 Module</p>
-              <p className="metric-big">{state?.active_modules.length ?? 0}</p>
-            </div>
+      <section className="relative z-10 mx-auto max-w-[1520px] space-y-6">
+        <header className="workbench-panel workbench-load grid gap-6 p-6 md:grid-cols-[1fr_auto] md:items-end lg:p-8">
+          <div>
+            <p className="text-xs uppercase tracking-[0.42em] text-cyan-200/70">Distilled TI / Live Session</p>
+            <h1 className="mt-4 text-5xl leading-[0.9] text-white md:text-7xl">测量工作台</h1>
+            <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300">
+              这里不只是逐题作答。左侧显示画像正在怎样收敛，中间保持答题主流程，右侧解释为什么此刻问这题，以及距离报告和 milestone 还有多远。
+            </p>
           </div>
-
-          <div className="mt-8 rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
-            <p className="label-mini">Core Signal Preview</p>
-            <div className="mt-4 space-y-4">
-              {topSignals.map(([label, score]) => (
-                <div key={label}>
-                  <div className="mb-2 flex items-center justify-between text-sm text-slate-200">
-                    <span>{label}</span>
-                    <span className="text-cyan-200">{formatPercent(scoreToPercent(score))}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-white/8">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-indigo-300 via-cyan-300 to-emerald-300"
-                      style={{ width: `${scoreToPercent(score)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="grid gap-3 sm:grid-cols-3 md:min-w-[420px] md:grid-cols-1">
+            <StatusTile label="已答题" value={`${questionCount}`} detail={`下一题 Q${questionCount + 1}`} />
+            <StatusTile
+              label="报告准备度"
+              value={canGenerateReport ? "Ready" : `${remainingUntilReport} left`}
+              detail={canGenerateReport ? "可生成正式报告" : `${formatPercent(reportProgress)} 已完成`}
+            />
+            <StatusTile label="当前题型" value={generationLabel(question?.generation_mode)} detail={layerLabel(question?.layer)} />
           </div>
+        </header>
 
-          <div className="mt-8 flex flex-wrap gap-3">
-            <button
-              type="button"
-              className="rounded-full border border-white/15 bg-white/6 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
-              onClick={() => void handleFinalizeReport()}
-              disabled={!canGenerateReport}
-            >
-              {canGenerateReport ? "查看最终报告" : `还需 ${remainingUntilReport} 题`}
-            </button>
-            <button
-              type="button"
-              className="rounded-full border border-rose-300/20 bg-rose-300/10 px-5 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/20"
-              onClick={() => void handleDelete()}
-            >
-              放弃并删除本次会话
-            </button>
-          </div>
-          {error ? <p className="mt-4 text-sm text-rose-200">{error}</p> : null}
-        </aside>
+        {error ? (
+          <div className="rounded-[1.6rem] border border-rose-300/25 bg-rose-300/10 p-4 text-sm text-rose-100">{error}</div>
+        ) : null}
 
-        <section className="rounded-[2rem] border border-white/10 bg-black/30 p-6 backdrop-blur-2xl">
-          {question ? (
-            <>
-              <div className="flex items-start justify-between gap-4">
+        <section className="grid gap-6 xl:grid-cols-[0.88fr_1.22fr_0.9fr]">
+          <aside className="space-y-6">
+            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "80ms" }}>
+              <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/70">
-                    {question.layer} / {question.scenario_tags.join(" / ")}
-                  </p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.28em] text-slate-400">
-                    {question.generation_mode === "llm_rewrite"
-                      ? "AI Rewrite"
-                      : question.generation_mode === "probe"
-                        ? "AI Probe"
-                        : question.generation_mode === "anchor"
-                          ? "Anchor"
-                          : "Template"}
-                  </p>
-                  <h2 className="mt-4 max-w-3xl text-3xl leading-tight text-white md:text-4xl">{question.prompt}</h2>
+                  <p className="label-mini">Live Profile</p>
+                  <h2 className="mt-2 text-3xl text-white">实时画像</h2>
                 </div>
-                <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.3em] text-slate-300">
-                  Q {state ? state.question_count + 1 : 1}
+                <div className="rounded-full border border-cyan-200/20 bg-cyan-200/10 px-4 py-2 text-xs font-semibold text-cyan-100">
+                  {state?.answers.length ?? 0} signals
                 </div>
               </div>
 
-              <div className="mt-8 grid gap-4">
-                {question.options.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className="group rounded-[1.6rem] border border-white/10 bg-white/[0.04] p-5 text-left transition hover:-translate-y-0.5 hover:border-cyan-300/35 hover:bg-white/[0.08]"
-                    onClick={() => void handleAnswer(option.key)}
-                    disabled={busy}
-                  >
-                    <span className="text-sm uppercase tracking-[0.25em] text-cyan-200/55">
-                      {optionSideLabel(question.question_type, option.score)}
-                    </span>
-                    <p className="mt-3 text-lg leading-8 text-white">{option.text}</p>
-                  </button>
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <MetricCard label="解锁 Sub" value={state?.unlocked_subdimensions.length ?? 0} />
+                <MetricCard label="活跃模块" value={state?.active_modules.length ?? 0} />
+                <MetricCard label="一致性" value={formatPercent((state?.zeta.consistency ?? 0) * 100)} compact />
+                <MetricCard label="探索度" value={formatPercent((state?.zeta.exploration ?? 0) * 100)} compact />
+              </div>
+
+              <div className="mt-7 space-y-5">
+                {topSignals.length > 0 ? (
+                  topSignals.map((signal) => (
+                    <div key={signal.key}>
+                      <div className="mb-2 flex items-center justify-between gap-4 text-sm text-slate-200">
+                        <span>{signal.label}</span>
+                        <span className="font-mono text-cyan-200">{formatSigned(signal.value)}</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/8">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-sky-300 via-cyan-200 to-lime-200"
+                          style={{ width: `${signal.percent}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">置信度约 {formatPercent(sigmaToConfidence(signal.sigma))}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-[1.4rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
+                    还没有足够信号。答完前几题后，这里会显示最突出的核心维度。
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "140ms" }}>
+              <p className="label-mini">Uncertainty Queue</p>
+              <h2 className="mt-2 text-2xl text-white">下一批需要压缩的误差带</h2>
+              <div className="mt-5 space-y-4">
+                {uncertaintySignals.map((signal) => (
+                  <div key={signal.key} className="rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-slate-100">{signal.label}</span>
+                      <span className="font-mono text-amber-100">sigma {signal.sigma.toFixed(2)}</span>
+                    </div>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8">
+                      <div className="h-full rounded-full bg-gradient-to-r from-amber-200 to-cyan-200" style={{ width: `${signal.confidence}%` }} />
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">已覆盖 {signal.count} 次，置信度 {formatPercent(signal.confidence)}</p>
+                  </div>
                 ))}
               </div>
-            </>
-          ) : (
-            <div className="flex min-h-[420px] flex-col items-center justify-center text-center">
-              <p className="text-sm uppercase tracking-[0.35em] text-cyan-200/70">Session Complete</p>
-              <h2 className="mt-4 text-4xl text-white">当前这一轮已经没有待答题目</h2>
-              <p className="mt-4 max-w-xl text-slate-300">
-                你可以直接查看报告，也可以结束并删除这次会话。
-              </p>
-              <div className="mt-8 flex gap-4">
+            </section>
+          </aside>
+
+          <section className="space-y-6">
+            <section className="workbench-panel workbench-load overflow-hidden p-0" style={{ animationDelay: "110ms" }}>
+              {question ? (
+                <>
+                  <div className="border-b border-white/10 bg-white/[0.035] p-5 md:p-7">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Badge>{question.layer}</Badge>
+                        <Badge>{generationLabel(question.generation_mode)}</Badge>
+                        {question.scenario_tags.slice(0, 3).map((tag) => (
+                          <Badge key={tag}>{tag}</Badge>
+                        ))}
+                      </div>
+                      <div className="rounded-full border border-white/10 bg-black/25 px-4 py-2 font-mono text-xs uppercase tracking-[0.25em] text-slate-300">
+                        Q {questionCount + 1}
+                      </div>
+                    </div>
+                    <h2 className="mt-7 max-w-4xl text-4xl leading-tight text-white md:text-5xl">{question.prompt}</h2>
+                  </div>
+
+                  <div className="grid gap-4 p-5 md:p-7">
+                    {question.options.map((option, index) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className="answer-option-button group"
+                        onClick={() => void handleAnswer(option.key)}
+                        disabled={busy}
+                        style={{ animationDelay: `${160 + index * 45}ms` }}
+                      >
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-cyan-200/20 bg-cyan-200/10 font-mono text-xs text-cyan-100">
+                          {option.key}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs uppercase tracking-[0.26em] text-cyan-200/55">
+                            {optionSideLabel(question.question_type, option.score)}
+                          </span>
+                          <span className="mt-2 block text-lg leading-8 text-white">{option.text}</span>
+                        </span>
+                        <span className="hidden rounded-full border border-white/10 px-3 py-1 font-mono text-xs text-slate-400 transition group-hover:border-cyan-200/30 group-hover:text-cyan-100 md:inline-flex">
+                          {formatSigned(option.score)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="flex min-h-[520px] flex-col items-center justify-center p-8 text-center">
+                  <p className="text-sm uppercase tracking-[0.35em] text-cyan-200/70">Session Complete</p>
+                  <h2 className="mt-4 text-4xl text-white">当前这一轮已经没有待答题目</h2>
+                  <p className="mt-4 max-w-xl text-slate-300">你可以直接查看报告，也可以结束并删除这次会话。</p>
+                  <div className="mt-8 flex flex-wrap justify-center gap-4">
+                    <button
+                      type="button"
+                      className="rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
+                      onClick={() => void handleFinalizeReport()}
+                      disabled={!canGenerateReport || busy}
+                    >
+                      查看最终报告
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-full border border-white/15 px-6 py-3 text-sm font-semibold text-white"
+                      onClick={() => void handleDelete()}
+                      disabled={busy}
+                    >
+                      删除会话
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "180ms" }}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="label-mini">Trajectory</p>
+                  <h2 className="mt-2 text-2xl text-white">最近答题轨迹</h2>
+                </div>
+                <span className="text-sm text-slate-400">显示最近 {recentAnswers.length} 个信号</span>
+              </div>
+              <div className="mt-5 grid gap-3 md:grid-cols-2">
+                {recentAnswers.length > 0 ? (
+                  recentAnswers.map((answer, index) => (
+                    <div key={`${answer.item_id}-${index}`} className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="truncate text-sm text-slate-100">{answer.item_id}</p>
+                        <span className="rounded-full bg-white/8 px-3 py-1 text-xs text-slate-300">{answerQualityLabel(answer.residual)}</span>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                        <span>回答 {formatSigned(answer.mapped_score)}</span>
+                        <span>预测 {formatSigned(answer.predicted_score)}</span>
+                        <span>耗时 {formatLatency(answer.latency_ms)}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-[1.4rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
+                    轨迹会在提交第一题后出现。
+                  </p>
+                )}
+              </div>
+            </section>
+          </section>
+
+          <aside className="space-y-6">
+            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "160ms" }}>
+              <p className="label-mini">Why This Question</p>
+              <h2 className="mt-2 text-2xl text-white">为什么现在问这题</h2>
+              <div className="mt-5 space-y-3">
+                {questionRationale.length > 0 ? (
+                  questionRationale.map((item) => (
+                    <div key={item} className="rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4 text-sm leading-6 text-slate-200">
+                      {item}
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4 text-sm leading-6 text-slate-400">
+                    当前没有待答题目，系统已暂停选题解释。
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "220ms" }}>
+              <p className="label-mini">Checkpoint</p>
+              <h2 className="mt-2 text-2xl text-white">报告与 milestone</h2>
+              <div className="mt-5 rounded-[1.5rem] border border-cyan-200/15 bg-cyan-200/[0.07] p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-slate-300">正式报告</p>
+                    <p className="mt-1 text-3xl text-white">{canGenerateReport ? "已解锁" : `还需 ${remainingUntilReport} 题`}</p>
+                  </div>
+                  <span className="font-mono text-lg text-cyan-100">{formatPercent(reportProgress)}</span>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full bg-gradient-to-r from-cyan-200 to-lime-200" style={{ width: `${reportProgress}%` }} />
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-sm text-slate-300">下一次 session vector 快照</p>
+                  <span className="font-mono text-cyan-100">{nextMilestone}</span>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full bg-gradient-to-r from-amber-200 to-cyan-200" style={{ width: `${milestoneProgress}%` }} />
+                </div>
+                <p className="mt-3 text-xs leading-5 text-slate-500">
+                  命中 5 / 10 / 20 / 40 题时，后端会 best-effort 写入 `session_vectors`，用于相似会话检索和后续诊断。
+                </p>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-3">
                 <button
                   type="button"
-                  className="rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
+                  className="rounded-full border border-white/15 bg-white/6 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
                   onClick={() => void handleFinalizeReport()}
+                  disabled={!canGenerateReport || busy}
                 >
-                  查看最终报告
+                  {canGenerateReport ? "生成并查看报告" : "报告尚未解锁"}
                 </button>
                 <button
                   type="button"
-                  className="rounded-full border border-white/15 px-6 py-3 text-sm font-semibold text-white"
+                  className="rounded-full border border-rose-300/20 bg-rose-300/10 px-5 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/20"
                   onClick={() => void handleDelete()}
+                  disabled={busy}
                 >
                   删除会话
                 </button>
               </div>
-            </div>
-          )}
+            </section>
+
+            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "260ms" }}>
+              <p className="label-mini">Unlocked Context</p>
+              <h2 className="mt-2 text-2xl text-white">已展开的侧面信息</h2>
+              <div className="mt-5 space-y-4">
+                <TagGroup
+                  title="Subdimensions"
+                  empty="还没有解锁子维度"
+                  items={(state?.unlocked_subdimensions ?? []).map(subdimensionLabel)}
+                />
+                <TagGroup title="Modules" empty="还没有活跃模块" items={moduleSignals.map((module) => `${module.label} ${formatSigned(module.value)}`)} />
+              </div>
+            </section>
+          </aside>
         </section>
       </section>
     </main>
+  );
+}
+
+function StatusTile({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="rounded-[1.4rem] border border-white/10 bg-black/25 px-4 py-3">
+      <p className="text-[0.65rem] uppercase tracking-[0.28em] text-cyan-200/60">{label}</p>
+      <p className="mt-1 text-xl text-white">{value}</p>
+      <p className="mt-1 text-xs text-slate-500">{detail}</p>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, compact = false }: { label: string; value: string | number; compact?: boolean }) {
+  return (
+    <div className="glass-card">
+      <p className="label-mini">{label}</p>
+      <p className={compact ? "mt-2 text-2xl text-white" : "metric-big"}>{value}</p>
+    </div>
+  );
+}
+
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs uppercase tracking-[0.22em] text-slate-300">
+      {children}
+    </span>
+  );
+}
+
+function TagGroup({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{title}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {items.length > 0 ? (
+          items.map((item) => (
+            <span key={item} className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-200">
+              {item}
+            </span>
+          ))
+        ) : (
+          <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-slate-500">{empty}</span>
+        )}
+      </div>
+    </div>
   );
 }

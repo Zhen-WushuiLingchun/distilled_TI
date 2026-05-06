@@ -1,7 +1,7 @@
 # Plan: Vector Acceptance And Frontend Workbench
 
 - Date: 2026-04-27
-- Status: Phase 1/2 live acceptance complete; frontend workbench pending
+- Status: Phase 1/2 live acceptance complete; Session Workbench slice 1 implemented
 - Scope: close Phase 1/2 vector acceptance first, then upgrade the user-facing session frontend from a question loop into a workbench.
 
 ## Current Status
@@ -96,7 +96,7 @@ Fix discovered during live acceptance:
 
 ## Frontend Workbench Implementation Slices
 
-- Slice 1: restructure the session page into question, live profile, trajectory, and evidence panels without changing scoring behavior.
+- Done: Slice 1 restructures the session page into question, live profile, trajectory, rationale, report readiness, and milestone panels without changing scoring behavior.
 - Slice 2: add checkpoint cards at session vector milestones and expose the snapshot summary to the UI.
 - Slice 3: add "similar sessions" and "similar evidence" as an optional insight drawer for internal/admin-facing validation first.
 - Slice 4: add report preview and user-facing narrative summary after the minimum report threshold.
@@ -112,8 +112,9 @@ Fix discovered during live acceptance:
 
 ## Immediate Next Step
 
-- Build Session Workbench slice 1.
+- Run a manual browser pass on `/session`.
+- Build Session Workbench slice 2.
 - Keep the public answer flow compatible with existing session APIs.
-- Add UI panels for live profile, question rationale, trajectory, and report readiness.
-- Use existing backend fields first; only add API fields where the UI cannot derive the state safely.
+- Add richer checkpoint summaries only where existing `SessionState` is insufficient.
+- Decide what retrieval evidence can be safely user-facing.
 - Keep vector evidence user-facing only as explanation support, not as a final judgment.
