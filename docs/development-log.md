@@ -1,5 +1,55 @@
 # Development Log
 
+## 2026-05-06: Session Workbench Slice 4
+
+### Completed
+
+- Added a report preview panel inside the public `/session` Workbench.
+- Kept preview generation on demand; normal answer submission still does not generate reports.
+- Before the report threshold, the panel explains how many questions remain.
+- After `min_questions_for_report`, users can generate a preview without leaving the session.
+- Preview shows:
+  - narrative label and cluster name
+  - AI/fallback summary
+  - question count, cluster confidence, average sigma, stable dimension count
+  - top structural signals
+  - salient subdimensions and active modules
+- Users can still continue answering after preview, or enter the full `/report` flow.
+- Fixed duplicate React keys for repeated scenario tags in the session page and evidence cards.
+
+### Browser Acceptance
+
+- Ran a real Chrome DevTools Protocol pass against local `/session`.
+- Evidence drawer acceptance:
+  - loaded `/session`
+  - clicked retrieval evidence
+  - confirmed `vector offline`, `reranker not applied`, no raw vector score text, and no console errors
+  - screenshot: `C:\Users\hydro\AppData\Local\Temp\distilled-ti-acceptance\session-workbench-evidence.png`
+- Report preview acceptance:
+  - cleared browser session storage
+  - submitted 20 answers through real UI buttons
+  - generated report preview
+  - confirmed `Report Preview`, `Structural Signals`, `进入完整报告页`, and no console errors
+  - screenshot: `C:\Users\hydro\AppData\Local\Temp\distilled-ti-acceptance\session-report-preview.png`
+
+### Validation
+
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+- Browser acceptance passed after restarting frontend dev server to clear stale HMR state.
+
+### Not Completed Yet
+
+- Broader browser pass on `/report`, `/history`, and `/admin` is still pending.
+- Slice 5 visual polish and mobile refinement are not implemented yet.
+- Admin rewrite preview still needs manual quality validation with real vector retrieval.
+- No `cluster_vectors` work yet.
+
+### Next Step
+
+- Run broader browser acceptance across the remaining pages.
+- Then do Slice 5: polish layout hierarchy, mobile density, and final workbench UX details.
+
 ## 2026-05-06: Session Workbench Slice 3
 
 ### Completed

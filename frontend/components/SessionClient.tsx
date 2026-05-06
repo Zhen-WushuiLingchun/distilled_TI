@@ -192,6 +192,9 @@ export function SessionClient() {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [evidenceError, setEvidenceError] = useState("");
+  const [reportPreview, setReportPreview] = useState<SessionReport | null>(null);
+  const [reportPreviewLoading, setReportPreviewLoading] = useState(false);
+  const [reportPreviewError, setReportPreviewError] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const questionStartRef = useRef<number>(Date.now());
@@ -401,6 +404,21 @@ export function SessionClient() {
     }
   }
 
+  async function handleLoadReportPreview() {
+    if (!access || !canGenerateReport) return;
+    try {
+      setReportPreviewLoading(true);
+      setReportPreviewError("");
+      const preferences = getReportViewPreferences();
+      const report = await generateSessionReport(access, preferences.namingStyle);
+      setReportPreview(report);
+    } catch (reason) {
+      setReportPreviewError(reason instanceof Error ? reason.message : "报告预览生成失败。");
+    } finally {
+      setReportPreviewLoading(false);
+    }
+  }
+
   async function handleAnswer(optionKey: string) {
     if (!question || !access) return;
 
@@ -417,6 +435,8 @@ export function SessionClient() {
       setEvidence(null);
       setEvidenceOpen(false);
       setEvidenceError("");
+      setReportPreview(null);
+      setReportPreviewError("");
       questionStartRef.current = performance.now();
       setError("");
     } catch (reason) {
@@ -584,8 +604,8 @@ export function SessionClient() {
                       <div className="flex flex-wrap gap-2">
                         <Badge>{question.layer}</Badge>
                         <Badge>{generationLabel(question.generation_mode)}</Badge>
-                        {question.scenario_tags.slice(0, 3).map((tag) => (
-                          <Badge key={tag}>{tag}</Badge>
+                        {question.scenario_tags.slice(0, 3).map((tag, index) => (
+                          <Badge key={`${tag}-${index}`}>{tag}</Badge>
                         ))}
                       </div>
                       <div className="rounded-full border border-white/10 bg-black/25 px-4 py-2 font-mono text-xs uppercase tracking-[0.25em] text-slate-300">
@@ -753,6 +773,16 @@ export function SessionClient() {
                 </p>
               </div>
 
+              <ReportPreviewPanel
+                canGenerateReport={canGenerateReport}
+                remainingUntilReport={remainingUntilReport}
+                report={reportPreview}
+                loading={reportPreviewLoading}
+                error={reportPreviewError}
+                onLoad={() => void handleLoadReportPreview()}
+                onFinalize={() => void handleFinalizeReport()}
+              />
+
               <div className="mt-4 grid grid-cols-2 gap-3">
                 {checkpointMilestones.map((milestone) => (
                   <MilestoneCard key={milestone.milestone} milestone={milestone} />
@@ -795,6 +825,123 @@ export function SessionClient() {
         </section>
       </section>
     </main>
+  );
+}
+
+function ReportPreviewPanel({
+  canGenerateReport,
+  remainingUntilReport,
+  report,
+  loading,
+  error,
+  onLoad,
+  onFinalize,
+}: {
+  canGenerateReport: boolean;
+  remainingUntilReport: number;
+  report: SessionReport | null;
+  loading: boolean;
+  error: string;
+  onLoad: () => void;
+  onFinalize: () => void;
+}) {
+  if (!canGenerateReport) {
+    return (
+      <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-5">
+        <p className="text-xs uppercase tracking-[0.26em] text-slate-500">Report Preview</p>
+        <h3 className="mt-2 text-xl text-white">预览尚未开放</h3>
+        <p className="mt-3 text-sm leading-6 text-slate-400">
+          还差 {remainingUntilReport} 题达到正式报告阈值。到达阈值后，这里会先给出摘要预览，再决定是否进入完整报告页。
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 rounded-[1.5rem] border border-lime-200/20 bg-lime-200/[0.07] p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.26em] text-lime-100/75">Report Preview</p>
+          <h3 className="mt-2 text-xl text-white">先看摘要，再决定是否结束</h3>
+        </div>
+        <button
+          type="button"
+          className="rounded-full border border-lime-200/25 bg-lime-200/10 px-4 py-2 text-sm font-semibold text-lime-100 transition hover:bg-lime-200/20"
+          onClick={onLoad}
+          disabled={loading}
+        >
+          {loading ? "生成中..." : report ? "刷新预览" : "生成预览"}
+        </button>
+      </div>
+
+      {error ? <p className="mt-3 text-sm text-rose-100">{error}</p> : null}
+
+      {report ? (
+        <div className="mt-4 space-y-4">
+          <div className="rounded-[1.2rem] border border-white/10 bg-black/20 p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-lime-100/70">{report.cluster_name}</p>
+            <h4 className="mt-2 text-2xl text-white">{report.narrative_label}</h4>
+            {report.ai_aliases.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {report.ai_aliases.slice(0, 3).map((alias) => (
+                  <span key={alias} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-lime-100">
+                    {alias}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <p className="mt-3 text-sm leading-6 text-slate-200">{report.ai_summary}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <PreviewMetric label="题量" value={`${report.question_count}`} />
+            <PreviewMetric label="簇置信度" value={formatPercent(report.cluster_confidence * 100)} />
+            <PreviewMetric label="平均误差带" value={report.uncertainty_summary.avg_sigma?.toFixed(2) ?? "--"} />
+            <PreviewMetric label="稳定维度" value={`${report.uncertainty_summary.stable_dimensions ?? 0}`} />
+          </div>
+
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Structural Signals</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {report.structural_labels.slice(0, 4).map((item) => (
+                <span key={item.dimension} className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-slate-200">
+                  {item.label} {item.score >= 0 ? "偏高" : "偏低"}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">展开项</p>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              {report.salient_subdimensions.slice(0, 3).join(" / ") || "子维度仍在采样中"}
+              {report.active_module_labels.length > 0 ? ` · ${report.active_module_labels.slice(0, 2).join(" / ")}` : ""}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="w-full rounded-full bg-lime-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-lime-100"
+            onClick={onFinalize}
+          >
+            进入完整报告页
+          </button>
+        </div>
+      ) : (
+        <p className="mt-4 rounded-[1.2rem] border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-300">
+          报告已解锁。点击生成预览会读取当前状态并生成一版摘要，但不会删除会话，也不会阻止你继续答题细化画像。
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PreviewMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1.1rem] border border-white/10 bg-black/20 p-3">
+      <p className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">{label}</p>
+      <p className="mt-1 text-lg text-white">{value}</p>
+    </div>
   );
 }
 
@@ -868,8 +1015,8 @@ function EvidenceCard({ item }: { item: WorkbenchEvidenceItem }) {
       <p className="mt-3 text-xs leading-5 text-slate-500">{item.relationship}</p>
       {item.scenario_tags.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {item.scenario_tags.map((tag) => (
-            <span key={tag} className="rounded-full border border-white/10 px-2.5 py-1 text-[0.65rem] text-slate-400">
+          {item.scenario_tags.map((tag, index) => (
+            <span key={`${tag}-${index}`} className="rounded-full border border-white/10 px-2.5 py-1 text-[0.65rem] text-slate-400">
               {tag}
             </span>
           ))}

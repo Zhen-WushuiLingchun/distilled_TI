@@ -1,7 +1,7 @@
 # Plan: Vector Acceptance And Frontend Workbench
 
 - Date: 2026-04-27
-- Status: Phase 1/2 live acceptance complete; Session Workbench slices 1-3 implemented
+- Status: Phase 1/2 live acceptance complete; Session Workbench slices 1-4 implemented
 - Scope: close Phase 1/2 vector acceptance first, then upgrade the user-facing session frontend from a question loop into a workbench.
 
 ## Current Status
@@ -76,6 +76,8 @@ Fix discovered during live acceptance:
 - Done: `vector_sync_failures` was empty after the final acceptance run.
 - Done: Public Session Workbench exposes retrieval evidence through a session-secret-protected, on-demand endpoint.
 - Done: Public retrieval evidence hides raw vector and rerank scores, and only exposes confidence tiers.
+- Done: Browser acceptance passed for `/session` retrieval evidence drawer.
+- Done: Browser acceptance passed for report preview after 20 real UI answer submissions.
 - Pending manual UI check: rewrite preview retrieval context in Admin UI.
 - Pending manual quality check: selected rewrite candidates should not show obvious near-duplicates or measurement-direction drift.
 
@@ -101,7 +103,7 @@ Fix discovered during live acceptance:
 - Done: Slice 1 restructures the session page into question, live profile, trajectory, rationale, report readiness, and milestone panels without changing scoring behavior.
 - Done: Slice 2 adds backend `workbench_checkpoint` payloads and checkpoint cards at session vector milestones.
 - Done: Slice 3 adds "similar sessions" and "similar evidence" as an optional insight drawer, loaded on demand and without raw vector scores.
-- Slice 4: add report preview and user-facing narrative summary after the minimum report threshold.
+- Done: Slice 4 adds report preview and user-facing narrative summary after the minimum report threshold.
 - Slice 5: revisit visual design so the product feels like an adaptive assessment cockpit, not a form wizard.
 
 ## Not In This Step
@@ -114,8 +116,8 @@ Fix discovered during live acceptance:
 
 ## Immediate Next Step
 
-- Run a manual browser pass on `/session`.
-- Build Session Workbench slice 4 after the browser pass.
+- Run a broader manual browser pass on `/session`, `/report`, `/history`, and `/admin`.
+- Build Session Workbench slice 5 polish after the broader browser pass.
 - Keep the public answer flow compatible with existing session APIs.
-- Add report preview and a user-facing narrative summary once the report threshold is met.
+- Tighten visual hierarchy and mobile behavior now that the core workbench functions are present.
 - Keep vector evidence user-facing only as explanation support, not as a final judgment.
