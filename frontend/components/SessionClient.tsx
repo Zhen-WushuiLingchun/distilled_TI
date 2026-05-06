@@ -486,155 +486,180 @@ export function SessionClient() {
 
   if (busy && !question) {
     return (
-      <main className="session-shell session-workbench">
-        <div className="mx-auto flex min-h-[72vh] max-w-4xl flex-col items-center justify-center text-center">
-          <p className="text-xs uppercase tracking-[0.45em] text-cyan-200/70">Distilled TI</p>
-          <h1 className="mt-5 text-5xl text-white">正在构建本次测量工作台</h1>
-          <p className="mt-5 max-w-xl text-slate-300">系统正在恢复会话状态、当前题目和可用报告进度。</p>
+      <main className="cockpit-shell">
+        <div className="relative z-10 mx-auto flex min-h-[72vh] max-w-3xl flex-col items-center justify-center text-center">
+          <p className="eyebrow">Distilled TI</p>
+          <h1 className="mt-5 text-4xl md:text-5xl">正在构建本次测量工作台</h1>
+          <p className="mt-5 max-w-xl text-[color:var(--ink-muted)]">系统正在恢复会话状态、当前题目和可用报告进度。</p>
+          <div className="mt-8 flex gap-1.5">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--accent)]" />
+            <span className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--accent)] [animation-delay:120ms]" />
+            <span className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--accent)] [animation-delay:240ms]" />
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="session-shell session-workbench">
-      <div className="workbench-orbit workbench-orbit-a" />
-      <div className="workbench-orbit workbench-orbit-b" />
-
-      <section className="relative z-10 mx-auto max-w-[1520px] space-y-6">
-        <header className="workbench-panel workbench-load grid gap-6 p-6 md:grid-cols-[1fr_auto] md:items-end lg:p-8">
+    <main className="cockpit-shell">
+      <section className="relative z-10 mx-auto max-w-[1480px] space-y-5">
+        {/* ============== HEADER ============== */}
+        <header className="panel fade-rise grid gap-6 p-5 md:grid-cols-[1fr_auto] md:items-end md:p-7">
           <div>
-            <p className="text-xs uppercase tracking-[0.42em] text-cyan-200/70">Distilled TI / Live Session</p>
-            <h1 className="mt-4 text-5xl leading-[0.9] text-white md:text-7xl">测量工作台</h1>
-            <p className="mt-5 max-w-3xl text-base leading-7 text-slate-300">
-              这里不只是逐题作答。左侧显示画像正在怎样收敛，中间保持答题主流程，右侧解释为什么此刻问这题，以及距离报告和 milestone 还有多远。
+            <div className="flex items-center gap-3">
+              <span className="eyebrow">Distilled TI</span>
+              <span className="hairline-strong h-px w-8" aria-hidden />
+              <span className="eyebrow">Live Session</span>
+            </div>
+            <h1 className="mt-3 text-4xl leading-[1.05] md:text-5xl lg:text-6xl">测量工作台</h1>
+            <p className="mt-4 max-w-2xl text-[0.95rem] leading-7 text-[color:var(--ink-muted)]">
+              这里不只是逐题作答。左栏显示画像正在怎样收敛，中栏保持答题主流程，右栏解释为什么此刻问这题、距离报告与 milestone 还有多远。
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3 md:min-w-[420px] md:grid-cols-1">
-            <StatusTile label="已答题" value={`${questionCount}`} detail={`下一题 Q${questionCount + 1}`} />
+          <div className="grid gap-2.5 sm:grid-cols-3 md:min-w-[400px] md:grid-cols-1 lg:grid-cols-3">
+            <StatusTile
+              label="已答题"
+              value={`${questionCount}`}
+              detail={`下一题 Q${questionCount + 1}`}
+            />
             <StatusTile
               label="报告准备度"
-              value={canGenerateReport ? "Ready" : `${remainingUntilReport} left`}
-              detail={canGenerateReport ? "可生成正式报告" : `${formatPercent(reportProgress)} 已完成`}
+              value={canGenerateReport ? "Ready" : `还差 ${remainingUntilReport}`}
+              detail={canGenerateReport ? "可生成正式报告" : `已完成 ${formatPercent(reportProgress)}`}
+              tone={canGenerateReport ? "success" : "default"}
             />
-            <StatusTile label="当前题型" value={generationLabel(question?.generation_mode)} detail={layerLabel(question?.layer)} />
+            <StatusTile
+              label="当前题型"
+              value={generationLabel(question?.generation_mode)}
+              detail={layerLabel(question?.layer)}
+            />
           </div>
         </header>
 
         {error ? (
-          <div className="rounded-[1.6rem] border border-rose-300/25 bg-rose-300/10 p-4 text-sm text-rose-100">{error}</div>
+          <div className="panel border-[color:var(--danger)]/30 bg-[color:var(--danger-soft)] p-4 text-sm text-[color:var(--danger-ink)]">
+            {error}
+          </div>
         ) : null}
 
-        <section className="grid gap-6 xl:grid-cols-[0.88fr_1.22fr_0.9fr]">
-          <aside className="space-y-6">
-            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "80ms" }}>
+        {/* ============== MAIN GRID ============== */}
+        <section className="grid gap-5 xl:grid-cols-[0.85fr_1.3fr_0.85fr]">
+          {/* ============== LEFT: Live Profile + Uncertainty Queue ============== */}
+          <aside className="space-y-5">
+            {/* Live Profile */}
+            <section className="panel fade-rise p-5" style={{ animationDelay: "60ms" }}>
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="label-mini">Live Profile</p>
-                  <h2 className="mt-2 text-3xl text-white">实时画像</h2>
+                  <h2 className="mt-1.5 text-2xl">实时画像</h2>
                 </div>
-                <div className="rounded-full border border-cyan-200/20 bg-cyan-200/10 px-4 py-2 text-xs font-semibold text-cyan-100">
-                  {state?.answers.length ?? 0} signals
-                </div>
+                <span className="chip chip-accent num">{state?.answers.length ?? 0} signals</span>
               </div>
 
-              <div className="mt-6 grid grid-cols-2 gap-3">
+              <div className="mt-5 grid grid-cols-2 gap-2.5">
                 <MetricCard label="解锁 Sub" value={state?.unlocked_subdimensions.length ?? 0} />
                 <MetricCard label="活跃模块" value={state?.active_modules.length ?? 0} />
                 <MetricCard label="一致性" value={formatPercent((state?.zeta.consistency ?? 0) * 100)} compact />
                 <MetricCard label="探索度" value={formatPercent((state?.zeta.exploration ?? 0) * 100)} compact />
               </div>
 
-              <div className="mt-7 space-y-5">
+              <div className="hairline mt-6" />
+
+              <div className="mt-5 space-y-4">
                 {topSignals.length > 0 ? (
                   topSignals.map((signal) => (
                     <div key={signal.key}>
-                      <div className="mb-2 flex items-center justify-between gap-4 text-sm text-slate-200">
-                        <span>{signal.label}</span>
-                        <span className="font-mono text-cyan-200">{formatSigned(signal.value)}</span>
+                      <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
+                        <span className="text-[color:var(--ink-strong)]">{signal.label}</span>
+                        <span className="num text-[color:var(--accent-ink)]">{formatSigned(signal.value)}</span>
                       </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-white/8">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-sky-300 via-cyan-200 to-lime-200"
-                          style={{ width: `${signal.percent}%` }}
-                        />
+                      <div className="bar-track">
+                        <div className="bar-fill" style={{ width: `${signal.percent}%` }} />
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">
-                        置信度约 {formatPercent(signal.confidence)} · 样本 {signal.sampleCount}
+                      <p className="num mt-1.5 text-[0.7rem] text-[color:var(--ink-faint)]">
+                        置信度 {formatPercent(signal.confidence)} · 样本 {signal.sampleCount}
                       </p>
                     </div>
                   ))
                 ) : (
-                  <p className="rounded-[1.4rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
+                  <p className="surface-sunken p-4 text-sm text-[color:var(--ink-muted)]">
                     还没有足够信号。答完前几题后，这里会显示最突出的核心维度。
                   </p>
                 )}
               </div>
             </section>
 
-            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "140ms" }}>
+            {/* Uncertainty Queue */}
+            <section className="panel fade-rise p-5" style={{ animationDelay: "120ms" }}>
               <p className="label-mini">Uncertainty Queue</p>
-              <h2 className="mt-2 text-2xl text-white">下一批需要压缩的误差带</h2>
-              <div className="mt-5 space-y-4">
+              <h2 className="mt-1.5 text-xl">下一批待压缩的误差带</h2>
+              <div className="mt-4 space-y-3">
                 {uncertaintySignals.map((signal) => (
-                  <div key={signal.key} className="rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4">
+                  <div key={signal.key} className="surface-sunken p-3.5">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-slate-100">{signal.label}</span>
-                      <span className="font-mono text-amber-100">sigma {signal.sigma.toFixed(2)}</span>
+                      <span className="text-[color:var(--ink-strong)]">{signal.label}</span>
+                      <span className="num text-[color:var(--warn-ink)]">σ {signal.sigma.toFixed(2)}</span>
                     </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8">
-                      <div className="h-full rounded-full bg-gradient-to-r from-amber-200 to-cyan-200" style={{ width: `${signal.confidence}%` }} />
+                    <div className="bar-track mt-2.5">
+                      <div className="bar-fill bar-fill-warn" style={{ width: `${signal.confidence}%` }} />
                     </div>
-                    <p className="mt-2 text-xs text-slate-500">
-                      已覆盖 {signal.count} 次，置信度 {formatPercent(signal.confidence)}
+                    <p className="num mt-2 text-[0.7rem] text-[color:var(--ink-faint)]">
+                      已覆盖 {signal.count} 次 · 置信度 {formatPercent(signal.confidence)}
                       {signal.detail ? ` · ${signal.detail}` : ""}
                     </p>
                   </div>
                 ))}
+                {uncertaintySignals.length === 0 ? (
+                  <p className="surface-sunken p-4 text-sm text-[color:var(--ink-muted)]">
+                    前几题之后，这里会按 sigma 排序列出最需要压缩的维度。
+                  </p>
+                ) : null}
               </div>
             </section>
           </aside>
 
-          <section className="space-y-6">
-            <section className="workbench-panel workbench-load overflow-hidden p-0" style={{ animationDelay: "110ms" }}>
+          {/* ============== CENTER: 主答题区 + Trajectory ============== */}
+          <section className="space-y-5">
+            <section className="panel-paper fade-rise overflow-hidden p-0" style={{ animationDelay: "90ms" }}>
               {question ? (
                 <>
-                  <div className="border-b border-white/10 bg-white/[0.035] p-5 md:p-7">
+                  <div className="border-b border-[color:var(--line-soft)] bg-[color:var(--bg-raised)] px-5 py-5 md:px-7 md:py-6">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex flex-wrap gap-2">
-                        <Badge>{question.layer}</Badge>
-                        <Badge>{generationLabel(question.generation_mode)}</Badge>
+                        <span className="chip chip-accent">{layerLabel(question.layer)}</span>
+                        <span className="chip">{generationLabel(question.generation_mode)}</span>
                         {question.scenario_tags.slice(0, 3).map((tag, index) => (
-                          <Badge key={`${tag}-${index}`}>{tag}</Badge>
+                          <span key={`${tag}-${index}`} className="chip">{tag}</span>
                         ))}
                       </div>
-                      <div className="rounded-full border border-white/10 bg-black/25 px-4 py-2 font-mono text-xs uppercase tracking-[0.25em] text-slate-300">
-                        Q {questionCount + 1}
-                      </div>
+                      <span className="num chip">Q {questionCount + 1}</span>
                     </div>
-                    <h2 className="mt-7 max-w-4xl text-4xl leading-tight text-white md:text-5xl">{question.prompt}</h2>
+                    <h2 className="mt-6 max-w-3xl text-[1.7rem] leading-[1.35] text-[color:var(--ink-strong)] md:text-[2rem] md:leading-[1.3]">
+                      {question.prompt}
+                    </h2>
                   </div>
 
-                  <div className="grid gap-4 p-5 md:p-7">
+                  <div className="grid gap-2.5 px-5 py-5 md:px-7 md:py-6">
                     {question.options.map((option, index) => (
                       <button
                         key={option.key}
                         type="button"
-                        className="answer-option-button group"
+                        className="option-row group"
                         onClick={() => void handleAnswer(option.key)}
                         disabled={busy}
-                        style={{ animationDelay: `${160 + index * 45}ms` }}
+                        style={{ animationDelay: `${120 + index * 50}ms` }}
                       >
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-cyan-200/20 bg-cyan-200/10 font-mono text-xs text-cyan-100">
-                          {option.key}
-                        </span>
+                        <span className="option-key">{option.key}</span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-xs uppercase tracking-[0.26em] text-cyan-200/55">
+                          <span className="label-mini block">
                             {optionSideLabel(question.question_type, option.score)}
                           </span>
-                          <span className="mt-2 block text-lg leading-8 text-white">{option.text}</span>
+                          <span className="mt-1.5 block text-[1rem] leading-[1.65] text-[color:var(--ink-strong)] md:text-[1.05rem]">
+                            {option.text}
+                          </span>
                         </span>
-                        <span className="hidden rounded-full border border-white/10 px-3 py-1 font-mono text-xs text-slate-400 transition group-hover:border-cyan-200/30 group-hover:text-cyan-100 md:inline-flex">
+                        <span className="num hidden self-center rounded-full border border-[color:var(--line-soft)] bg-[color:var(--bg-sunken)] px-2.5 py-1 text-[0.7rem] text-[color:var(--ink-muted)] transition group-hover:border-[color:var(--accent)] group-hover:text-[color:var(--accent-ink)] md:inline-flex">
                           {formatSigned(option.score)}
                         </span>
                       </button>
@@ -642,14 +667,16 @@ export function SessionClient() {
                   </div>
                 </>
               ) : (
-                <div className="flex min-h-[520px] flex-col items-center justify-center p-8 text-center">
-                  <p className="text-sm uppercase tracking-[0.35em] text-cyan-200/70">Session Complete</p>
-                  <h2 className="mt-4 text-4xl text-white">当前这一轮已经没有待答题目</h2>
-                  <p className="mt-4 max-w-xl text-slate-300">你可以直接查看报告，也可以结束并删除这次会话。</p>
-                  <div className="mt-8 flex flex-wrap justify-center gap-4">
+                <div className="flex min-h-[480px] flex-col items-center justify-center p-8 text-center">
+                  <p className="label-mini">Session Complete</p>
+                  <h2 className="mt-3 text-3xl md:text-4xl">当前这一轮已经没有待答题目</h2>
+                  <p className="mt-4 max-w-xl text-[color:var(--ink-muted)]">
+                    你可以直接查看报告，也可以结束并删除这次会话。
+                  </p>
+                  <div className="mt-7 flex flex-wrap justify-center gap-3">
                     <button
                       type="button"
-                      className="rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
+                      className="btn btn-primary"
                       onClick={() => void handleFinalizeReport()}
                       disabled={!canGenerateReport || busy}
                     >
@@ -657,7 +684,7 @@ export function SessionClient() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-full border border-white/15 px-6 py-3 text-sm font-semibold text-white"
+                      className="btn btn-danger"
                       onClick={() => void handleDelete()}
                       disabled={busy}
                     >
@@ -668,23 +695,24 @@ export function SessionClient() {
               )}
             </section>
 
-            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "180ms" }}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Trajectory */}
+            <section className="panel fade-rise p-5" style={{ animationDelay: "150ms" }}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="label-mini">Trajectory</p>
-                  <h2 className="mt-2 text-2xl text-white">最近答题轨迹</h2>
+                  <h2 className="mt-1.5 text-xl">最近答题轨迹</h2>
                 </div>
-                <span className="text-sm text-slate-400">显示最近 {recentAnswers.length} 个信号</span>
+                <span className="num text-[0.75rem] text-[color:var(--ink-faint)]">最近 {recentAnswers.length} 个信号</span>
               </div>
-              <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <div className="mt-4 grid gap-2.5 md:grid-cols-2">
                 {recentAnswers.length > 0 ? (
                   recentAnswers.map((answer, index) => (
-                    <div key={`${answer.item_id}-${index}`} className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
+                    <div key={`${answer.item_id}-${index}`} className="surface-sunken p-3.5">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm text-slate-100">{answer.item_id}</p>
-                        <span className="rounded-full bg-white/8 px-3 py-1 text-xs text-slate-300">{answerQualityLabel(answer.residual)}</span>
+                        <p className="num truncate text-[0.8rem] text-[color:var(--ink-strong)]">{answer.item_id}</p>
+                        <span className="chip">{answerQualityLabel(answer.residual)}</span>
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                      <div className="num mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-[0.72rem] text-[color:var(--ink-muted)]">
                         <span>回答 {formatSigned(answer.mapped_score)}</span>
                         <span>预测 {formatSigned(answer.predicted_score)}</span>
                         <span>耗时 {formatLatency(answer.latency_ms)}</span>
@@ -692,7 +720,7 @@ export function SessionClient() {
                     </div>
                   ))
                 ) : (
-                  <p className="rounded-[1.4rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
+                  <p className="surface-sunken p-4 text-sm text-[color:var(--ink-muted)] md:col-span-2">
                     轨迹会在提交第一题后出现。
                   </p>
                 )}
@@ -700,79 +728,96 @@ export function SessionClient() {
             </section>
           </section>
 
-          <aside className="space-y-6">
-            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "160ms" }}>
+          {/* ============== RIGHT: Why + Checkpoint + Unlocked ============== */}
+          <aside className="space-y-5">
+            {/* Why This Question */}
+            <section className="panel fade-rise p-5" style={{ animationDelay: "120ms" }}>
               <p className="label-mini">Why This Question</p>
-              <h2 className="mt-2 text-2xl text-white">为什么现在问这题</h2>
-              <div className="mt-5 space-y-3">
+              <h2 className="mt-1.5 text-xl">为什么现在问这题</h2>
+              <div className="mt-4 space-y-2.5">
                 {questionRationale.length > 0 ? (
                   questionRationale.map((item) => (
-                    <div key={item} className="rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4 text-sm leading-6 text-slate-200">
+                    <div
+                      key={item}
+                      className="surface-sunken border-l-2 border-l-[color:var(--accent)] py-3 pl-3.5 pr-3 text-sm leading-6 text-[color:var(--ink-body)]"
+                    >
                       {item}
                     </div>
                   ))
                 ) : (
-                  <p className="rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4 text-sm leading-6 text-slate-400">
+                  <p className="surface-sunken p-4 text-sm text-[color:var(--ink-muted)]">
                     当前没有待答题目，系统已暂停选题解释。
                   </p>
                 )}
               </div>
-              <div className="mt-5 rounded-[1.35rem] border border-cyan-200/15 bg-cyan-200/[0.06] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/65">Retrieval Evidence</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">
-                      按需读取相近题目和匿名会话快照，只作为解释证据，不显示原始向量分数。
+
+              {/* Retrieval Evidence trigger */}
+              <div className="mt-4 rounded-[var(--r-md)] border border-[color:var(--line-soft)] bg-[color:var(--accent-soft)]/40 p-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="label-mini">Retrieval Evidence</p>
+                    <p className="mt-1.5 text-[0.82rem] leading-5 text-[color:var(--ink-muted)]">
+                      按需读取相近题目和匿名会话快照，只作为解释证据。
                     </p>
                   </div>
                   <button
                     type="button"
-                    className="rounded-full border border-cyan-200/25 bg-cyan-200/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-200/20"
+                    className="btn btn-ghost shrink-0 px-3 py-1.5 text-xs"
                     onClick={() => void handleLoadEvidence()}
                     disabled={!access || evidenceLoading}
                   >
-                    {evidenceLoading ? "检索中..." : evidence ? "刷新证据" : "加载证据"}
+                    {evidenceLoading ? "检索中…" : evidence ? "刷新" : "加载证据"}
                   </button>
                 </div>
-                {evidenceError ? <p className="mt-3 text-sm text-rose-100">{evidenceError}</p> : null}
+                {evidenceError ? (
+                  <p className="mt-2.5 text-xs text-[color:var(--danger-ink)]">{evidenceError}</p>
+                ) : null}
                 {evidenceOpen ? <EvidenceDrawer evidence={evidence} loading={evidenceLoading} /> : null}
               </div>
             </section>
 
-            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "220ms" }}>
+            {/* Checkpoint */}
+            <section className="panel fade-rise p-5" style={{ animationDelay: "180ms" }}>
               <p className="label-mini">Checkpoint</p>
-              <h2 className="mt-2 text-2xl text-white">报告与 milestone</h2>
+              <h2 className="mt-1.5 text-xl">报告与 milestone</h2>
+
               {checkpoint?.narrative ? (
-                <p className="mt-4 rounded-[1.25rem] border border-white/10 bg-white/[0.035] p-4 text-sm leading-6 text-slate-200">
+                <p className="surface-sunken mt-4 p-3.5 text-sm leading-6 text-[color:var(--ink-body)]">
                   {checkpoint.narrative}
                 </p>
               ) : null}
-              <div className="mt-5 rounded-[1.5rem] border border-cyan-200/15 bg-cyan-200/[0.07] p-5">
+
+              {/* 报告进度 */}
+              <div className="mt-4 rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/50 p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm text-slate-300">正式报告</p>
-                    <p className="mt-1 text-3xl text-white">{canGenerateReport ? "已解锁" : `还需 ${remainingUntilReport} 题`}</p>
+                    <p className="label-mini">正式报告</p>
+                    <p className="mt-1 text-2xl text-[color:var(--ink-strong)]">
+                      {canGenerateReport ? "已解锁" : `还需 ${remainingUntilReport} 题`}
+                    </p>
                   </div>
-                  <span className="font-mono text-lg text-cyan-100">{formatPercent(reportProgress)}</span>
+                  <span className="num text-base text-[color:var(--accent-ink)]">{formatPercent(reportProgress)}</span>
                 </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-gradient-to-r from-cyan-200 to-lime-200" style={{ width: `${reportProgress}%` }} />
+                <div className="bar-track mt-3">
+                  <div className="bar-fill" style={{ width: `${reportProgress}%` }} />
                 </div>
               </div>
 
-              <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
+              {/* milestone 进度 */}
+              <div className="mt-3 rounded-[var(--r-md)] border border-[color:var(--line-soft)] bg-[color:var(--bg-raised)] p-4">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm text-slate-300">下一次 session vector 快照</p>
-                  <span className="font-mono text-cyan-100">{nextMilestoneLabel}</span>
+                  <p className="text-sm text-[color:var(--ink-muted)]">下一次 session vector 快照</p>
+                  <span className="num text-sm text-[color:var(--ink-strong)]">{nextMilestoneLabel}</span>
                 </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-gradient-to-r from-amber-200 to-cyan-200" style={{ width: `${milestoneProgress}%` }} />
+                <div className="bar-track mt-3">
+                  <div className="bar-fill bar-fill-warn" style={{ width: `${milestoneProgress}%` }} />
                 </div>
-                <p className="mt-3 text-xs leading-5 text-slate-500">
-                  命中 5 / 10 / 20 / 40 题时，后端会 best-effort 写入 `session_vectors`，用于相似会话检索和后续诊断。
+                <p className="mt-2.5 text-[0.72rem] leading-5 text-[color:var(--ink-faint)]">
+                  命中 5 / 10 / 20 / 40 题时，后端会 best-effort 写入 session_vectors，用于相似会话检索和后续诊断。
                 </p>
               </div>
 
+              {/* Report preview */}
               <ReportPreviewPanel
                 canGenerateReport={canGenerateReport}
                 remainingUntilReport={remainingUntilReport}
@@ -783,16 +828,18 @@ export function SessionClient() {
                 onFinalize={() => void handleFinalizeReport()}
               />
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              {/* Milestones grid */}
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 {checkpointMilestones.map((milestone) => (
                   <MilestoneCard key={milestone.milestone} milestone={milestone} />
                 ))}
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-3">
+              {/* Action buttons */}
+              <div className="mt-4 flex flex-wrap gap-2.5">
                 <button
                   type="button"
-                  className="rounded-full border border-white/15 bg-white/6 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+                  className="btn btn-ghost"
                   onClick={() => void handleFinalizeReport()}
                   disabled={!canGenerateReport || busy}
                 >
@@ -800,7 +847,7 @@ export function SessionClient() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-full border border-rose-300/20 bg-rose-300/10 px-5 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-300/20"
+                  className="btn btn-danger"
                   onClick={() => void handleDelete()}
                   disabled={busy}
                 >
@@ -809,16 +856,21 @@ export function SessionClient() {
               </div>
             </section>
 
-            <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "260ms" }}>
+            {/* Unlocked context */}
+            <section className="panel fade-rise p-5" style={{ animationDelay: "240ms" }}>
               <p className="label-mini">Unlocked Context</p>
-              <h2 className="mt-2 text-2xl text-white">已展开的侧面信息</h2>
-              <div className="mt-5 space-y-4">
+              <h2 className="mt-1.5 text-xl">已展开的侧面信息</h2>
+              <div className="mt-4 space-y-3.5">
                 <TagGroup
                   title="Subdimensions"
                   empty="还没有解锁子维度"
                   items={unlockedSubdimensionSignals.map(signalTagLabel)}
                 />
-                <TagGroup title="Modules" empty="还没有活跃模块" items={moduleSignals.map((module) => `${module.label} ${formatSigned(module.value)}`)} />
+                <TagGroup
+                  title="Modules"
+                  empty="还没有活跃模块"
+                  items={moduleSignals.map((module) => `${module.label} ${formatSigned(module.value)}`)}
+                />
               </div>
             </section>
           </aside>
@@ -827,6 +879,10 @@ export function SessionClient() {
     </main>
   );
 }
+
+/* ====================================================================== */
+/*  Sub-components                                                         */
+/* ====================================================================== */
 
 function ReportPreviewPanel({
   canGenerateReport,
@@ -847,10 +903,10 @@ function ReportPreviewPanel({
 }) {
   if (!canGenerateReport) {
     return (
-      <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-5">
-        <p className="text-xs uppercase tracking-[0.26em] text-slate-500">Report Preview</p>
-        <h3 className="mt-2 text-xl text-white">预览尚未开放</h3>
-        <p className="mt-3 text-sm leading-6 text-slate-400">
+      <div className="surface-sunken mt-3 p-4">
+        <p className="label-mini">Report Preview</p>
+        <h3 className="mt-1.5 text-base text-[color:var(--ink-strong)]">预览尚未开放</h3>
+        <p className="mt-2 text-sm leading-6 text-[color:var(--ink-muted)]">
           还差 {remainingUntilReport} 题达到正式报告阈值。到达阈值后，这里会先给出摘要预览，再决定是否进入完整报告页。
         </p>
       </div>
@@ -858,53 +914,51 @@ function ReportPreviewPanel({
   }
 
   return (
-    <div className="mt-4 rounded-[1.5rem] border border-lime-200/20 bg-lime-200/[0.07] p-5">
+    <div className="mt-3 rounded-[var(--r-md)] border border-[color:var(--success-soft)] bg-[color:var(--success-soft)]/55 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.26em] text-lime-100/75">Report Preview</p>
-          <h3 className="mt-2 text-xl text-white">先看摘要，再决定是否结束</h3>
+          <p className="label-mini">Report Preview</p>
+          <h3 className="mt-1.5 text-base text-[color:var(--ink-strong)]">先看摘要，再决定是否结束</h3>
         </div>
         <button
           type="button"
-          className="rounded-full border border-lime-200/25 bg-lime-200/10 px-4 py-2 text-sm font-semibold text-lime-100 transition hover:bg-lime-200/20"
+          className="btn btn-success-soft px-3 py-1.5 text-xs"
           onClick={onLoad}
           disabled={loading}
         >
-          {loading ? "生成中..." : report ? "刷新预览" : "生成预览"}
+          {loading ? "生成中…" : report ? "刷新预览" : "生成预览"}
         </button>
       </div>
 
-      {error ? <p className="mt-3 text-sm text-rose-100">{error}</p> : null}
+      {error ? <p className="mt-2.5 text-xs text-[color:var(--danger-ink)]">{error}</p> : null}
 
       {report ? (
-        <div className="mt-4 space-y-4">
-          <div className="rounded-[1.2rem] border border-white/10 bg-black/20 p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-lime-100/70">{report.cluster_name}</p>
-            <h4 className="mt-2 text-2xl text-white">{report.narrative_label}</h4>
+        <div className="mt-3.5 space-y-3.5">
+          <div className="rounded-[var(--r-md)] border border-[color:var(--line-soft)] bg-[color:var(--bg-paper)] p-3.5">
+            <p className="label-mini">{report.cluster_name}</p>
+            <h4 className="mt-1.5 text-lg text-[color:var(--ink-strong)]">{report.narrative_label}</h4>
             {report.ai_aliases.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {report.ai_aliases.slice(0, 3).map((alias) => (
-                  <span key={alias} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-lime-100">
-                    {alias}
-                  </span>
+                  <span key={alias} className="chip chip-success">{alias}</span>
                 ))}
               </div>
             ) : null}
-            <p className="mt-3 text-sm leading-6 text-slate-200">{report.ai_summary}</p>
+            <p className="mt-3 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">{report.ai_summary}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <PreviewMetric label="题量" value={`${report.question_count}`} />
             <PreviewMetric label="簇置信度" value={formatPercent(report.cluster_confidence * 100)} />
-            <PreviewMetric label="平均误差带" value={report.uncertainty_summary.avg_sigma?.toFixed(2) ?? "--"} />
+            <PreviewMetric label="平均误差带" value={report.uncertainty_summary.avg_sigma?.toFixed(2) ?? "—"} />
             <PreviewMetric label="稳定维度" value={`${report.uncertainty_summary.stable_dimensions ?? 0}`} />
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Structural Signals</p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <p className="label-mini">Structural Signals</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
               {report.structural_labels.slice(0, 4).map((item) => (
-                <span key={item.dimension} className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-slate-200">
+                <span key={item.dimension} className="chip">
                   {item.label} {item.score >= 0 ? "偏高" : "偏低"}
                 </span>
               ))}
@@ -912,23 +966,25 @@ function ReportPreviewPanel({
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">展开项</p>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
+            <p className="label-mini">展开项</p>
+            <p className="mt-2 text-[0.82rem] leading-6 text-[color:var(--ink-muted)]">
               {report.salient_subdimensions.slice(0, 3).join(" / ") || "子维度仍在采样中"}
-              {report.active_module_labels.length > 0 ? ` · ${report.active_module_labels.slice(0, 2).join(" / ")}` : ""}
+              {report.active_module_labels.length > 0
+                ? ` · ${report.active_module_labels.slice(0, 2).join(" / ")}`
+                : ""}
             </p>
           </div>
 
           <button
             type="button"
-            className="w-full rounded-full bg-lime-200 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-lime-100"
+            className="btn btn-primary w-full"
             onClick={onFinalize}
           >
             进入完整报告页
           </button>
         </div>
       ) : (
-        <p className="mt-4 rounded-[1.2rem] border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-300">
+        <p className="mt-3 text-[0.82rem] leading-6 text-[color:var(--ink-muted)]">
           报告已解锁。点击生成预览会读取当前状态并生成一版摘要，但不会删除会话，也不会阻止你继续答题细化画像。
         </p>
       )}
@@ -938,9 +994,9 @@ function ReportPreviewPanel({
 
 function PreviewMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.1rem] border border-white/10 bg-black/20 p-3">
-      <p className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">{label}</p>
-      <p className="mt-1 text-lg text-white">{value}</p>
+    <div className="rounded-[var(--r-sm)] border border-[color:var(--line-soft)] bg-[color:var(--bg-paper)] px-3 py-2.5">
+      <p className="label-mini text-[0.62rem]">{label}</p>
+      <p className="num mt-1 text-[1.05rem] text-[color:var(--ink-strong)]">{value}</p>
     </div>
   );
 }
@@ -948,8 +1004,8 @@ function PreviewMetric({ label, value }: { label: string; value: string }) {
 function EvidenceDrawer({ evidence, loading }: { evidence: WorkbenchEvidence | null; loading: boolean }) {
   if (loading && !evidence) {
     return (
-      <div className="mt-4 rounded-[1.15rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
-        正在从向量层读取近邻证据...
+      <div className="surface-sunken mt-3 p-3.5 text-sm text-[color:var(--ink-muted)]">
+        正在从向量层读取近邻证据…
       </div>
     );
   }
@@ -959,25 +1015,23 @@ function EvidenceDrawer({ evidence, loading }: { evidence: WorkbenchEvidence | n
   const hasEvidence = evidence.item_evidence.length > 0 || evidence.session_evidence.length > 0;
 
   return (
-    <div className="mt-4 space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-slate-300">
-          vector {evidence.vector_available ? "available" : "offline"}
-        </span>
-        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-slate-300">
-          reranker {evidence.reranker_applied ? "applied" : "not applied"}
-        </span>
+    <div className="mt-3 space-y-3">
+      <div className="flex flex-wrap gap-1.5">
+        <span className="chip">vector {evidence.vector_available ? "available" : "offline"}</span>
+        <span className="chip">reranker {evidence.reranker_applied ? "applied" : "not applied"}</span>
       </div>
 
       {!evidence.enabled || !hasEvidence ? (
-        <div className="rounded-[1.15rem] border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-400">
+        <div className="surface-sunken p-3.5 text-sm leading-6 text-[color:var(--ink-muted)]">
           {evidence.notes.length > 0 ? evidence.notes.join(" ") : "当前没有可展示的检索证据。"}
         </div>
       ) : (
         <>
           <EvidenceList title="相近题目证据" items={evidence.item_evidence} empty="没有稳定的相近题目证据。" />
           <EvidenceList title="相似会话快照" items={evidence.session_evidence} empty="暂无相似会话快照。" />
-          {evidence.notes.length > 0 ? <p className="text-xs leading-5 text-slate-500">{evidence.notes.join(" ")}</p> : null}
+          {evidence.notes.length > 0 ? (
+            <p className="text-[0.72rem] leading-5 text-[color:var(--ink-faint)]">{evidence.notes.join(" ")}</p>
+          ) : null}
         </>
       )}
     </div>
@@ -987,12 +1041,12 @@ function EvidenceDrawer({ evidence, loading }: { evidence: WorkbenchEvidence | n
 function EvidenceList({ title, items, empty }: { title: string; items: WorkbenchEvidenceItem[]; empty: string }) {
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{title}</p>
-      <div className="mt-3 space-y-3">
+      <p className="label-mini">{title}</p>
+      <div className="mt-2 space-y-2">
         {items.length > 0 ? (
           items.map((item) => <EvidenceCard key={item.reference_key} item={item} />)
         ) : (
-          <p className="rounded-[1.1rem] border border-white/10 bg-black/20 p-3 text-sm text-slate-500">{empty}</p>
+          <p className="surface-sunken p-3 text-[0.82rem] text-[color:var(--ink-muted)]">{empty}</p>
         )}
       </div>
     </div>
@@ -1001,22 +1055,24 @@ function EvidenceList({ title, items, empty }: { title: string; items: Workbench
 
 function EvidenceCard({ item }: { item: WorkbenchEvidenceItem }) {
   return (
-    <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4">
+    <div className="rounded-[var(--r-md)] border border-[color:var(--line-soft)] bg-[color:var(--bg-paper)] p-3.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-black/25 px-3 py-1 text-xs text-cyan-100">{item.label}</span>
-          <span className={`rounded-full px-3 py-1 text-xs ${confidenceTone(item.confidence_tier)}`}>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="chip chip-accent">{item.label}</span>
+          <span className={`chip ${confidenceTone(item.confidence_tier)}`}>
             {confidenceLabel(item.confidence_tier)}
           </span>
         </div>
-        <span className="font-mono text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">{item.reference_key}</span>
+        <span className="num text-[0.65rem] uppercase tracking-[0.2em] text-[color:var(--ink-faint)]">
+          {item.reference_key}
+        </span>
       </div>
-      <p className="mt-3 text-sm leading-6 text-slate-200">{item.prompt_excerpt}</p>
-      <p className="mt-3 text-xs leading-5 text-slate-500">{item.relationship}</p>
+      <p className="mt-2.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">{item.prompt_excerpt}</p>
+      <p className="mt-2 text-[0.72rem] leading-5 text-[color:var(--ink-faint)]">{item.relationship}</p>
       {item.scenario_tags.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {item.scenario_tags.map((tag, index) => (
-            <span key={`${tag}-${index}`} className="rounded-full border border-white/10 px-2.5 py-1 text-[0.65rem] text-slate-400">
+            <span key={`${tag}-${index}`} className="chip text-[0.65rem]">
               {tag}
             </span>
           ))}
@@ -1033,60 +1089,92 @@ function confidenceLabel(tier: WorkbenchEvidenceItem["confidence_tier"]) {
 }
 
 function confidenceTone(tier: WorkbenchEvidenceItem["confidence_tier"]) {
-  if (tier === "high") return "bg-lime-200/15 text-lime-100";
-  if (tier === "medium") return "bg-amber-200/15 text-amber-100";
-  return "bg-white/10 text-slate-300";
+  if (tier === "high") return "chip-success";
+  if (tier === "medium") return "chip-warn";
+  return "";
 }
 
-function StatusTile({ label, value, detail }: { label: string; value: string; detail: string }) {
+function StatusTile({
+  label,
+  value,
+  detail,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "default" | "success";
+}) {
+  const valueClass =
+    tone === "success" ? "text-[color:var(--success-ink)]" : "text-[color:var(--ink-strong)]";
   return (
-    <div className="rounded-[1.4rem] border border-white/10 bg-black/25 px-4 py-3">
-      <p className="text-[0.65rem] uppercase tracking-[0.28em] text-cyan-200/60">{label}</p>
-      <p className="mt-1 text-xl text-white">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{detail}</p>
-    </div>
-  );
-}
-
-function MetricCard({ label, value, compact = false }: { label: string; value: string | number; compact?: boolean }) {
-  return (
-    <div className="glass-card">
+    <div className="status-tile">
       <p className="label-mini">{label}</p>
-      <p className={compact ? "mt-2 text-2xl text-white" : "metric-big"}>{value}</p>
+      <p className={`mt-1 text-lg ${valueClass} num`}>{value}</p>
+      <p className="mt-0.5 text-[0.72rem] text-[color:var(--ink-muted)]">{detail}</p>
     </div>
   );
 }
 
-function Badge({ children }: { children: React.ReactNode }) {
+function MetricCard({
+  label,
+  value,
+  compact = false,
+}: {
+  label: string;
+  value: string | number;
+  compact?: boolean;
+}) {
   return (
-    <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs uppercase tracking-[0.22em] text-slate-300">
-      {children}
-    </span>
+    <div className="surface-flat px-3 py-2.5">
+      <p className="label-mini text-[0.62rem]">{label}</p>
+      <p
+        className={
+          compact
+            ? "num mt-1 text-lg text-[color:var(--ink-strong)]"
+            : "num mt-1 text-2xl text-[color:var(--ink-strong)]"
+        }
+      >
+        {value}
+      </p>
+    </div>
   );
 }
 
 function MilestoneCard({ milestone }: { milestone: WorkbenchMilestone }) {
   const statusLabel =
     milestone.status === "completed" ? "已完成" : milestone.status === "current" ? "进行中" : "等待";
-  const tone =
-    milestone.status === "completed"
-      ? "border-lime-200/25 bg-lime-200/[0.08] text-lime-100"
-      : milestone.status === "current"
-        ? "border-cyan-200/25 bg-cyan-200/[0.08] text-cyan-100"
-        : "border-white/10 bg-white/[0.035] text-slate-300";
+
+  let toneClasses: string;
+  let chipClasses: string;
+  let barClasses: string;
+
+  if (milestone.status === "completed") {
+    toneClasses = "border-[color:var(--success-soft)] bg-[color:var(--success-soft)]/55 text-[color:var(--success-ink)]";
+    chipClasses = "chip chip-success";
+    barClasses = "bar-fill bar-fill-success";
+  } else if (milestone.status === "current") {
+    toneClasses = "border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/55 text-[color:var(--accent-ink)]";
+    chipClasses = "chip chip-accent";
+    barClasses = "bar-fill";
+  } else {
+    toneClasses = "border-[color:var(--line-soft)] bg-[color:var(--bg-raised)] text-[color:var(--ink-muted)]";
+    chipClasses = "chip";
+    barClasses = "bar-fill bg-[color:var(--ink-faint)]";
+  }
 
   return (
-    <div className={`rounded-[1.15rem] border p-3 ${tone}`}>
+    <div className={`rounded-[var(--r-md)] border p-3 ${toneClasses}`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="font-mono text-lg">Q{milestone.milestone}</p>
-        <span className="rounded-full bg-black/20 px-2.5 py-1 text-[0.65rem] uppercase tracking-[0.18em]">
+        <p className="num text-base text-[color:var(--ink-strong)]">Q{milestone.milestone}</p>
+        <span className={chipClasses}>
           {milestone.snapshot_expected ? "snapshot" : statusLabel}
         </span>
       </div>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-black/20">
-        <div className="h-full rounded-full bg-current" style={{ width: `${milestone.progress_percent}%` }} />
+      <div className="bar-track mt-2.5">
+        <div className={barClasses} style={{ width: `${milestone.progress_percent}%` }} />
       </div>
-      <p className="mt-2 text-xs opacity-75">
+      <p className="num mt-1.5 text-[0.7rem] opacity-80">
         {milestone.question_delta > 0 ? `还差 ${milestone.question_delta} 题` : "快照点已覆盖"}
       </p>
     </div>
@@ -1096,16 +1184,16 @@ function MilestoneCard({ milestone }: { milestone: WorkbenchMilestone }) {
 function TagGroup({ title, items, empty }: { title: string; items: string[]; empty: string }) {
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{title}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
+      <p className="label-mini">{title}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
         {items.length > 0 ? (
           items.map((item) => (
-            <span key={item} className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-slate-200">
+            <span key={item} className="chip">
               {item}
             </span>
           ))
         ) : (
-          <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-slate-500">{empty}</span>
+          <span className="chip text-[color:var(--ink-faint)]">{empty}</span>
         )}
       </div>
     </div>

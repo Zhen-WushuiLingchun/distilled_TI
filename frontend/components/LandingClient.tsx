@@ -18,18 +18,23 @@ export function LandingClient() {
   const [showBrandModal, setShowBrandModal] = useState(false);
 
   return (
-    <main className="relative overflow-hidden px-6 py-10 md:px-10">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),_transparent_32%),radial-gradient(circle_at_80%_20%,_rgba(129,140,248,0.18),_transparent_28%),linear-gradient(180deg,_rgba(10,14,29,0.96),_rgba(4,7,18,1))]" />
-      <div className="relative mx-auto grid min-h-[calc(100vh-5rem)] max-w-7xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="flex flex-col justify-between rounded-[2.5rem] border border-white/10 bg-white/6 p-8 shadow-[0_40px_140px_rgba(15,23,42,0.65)] backdrop-blur-2xl md:p-10">
+    <main className="cockpit-shell">
+      <div className="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] max-w-[1240px] gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+        {/* ===== LEFT: Brand + Headline ===== */}
+        <section className="panel fade-rise flex flex-col justify-between p-6 md:p-9">
           <div>
-            <p className="text-xs uppercase tracking-[0.45em] text-cyan-200/70">Distilled TI</p>
+            <div className="flex items-center gap-3">
+              <span className="eyebrow">Distilled TI</span>
+              <span className="hairline-strong h-px w-8" aria-hidden />
+              <span className="eyebrow">Trait Cartography</span>
+            </div>
+
             <button
               type="button"
-              className="brand-plate mt-6 w-full text-left transition hover:-translate-y-0.5"
+              className="brand-plate mt-6 w-full text-left"
               onClick={() => setShowBrandModal(true)}
+              aria-label="查看品牌图"
             >
-              <div className="brand-plate-glow" />
               <Image
                 src="/brand/hero-logo.png"
                 alt="Distilled TI 品牌图"
@@ -39,44 +44,47 @@ export function LandingClient() {
                 priority
               />
             </button>
-            <h1 className="mt-4 max-w-4xl text-5xl leading-[0.95] text-white md:text-7xl">
+
+            <h1 className="mt-7 max-w-3xl text-[2.5rem] leading-[1.05] text-[color:var(--ink-strong)] md:text-[3.6rem]">
               把人格从静态类型，
-              <span className="text-cyan-300">拉回连续结构空间。</span>
+              <br />
+              <span className="text-[color:var(--accent)]">拉回连续结构空间。</span>
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-              这不是一次性的类型贴标，而是一场可以持续推进的行为倾向测绘。答到 20 题后就能先看报告，
+            <p className="mt-5 max-w-xl text-[1rem] leading-7 text-[color:var(--ink-muted)] measure">
+              这不是一次性的类型贴标，而是一场可以持续推进的行为倾向测绘。答到 20 题后即可先看报告，
               之后也可以继续补题，把画像压得更细。
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="mt-9 grid gap-3 md:grid-cols-3">
             {[
               ["连续作答", "支持随时中断与续答，20 题后即可先看结构化报告。"],
               ["会话隔离", "每次测试都会下发独立访问令牌，删除后立即失效，1 小时后自动过期。"],
               ["本地管理", "AI 配置与题库管理已移到独立 localhost 管理端，不再暴露在普通入口。"],
             ].map(([title, description]) => (
-              <div key={title} className="rounded-[1.6rem] border border-white/10 bg-black/20 p-5">
-                <p className="text-sm uppercase tracking-[0.25em] text-cyan-200/60">{title}</p>
-                <p className="mt-3 text-sm leading-6 text-slate-300">{description}</p>
+              <div key={title} className="surface-sunken p-4">
+                <p className="label-mini">{title}</p>
+                <p className="mt-2 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">{description}</p>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="rounded-[2.5rem] border border-white/10 bg-black/25 p-8 shadow-[0_40px_140px_rgba(8,15,33,0.72)] backdrop-blur-2xl md:p-10">
+        {/* ===== RIGHT: Launch panel ===== */}
+        <section className="panel-paper fade-rise flex flex-col p-6 md:p-9" style={{ animationDelay: "80ms" }}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.4em] text-cyan-200/70">Launch</p>
-              <h2 className="mt-3 text-3xl text-white">开始一次会话</h2>
+              <p className="label-mini">Launch</p>
+              <h2 className="mt-1.5 text-2xl md:text-3xl">开始一次会话</h2>
             </div>
-            <div className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-cyan-100">
-              20 题可出报告
-            </div>
+            <span className="chip chip-accent">20 题可出报告</span>
           </div>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
+          <div className="hairline mt-6" />
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
             <label className="block">
-              <span className="mb-2 block text-sm text-slate-300">默认投影模式</span>
+              <span className="label-mini mb-2 block">默认投影模式</span>
               <select
                 className="field"
                 value={projectionMode}
@@ -88,7 +96,7 @@ export function LandingClient() {
               </select>
             </label>
             <label className="block">
-              <span className="mb-2 block text-sm text-slate-300">默认命名风格</span>
+              <span className="label-mini mb-2 block">默认命名风格</span>
               <select
                 className="field"
                 value={namingStyle}
@@ -103,21 +111,23 @@ export function LandingClient() {
             </label>
           </div>
 
-          <p className="mt-5 rounded-2xl border border-white/8 bg-white/5 px-4 py-3 text-sm leading-6 text-slate-300">
-            AI 增强现在由本地管理端统一配置。普通用户入口不再提交或持久化 API Key，报告会自动使用当前管理员已启用的模型，
-            如果没有启用，就安全地回退到后端本地摘要。
-          </p>
-          <p className="mt-4 rounded-2xl border border-cyan-300/10 bg-cyan-300/5 px-4 py-3 text-sm leading-6 text-slate-300">
-            当前版本会为每次测试分配独立的会话密钥和删除令牌，刷新页面仍可续答；主动删除后立即失效，超过 1 小时也会自动清理。
-          </p>
-          <p className="mt-4 rounded-2xl border border-amber-300/10 bg-amber-300/5 px-4 py-3 text-sm leading-6 text-slate-300">
-            提示：此项目仍属于娱乐与结构化自测，不构成专业诊断、人格定论或现实决策建议。
-          </p>
+          <div className="mt-6 space-y-2.5">
+            <p className="surface-sunken p-3.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">
+              AI 增强现在由本地管理端统一配置。普通入口不再提交或持久化 API Key，报告会自动使用当前管理员已启用的模型，
+              如果没有启用就回退到后端本地摘要。
+            </p>
+            <p className="rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/55 p-3.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">
+              当前版本会为每次测试分配独立的会话密钥与删除令牌。刷新页面仍可续答；主动删除后立即失效，超过 1 小时也会自动清理。
+            </p>
+            <p className="rounded-[var(--r-md)] border border-[color:var(--warn-soft)] bg-[color:var(--warn-soft)]/55 p-3.5 text-[0.85rem] leading-6 text-[color:var(--warn-ink)]">
+              提示：此项目仍属于娱乐与结构化自测，不构成专业诊断、人格定论或现实决策建议。
+            </p>
+          </div>
 
-          <div className="mt-8 flex flex-col gap-4 sm:flex-row">
+          <div className="mt-auto flex flex-col gap-3 pt-7 sm:flex-row">
             <button
               type="button"
-              className="rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+              className="btn btn-primary"
               onClick={() => {
                 saveReportViewPreferences({ projectionMode, namingStyle });
                 router.push("/session");
@@ -127,7 +137,7 @@ export function LandingClient() {
             </button>
             <button
               type="button"
-              className="rounded-full border border-white/15 bg-white/6 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+              className="btn btn-ghost"
               onClick={() => router.push("/history")}
             >
               查看本地历史
@@ -137,35 +147,40 @@ export function LandingClient() {
       </div>
 
       {showBrandModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/82 px-6 py-8 backdrop-blur-md">
-          <div className="relative w-full max-w-6xl overflow-hidden rounded-[2rem] border border-white/12 bg-[#e8ebef] p-4 shadow-[0_35px_140px_rgba(0,0,0,0.55)]">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--bg-ink)]/55 px-6 py-8 backdrop-blur-sm"
+          onClick={() => setShowBrandModal(false)}
+        >
+          <div
+            className="relative w-full max-w-5xl overflow-hidden rounded-[var(--r-xl)] border border-[color:var(--line-mid)] bg-[color:var(--bg-paper)] p-5 shadow-[0_30px_120px_rgba(26,24,22,0.35)]"
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               type="button"
-              className="absolute right-4 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-full border border-slate-900/10 bg-white/82 text-xl text-slate-900 shadow-sm transition hover:bg-white"
+              className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-[color:var(--line-mid)] bg-[color:var(--bg-paper)] text-lg text-[color:var(--ink-strong)] shadow-sm transition hover:bg-[color:var(--bg-sunken)]"
               onClick={() => setShowBrandModal(false)}
               aria-label="关闭品牌图预览"
             >
-              X
+              ×
             </button>
             <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-              <div className="rounded-[1.6rem] bg-[linear-gradient(180deg,_rgba(255,255,255,0.92),_rgba(234,239,243,0.96))] p-4">
+              <div className="rounded-[var(--r-lg)] bg-[color:var(--bg-sunken)] p-3">
                 <Image
                   src="/brand/hero-logo.png"
                   alt="Distilled TI 品牌图放大预览"
                   width={1024}
                   height={576}
-                  className="h-auto w-full rounded-[1rem]"
+                  className="h-auto w-full rounded-[var(--r-md)]"
                 />
               </div>
-              <div className="px-2 py-3 text-slate-900 lg:px-4">
-                <p className="text-xs uppercase tracking-[0.4em] text-slate-500">Distilled TI</p>
-                <h2 className="mt-4 text-4xl leading-tight text-slate-950 md:text-5xl">
+              <div className="px-2 py-3 lg:px-4">
+                <p className="label-mini">Distilled TI</p>
+                <h2 className="mt-3 text-3xl leading-tight text-[color:var(--ink-strong)] md:text-4xl">
                   Distilled TI
                   <br />
                   Not a type. A structure.
                 </h2>
-                <div className="mt-8 space-y-3 text-lg leading-8 text-slate-700">
-                  <p>Distilled TI</p>
+                <div className="mt-6 space-y-2 text-[1rem] leading-7 text-[color:var(--ink-body)]">
                   <p>从回答中提纯轮廓，</p>
                   <p>从轮廓中析出结构。</p>
                 </div>

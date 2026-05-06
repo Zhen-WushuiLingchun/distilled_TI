@@ -25,15 +25,13 @@ export function RadarChart({ values }: RadarChartProps) {
     .join(" ");
 
   return (
-    <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-[0_30px_120px_rgba(22,22,54,0.35)] backdrop-blur-xl">
-      <div className="mb-4 flex items-end justify-between">
+    <div className="panel p-5 md:p-6">
+      <div className="mb-4 flex items-end justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/70">
-            Core Space
-          </p>
-          <h3 className="mt-2 text-2xl text-white">核心相空间雷达图</h3>
+          <p className="label-mini">Core Space</p>
+          <h3 className="mt-1.5 text-xl text-[color:var(--ink-strong)]">核心相空间雷达图</h3>
         </div>
-        <p className="max-w-40 text-right text-xs leading-5 text-slate-300">
+        <p className="max-w-[14rem] text-right text-[0.72rem] leading-5 text-[color:var(--ink-muted)]">
           越靠外代表当前估计越接近该维度的高侧，图形会随着答题继续收缩和偏转。
         </p>
       </div>
@@ -48,8 +46,8 @@ export function RadarChart({ values }: RadarChartProps) {
             cy={CENTER}
             r={(ring / 100) * RADIUS}
             fill="none"
-            stroke="rgba(255,255,255,0.12)"
-            strokeDasharray="3 8"
+            stroke="rgba(26,24,22,0.08)"
+            strokeDasharray="3 6"
           />
         ))}
         {entries.map(([label], index) => {
@@ -61,12 +59,12 @@ export function RadarChart({ values }: RadarChartProps) {
                 y1={CENTER}
                 x2={axis.x}
                 y2={axis.y}
-                stroke="rgba(255,255,255,0.15)"
+                stroke="rgba(26,24,22,0.10)"
               />
               <text
                 x={CENTER + (axis.x - CENTER) * 1.14}
                 y={CENTER + (axis.y - CENTER) * 1.14}
-                fill="rgba(226,232,240,0.9)"
+                fill="rgba(44,42,39,0.85)"
                 fontSize="11"
                 textAnchor="middle"
               >
@@ -77,9 +75,9 @@ export function RadarChart({ values }: RadarChartProps) {
         })}
         <polygon
           points={polygonPoints}
-          fill="rgba(96,165,250,0.18)"
-          stroke="rgba(125,211,252,0.95)"
-          strokeWidth="2"
+          fill="rgba(47,111,94,0.16)"
+          stroke="rgba(47,111,94,0.85)"
+          strokeWidth="1.6"
         />
       </svg>
     </div>

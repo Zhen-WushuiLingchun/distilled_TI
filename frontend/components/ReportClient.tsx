@@ -134,25 +134,35 @@ export function ReportClient({ sessionId }: ReportClientProps) {
 
   if (displayError) {
     return (
-      <main className="session-shell">
-        <div className="rounded-[2rem] border border-rose-300/20 bg-rose-300/10 p-8 text-rose-100">
-          <p className="text-sm uppercase tracking-[0.35em]">Report Locked</p>
-          <h1 className="mt-4 text-3xl">当前还不能查看正式报告</h1>
-          <p className="mt-4 max-w-2xl leading-7">{displayError}</p>
-          <button
-            type="button"
-            className="mt-8 rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white"
-            onClick={() => router.push("/session")}
-          >
-            返回继续答题
-          </button>
+      <main className="cockpit-shell">
+        <div className="relative z-10 mx-auto max-w-3xl">
+          <div className="panel border-[color:var(--danger)]/30 bg-[color:var(--danger-soft)]/55 p-7 md:p-9">
+            <p className="label-mini">Report Locked</p>
+            <h1 className="mt-3 text-3xl text-[color:var(--ink-strong)]">当前还不能查看正式报告</h1>
+            <p className="mt-4 max-w-2xl leading-7 text-[color:var(--ink-body)]">{displayError}</p>
+            <button
+              type="button"
+              className="btn btn-ghost mt-7"
+              onClick={() => router.push("/session")}
+            >
+              返回继续答题
+            </button>
+          </div>
         </div>
       </main>
     );
   }
 
   if (!report) {
-    return <main className="session-shell">正在生成 AI 报告...</main>;
+    return (
+      <main className="cockpit-shell">
+        <div className="relative z-10 mx-auto flex min-h-[60vh] max-w-2xl flex-col items-center justify-center text-center">
+          <p className="eyebrow">Report</p>
+          <h1 className="mt-4 text-3xl">正在生成 AI 报告</h1>
+          <p className="mt-3 text-[color:var(--ink-muted)]">读取会话状态、聚类簇与命名…</p>
+        </div>
+      </main>
+    );
   }
 
   const hasSubBars = Object.keys(report.sub_bars).length > 0;
@@ -160,290 +170,299 @@ export function ReportClient({ sessionId }: ReportClientProps) {
   const clusterMix = report.cluster_mix ?? [];
 
   return (
-    <main className="session-shell space-y-8">
-      <section className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[2.4rem] border border-white/10 bg-white/6 p-8 backdrop-blur-2xl">
-          <p className="text-xs uppercase tracking-[0.4em] text-cyan-200/70">Report</p>
-          <h1 className="mt-4 text-5xl leading-[0.96] text-white md:text-6xl">{report.narrative_label}</h1>
-          {report.ai_aliases.length > 0 ? (
-            <div className="mt-4 flex flex-wrap gap-3">
-              {report.ai_aliases.map((alias) => (
-                <span key={alias} className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-indigo-100">
-                  {alias}
-                </span>
-              ))}
+    <main className="cockpit-shell">
+      <section className="relative z-10 mx-auto max-w-[1400px] space-y-6">
+        {/* ============== HERO + CONFIDENCE ============== */}
+        <section className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="panel-paper fade-rise p-6 md:p-9">
+            <div className="flex items-center gap-3">
+              <span className="eyebrow">Report</span>
+              <span className="hairline-strong h-px w-8" aria-hidden />
+              <span className="eyebrow">{report.cluster_name}</span>
             </div>
-          ) : null}
-          <p className="mt-4 text-sm uppercase tracking-[0.32em] text-indigo-200/70">{report.cluster_name}</p>
-          <p className="mt-8 max-w-3xl text-lg leading-8 text-slate-200">{report.ai_summary}</p>
-          {warning ? <p className="mt-4 text-sm text-amber-200">{warning}</p> : null}
-          <div className="mt-8 grid gap-4 md:grid-cols-2">
-            <label className="rounded-[1.2rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-200">
-              <span className="text-xs uppercase tracking-[0.28em] text-slate-400">Projection Mode</span>
-              <select
-                className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-white outline-none"
-                value={projectionMode}
-                onChange={(event) => setProjectionMode(event.target.value as ProjectionMode)}
-              >
-                <option value="auto">自动投影</option>
-                <option value="structure">结构轴投影</option>
-                <option value="core">核心维度投影</option>
-              </select>
-            </label>
-            <label className="rounded-[1.2rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-200">
-              <span className="text-xs uppercase tracking-[0.28em] text-slate-400">Naming Style</span>
-              <select
-                className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-white outline-none"
-                value={namingStyle}
-                onChange={(event) => setNamingStyle(event.target.value as NamingStyle)}
-              >
-                <option value="auto">自动</option>
-                <option value="object">物体 / 器件</option>
-                <option value="creature">生物 / 怪物</option>
-                <option value="role">职业 / 角色</option>
-                <option value="apparatus">抽象装置</option>
-              </select>
-            </label>
-          </div>
-          <p className="mt-3 text-sm leading-6 text-slate-400">
-            投影模式只改变可视化视角，不改变底层聚类结果；命名风格只改变 AI 的命名与总结风格，不改变分数和簇归属。
-          </p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
-            {report.structural_labels.map((item) => (
-              <span
-                key={item.dimension}
-                className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm text-cyan-100"
-              >
-                {item.label} {item.score > 0 ? "偏高" : "偏低"}
-              </span>
-            ))}
-          </div>
+            <h1 className="mt-4 text-[2.5rem] leading-[1.05] text-[color:var(--ink-strong)] md:text-[3.4rem]">
+              {report.narrative_label}
+            </h1>
 
-          <div className="mt-10 flex flex-wrap gap-4">
-            {finalizedView ? (
-              <>
-                <button
-                  type="button"
-                  className="rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
-                  onClick={handleCloseFinalReport}
-                >
-                  关闭最终报告
-                </button>
-                <button
-                  type="button"
-                  className="rounded-full border border-white/15 bg-white/6 px-6 py-3 text-sm font-semibold text-white"
-                  onClick={() => void handleDelete()}
-                >
-                  删除这次会话
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950"
-                  onClick={() => router.push("/session")}
-                >
-                  继续答题细化画像
-                </button>
-                <button
-                  type="button"
-                  className="rounded-full border border-white/15 bg-white/6 px-6 py-3 text-sm font-semibold text-white"
-                  onClick={() => void handleDelete()}
-                >
-                  结束并删除本次会话
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+            {report.ai_aliases.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-1.5">
+                {report.ai_aliases.map((alias) => (
+                  <span key={alias} className="chip chip-accent">{alias}</span>
+                ))}
+              </div>
+            ) : null}
 
-        <div className="grid gap-6">
-          <div className="glass-card h-fit">
-            <p className="label-mini">Confidence</p>
-            <p className="metric-big">{map ? `${(map.confidence * 100).toFixed(1)}%` : "--"}</p>
-            <p className="mt-2 text-sm text-cyan-200">聚类置信度 {(report.cluster_confidence * 100).toFixed(1)}%</p>
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-              当前估计稳定度来自核心维度的不确定性收缩，答题越多，区间通常越窄。
+            <p className="mt-7 max-w-3xl text-[1rem] leading-7 text-[color:var(--ink-body)] md:text-[1.05rem] md:leading-8 measure-wide">
+              {report.ai_summary}
             </p>
+
+            {warning ? (
+              <p className="mt-4 rounded-[var(--r-md)] border border-[color:var(--warn-soft)] bg-[color:var(--warn-soft)]/55 p-3 text-sm text-[color:var(--warn-ink)]">
+                {warning}
+              </p>
+            ) : null}
+
+            <div className="mt-7 grid gap-3 md:grid-cols-2">
+              <label className="surface-flat block p-3.5">
+                <span className="label-mini">Projection Mode</span>
+                <select
+                  className="field mt-2"
+                  value={projectionMode}
+                  onChange={(event) => setProjectionMode(event.target.value as ProjectionMode)}
+                >
+                  <option value="auto">自动投影</option>
+                  <option value="structure">结构轴投影</option>
+                  <option value="core">核心维度投影</option>
+                </select>
+              </label>
+              <label className="surface-flat block p-3.5">
+                <span className="label-mini">Naming Style</span>
+                <select
+                  className="field mt-2"
+                  value={namingStyle}
+                  onChange={(event) => setNamingStyle(event.target.value as NamingStyle)}
+                >
+                  <option value="auto">自动</option>
+                  <option value="object">物体 / 器件</option>
+                  <option value="creature">生物 / 怪物</option>
+                  <option value="role">职业 / 角色</option>
+                  <option value="apparatus">抽象装置</option>
+                </select>
+              </label>
+            </div>
+            <p className="mt-2.5 text-[0.82rem] leading-6 text-[color:var(--ink-muted)]">
+              投影模式只改变可视化视角，不改变底层聚类结果；命名风格只改变 AI 的命名与总结风格，不改变分数和簇归属。
+            </p>
+
+            {report.structural_labels.length > 0 ? (
+              <div className="mt-7 flex flex-wrap gap-1.5">
+                {report.structural_labels.map((item) => (
+                  <span key={item.dimension} className="chip">
+                    {item.label} {item.score > 0 ? "偏高" : "偏低"}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="mt-8 flex flex-wrap gap-2.5">
+              {finalizedView ? (
+                <>
+                  <button type="button" className="btn btn-primary" onClick={handleCloseFinalReport}>
+                    关闭最终报告
+                  </button>
+                  <button type="button" className="btn btn-danger" onClick={() => void handleDelete()}>
+                    删除这次会话
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="btn btn-primary" onClick={() => router.push("/session")}>
+                    继续答题细化画像
+                  </button>
+                  <button type="button" className="btn btn-danger" onClick={() => void handleDelete()}>
+                    结束并删除本次会话
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="glass-card h-fit">
-            <p className="label-mini">Cluster Mix</p>
-            <h3 className="mt-3 text-2xl text-white">多簇归属</h3>
+
+          <div className="grid gap-5">
+            <div className="panel fade-rise p-5 md:p-6" style={{ animationDelay: "60ms" }}>
+              <p className="label-mini">Confidence</p>
+              <p className="metric-big">
+                {map ? `${(map.confidence * 100).toFixed(1)}%` : "—"}
+              </p>
+              <p className="num mt-2 text-sm text-[color:var(--accent-ink)]">
+                聚类置信度 {(report.cluster_confidence * 100).toFixed(1)}%
+              </p>
+              <p className="mt-3 text-[0.85rem] leading-6 text-[color:var(--ink-muted)]">
+                当前估计稳定度来自核心维度的不确定性收缩，答题越多，区间通常越窄。
+              </p>
+            </div>
+
+            <div className="panel fade-rise p-5 md:p-6" style={{ animationDelay: "120ms" }}>
+              <p className="label-mini">Cluster Mix</p>
+              <h3 className="mt-1.5 text-xl text-[color:var(--ink-strong)]">多簇归属</h3>
+              <div className="mt-4 space-y-2.5">
+                {clusterMix.map((item) => (
+                  <div key={item.cluster_index} className="surface-sunken p-3.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[0.9rem] text-[color:var(--ink-strong)]">{item.cluster_name}</p>
+                        <p className="mt-0.5 truncate text-[0.72rem] text-[color:var(--ink-faint)]">
+                          {item.narrative_label}
+                        </p>
+                      </div>
+                      <p className="num text-base text-[color:var(--ink-strong)]">{(item.weight * 100).toFixed(1)}%</p>
+                    </div>
+                    <p className="num mt-2 text-[0.7rem] text-[color:var(--ink-faint)]">距离 {item.distance.toFixed(2)}</p>
+                  </div>
+                ))}
+                {clusterMix.length === 0 ? (
+                  <p className="text-sm text-[color:var(--ink-muted)]">当前簇混合信息还在生成中。</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="panel fade-rise p-5 md:p-6" style={{ animationDelay: "180ms" }}>
+              <p className="label-mini">Trajectory Projection</p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="surface-sunken p-3.5">
+                  <p className="label-mini">P1 Axis</p>
+                  <p className="num mt-1.5 text-2xl text-[color:var(--ink-strong)]">
+                    {map?.point.x.toFixed(2) ?? "—"}
+                  </p>
+                  <p className="mt-0.5 text-[0.7rem] text-[color:var(--ink-faint)]">P1 投影轴</p>
+                </div>
+                <div className="surface-sunken p-3.5">
+                  <p className="label-mini">P2 Axis</p>
+                  <p className="num mt-1.5 text-2xl text-[color:var(--ink-strong)]">
+                    {map?.point.y.toFixed(2) ?? "—"}
+                  </p>
+                  <p className="mt-0.5 text-[0.7rem] text-[color:var(--ink-faint)]">P2 投影轴</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ============== Radar + Sub Bars ============== */}
+        <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+          <RadarChart values={report.core_bars} />
+          <MetricBars
+            eyebrow="Sub Space"
+            title={hasSubBars ? "已解锁细分维度" : "细分维度采样中"}
+            metrics={report.sub_bars}
+            emptyMessage="当前还没有采到足够的细分题样本，所以这里先不展示百分比条；继续答题后会更早进入 sub 探测。"
+          />
+        </section>
+
+        {/* ============== Projection chart ============== */}
+        {map ? (
+          <ProjectionChart
+            x={map.point.x}
+            y={map.point.y}
+            confidence={map.confidence}
+            clusterName={map.point.cluster_name ?? report.cluster_name}
+            answerPoints={map.answer_points}
+            trajectoryPoints={map.trajectory_points}
+            clusterCenters={map.cluster_centers}
+            clusterRegions={map.cluster_regions}
+          />
+        ) : null}
+
+        {/* ============== Salient + Active modules ============== */}
+        <section className="grid gap-5 lg:grid-cols-2">
+          <div className="panel p-5 md:p-6">
+            <p className="label-mini">Salient Subdimensions</p>
+            <h3 className="mt-1.5 text-xl text-[color:var(--ink-strong)]">显著细分纤维</h3>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {report.salient_subdimensions.length > 0 ? (
+                report.salient_subdimensions.map((item) => (
+                  <span key={item} className="chip">{item}</span>
+                ))
+              ) : (
+                <span className="text-sm text-[color:var(--ink-muted)]">继续答题后会逐渐显露。</span>
+              )}
+            </div>
+          </div>
+          <div className="panel p-5 md:p-6">
+            <p className="label-mini">Activated Modules</p>
+            <h3 className="mt-1.5 text-xl text-[color:var(--ink-strong)]">活跃情境模块</h3>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {report.active_module_labels.length > 0 ? (
+                report.active_module_labels.map((item) => (
+                  <span key={item} className="chip chip-accent">{item}</span>
+                ))
+              ) : (
+                <span className="text-sm text-[color:var(--ink-muted)]">当前还没有足够数据激活模块投影。</span>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* ============== Sub / Module Insights ============== */}
+        <section className="grid gap-5 lg:grid-cols-2">
+          <div className="panel p-5 md:p-6">
+            <p className="label-mini">Sub Insights</p>
+            <h3 className="mt-1.5 text-xl text-[color:var(--ink-strong)]">细分参数与评价</h3>
             <div className="mt-5 space-y-3">
-              {clusterMix.map((item) => (
-                <div key={item.cluster_index} className="rounded-[1.2rem] border border-white/10 bg-white/5 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm text-cyan-100">{item.cluster_name}</p>
-                      <p className="mt-1 text-xs text-slate-400">{item.narrative_label}</p>
+              {report.sub_insights.length > 0 ? (
+                report.sub_insights.map((item) => (
+                  <div key={item.key} className="surface-sunken p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[0.92rem] text-[color:var(--ink-strong)]">{item.label}</p>
+                        <p className="label-mini mt-0.5">{item.parent_label}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="num text-lg text-[color:var(--ink-strong)]">{item.percent.toFixed(1)}%</p>
+                        <p className="num text-[0.7rem] text-[color:var(--ink-faint)]">σ {item.sigma.toFixed(2)}</p>
+                      </div>
                     </div>
-                    <p className="text-lg text-white">{(item.weight * 100).toFixed(1)}%</p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      <span className="chip">{item.direction_label}</span>
+                      <span className="chip chip-accent">{item.strength_label}</span>
+                      <span className="chip">证据 {item.sample_count} 题</span>
+                      <span className="chip chip-success">
+                        稳定度 {item.confidence_percent.toFixed(1)}% / {item.confidence_label}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-[0.88rem] leading-6 text-[color:var(--ink-body)]">{item.evaluation}</p>
+                    <p className="mt-1.5 text-[0.78rem] italic leading-5 text-[color:var(--accent-ink)]">{item.metaphor}</p>
                   </div>
-                  <p className="mt-2 text-xs text-slate-400">距离 {item.distance.toFixed(2)}</p>
-                </div>
-              ))}
-              {clusterMix.length === 0 ? <p className="text-sm text-slate-400">当前簇混合信息还在生成中。</p> : null}
+                ))
+              ) : (
+                <p className="text-sm text-[color:var(--ink-muted)]">
+                  当前这一轮还没采到足够细的 sub 题，继续作答会更快出现。
+                </p>
+              )}
             </div>
           </div>
-          <div className="glass-card h-fit">
-            <p className="label-mini">Trajectory Projection</p>
-            <div className="mt-4 grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">P1 Axis</p>
-                <p className="mt-2 text-2xl text-white">{map?.point.x.toFixed(2) ?? "--"}</p>
-                <p className="mt-1 text-xs text-slate-500">P1 投影轴</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-slate-400">P2 Axis</p>
-                <p className="mt-2 text-2xl text-white">{map?.point.y.toFixed(2) ?? "--"}</p>
-                <p className="mt-1 text-xs text-slate-500">P2 投影轴</p>
-              </div>
+
+          <div className="panel p-5 md:p-6">
+            <p className="label-mini">Module Insights</p>
+            <h3 className="mt-1.5 text-xl text-[color:var(--ink-strong)]">情境模块参数</h3>
+            <div className="mt-5 space-y-3">
+              {report.module_insights.length > 0 ? (
+                report.module_insights.map((item) => (
+                  <div key={item.key} className="rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/40 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-[0.92rem] text-[color:var(--ink-strong)]">{item.label}</p>
+                      <p className="num text-[0.92rem] text-[color:var(--accent-ink)]">{item.percent.toFixed(1)}%</p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      <span className="chip chip-accent">{item.strength_label}</span>
+                      <span className="chip">证据 {item.sample_count} 题</span>
+                      <span className="chip chip-success">
+                        稳定度 {item.confidence_percent.toFixed(1)}% / {item.confidence_label}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-[0.88rem] leading-6 text-[color:var(--ink-body)]">{item.evaluation}</p>
+                    <p className="mt-1.5 text-[0.78rem] italic leading-5 text-[color:var(--accent-ink)]">{item.metaphor}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-[color:var(--ink-muted)]">
+                  模块投影还比较淡，继续答题会更容易长出来。
+                </p>
+              )}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-        <RadarChart values={report.core_bars} />
-        <MetricBars
-          eyebrow="Sub Space"
-          title={hasSubBars ? "已解锁细分维度" : "细分维度采样中"}
-          metrics={report.sub_bars}
-          emptyMessage="当前还没有采到足够的细分题样本，所以这里先不展示百分比条；继续答题后会更早进入 sub 探测。"
-        />
-      </section>
-
-      {map ? (
-        <ProjectionChart
-          x={map.point.x}
-          y={map.point.y}
-          confidence={map.confidence}
-          clusterName={map.point.cluster_name ?? report.cluster_name}
-          answerPoints={map.answer_points}
-          trajectoryPoints={map.trajectory_points}
-          clusterCenters={map.cluster_centers}
-          clusterRegions={map.cluster_regions}
-        />
-      ) : null}
-
-      <section className="grid gap-6 lg:grid-cols-2">
-        <div className="glass-card">
-          <p className="label-mini">Salient Subdimensions</p>
-          <h3 className="mt-3 text-2xl text-white">显著细分纤维</h3>
-          <div className="mt-5 flex flex-wrap gap-3">
-            {report.salient_subdimensions.length > 0 ? (
-              report.salient_subdimensions.map((item) => (
-                <span key={item} className="rounded-full border border-white/10 bg-white/6 px-4 py-2 text-sm text-white">
-                  {item}
-                </span>
-              ))
-            ) : (
-              <span className="text-sm text-slate-400">继续答题后会逐渐显露。</span>
-            )}
-          </div>
-        </div>
-        <div className="glass-card">
-          <p className="label-mini">Activated Modules</p>
-          <h3 className="mt-3 text-2xl text-white">活跃情境模块</h3>
-          <div className="mt-5 flex flex-wrap gap-3">
-            {report.active_module_labels.length > 0 ? (
-              report.active_module_labels.map((item) => (
-                <span key={item} className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-100">
-                  {item}
-                </span>
-              ))
-            ) : (
-              <span className="text-sm text-slate-400">当前还没有足够数据激活模块投影。</span>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-8 lg:grid-cols-2">
-        <div className="rounded-[2rem] border border-white/10 bg-black/20 p-6 backdrop-blur-xl">
-          <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/70">Sub Insights</p>
-          <h3 className="mt-2 text-2xl text-white">细分参数与评价</h3>
-          <div className="mt-6 space-y-4">
-            {report.sub_insights.length > 0 ? (
-              report.sub_insights.map((item) => (
-                <div key={item.key} className="rounded-[1.4rem] border border-white/8 bg-white/[0.04] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm text-cyan-100">{item.label}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.25em] text-slate-400">{item.parent_label}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg text-white">{item.percent.toFixed(1)}%</p>
-                      <p className="text-xs text-slate-400">sigma {item.sigma.toFixed(2)}</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-200">
-                      {item.direction_label}
-                    </span>
-                    <span className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1 text-cyan-100">
-                      {item.strength_label}
-                    </span>
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-200">
-                      证据 {item.sample_count} 题
-                    </span>
-                    <span className="rounded-full border border-emerald-300/15 bg-emerald-300/10 px-3 py-1 text-emerald-100">
-                      稳定度 {item.confidence_percent.toFixed(1)}% / {item.confidence_label}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-200">{item.evaluation}</p>
-                  <p className="mt-2 text-xs text-cyan-200/80">{item.metaphor}</p>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-slate-400">当前这一轮还没采到足够细的 sub 题，继续作答会更快出现。</p>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-[2rem] border border-white/10 bg-black/20 p-6 backdrop-blur-xl">
-          <p className="text-xs uppercase tracking-[0.35em] text-cyan-200/70">Module Insights</p>
-          <h3 className="mt-2 text-2xl text-white">情境模块参数</h3>
-          <div className="mt-6 space-y-4">
-            {report.module_insights.length > 0 ? (
-              report.module_insights.map((item) => (
-                <div key={item.key} className="rounded-[1.4rem] border border-cyan-300/10 bg-cyan-300/[0.05] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm text-white">{item.label}</p>
-                    <p className="text-sm text-cyan-200">{item.percent.toFixed(1)}%</p>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1 text-cyan-100">
-                      {item.strength_label}
-                    </span>
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-200">
-                      证据 {item.sample_count} 题
-                    </span>
-                    <span className="rounded-full border border-emerald-300/15 bg-emerald-300/10 px-3 py-1 text-emerald-100">
-                      稳定度 {item.confidence_percent.toFixed(1)}% / {item.confidence_label}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-200">{item.evaluation}</p>
-                  <p className="mt-2 text-xs text-cyan-200/80">{item.metaphor}</p>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-slate-400">模块投影还比较淡，继续答题会更容易长出来。</p>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-8 lg:grid-cols-2">
-        <MetricBars eyebrow="Core Bars" title="核心维度百分比条" metrics={report.core_bars} />
-        <MetricBars
-          eyebrow="Module Projection"
-          title={hasModuleBars ? "情境投影画像" : "模块投影采样中"}
-          metrics={report.module_bars}
-          emptyMessage="模块采样还偏淡，继续答题后这里会出现更明确的模块百分比条。"
-        />
+        {/* ============== Core / Module bars ============== */}
+        <section className="grid gap-5 lg:grid-cols-2">
+          <MetricBars eyebrow="Core Bars" title="核心维度百分比条" metrics={report.core_bars} />
+          <MetricBars
+            eyebrow="Module Projection"
+            title={hasModuleBars ? "情境投影画像" : "模块投影采样中"}
+            metrics={report.module_bars}
+            emptyMessage="模块采样还偏淡，继续答题后这里会出现更明确的模块百分比条。"
+          />
+        </section>
       </section>
     </main>
   );

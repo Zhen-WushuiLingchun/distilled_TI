@@ -239,22 +239,25 @@ export function AdminClient() {
 
   function renderHits(hits: VectorSearchHit[]) {
     if (!hits.length) {
-      return <p className="mt-3 text-sm text-slate-400">No hits</p>;
+      return <p className="num mt-2 text-[0.78rem] text-[color:var(--ink-faint)]">No hits</p>;
     }
     return (
-      <div className="mt-3 space-y-2">
+      <div className="mt-2 space-y-1.5">
         {hits.map((hit) => (
-          <div key={`${hit.object_id}-${hit.object_type}`} className="rounded-xl border border-white/8 bg-black/20 p-3">
-            <div className="flex items-center justify-between gap-3 text-xs text-slate-300">
+          <div
+            key={`${hit.object_id}-${hit.object_type}`}
+            className="rounded-[var(--r-sm)] border border-[color:var(--line-soft)] bg-[color:var(--bg-sunken)] p-2.5"
+          >
+            <div className="num flex items-center justify-between gap-2 text-[0.7rem] text-[color:var(--ink-muted)]">
               <span>
                 {hit.object_type} / {hit.score.toFixed(3)}
                 {typeof hit.snapshot_milestone === "number" ? ` / m${hit.snapshot_milestone}` : ""}
               </span>
-              <span>{hit.session_id ?? hit.template_id ?? hit.instance_id ?? hit.object_id}</span>
+              <span className="truncate">{hit.session_id ?? hit.template_id ?? hit.instance_id ?? hit.object_id}</span>
             </div>
-            <p className="mt-2 text-sm leading-6 text-white">{hit.prompt_excerpt}</p>
+            <p className="mt-1.5 text-[0.82rem] leading-5 text-[color:var(--ink-body)]">{hit.prompt_excerpt}</p>
             {typeof hit.rerank_score === "number" ? (
-              <p className="mt-1 text-xs text-slate-400">rerank {hit.rerank_score.toFixed(3)}</p>
+              <p className="num mt-1 text-[0.7rem] text-[color:var(--ink-faint)]">rerank {hit.rerank_score.toFixed(3)}</p>
             ) : null}
           </div>
         ))}
@@ -263,48 +266,59 @@ export function AdminClient() {
   }
 
   return (
-    <main className="session-shell">
-      <section className="mx-auto max-w-7xl space-y-8">
-        <div className="rounded-[2.4rem] border border-white/10 bg-white/6 p-8 backdrop-blur-2xl">
+    <main className="cockpit-shell">
+      <section className="relative z-10 mx-auto max-w-7xl space-y-5">
+        <header className="panel fade-rise p-6 md:p-8">
           <p className="label-mini">Admin</p>
-          <h1 className="mt-3 text-5xl text-white">Question and Vector Console</h1>
+          <h1 className="mt-2 text-3xl md:text-4xl">Question and Vector Console</h1>
           {feedback ? (
-            <p className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-cyan-100">{feedback}</p>
+            <p className="num mt-3 rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/55 px-3.5 py-2.5 text-sm text-[color:var(--accent-ink)]">
+              {feedback}
+            </p>
           ) : null}
-        </div>
+        </header>
 
-        <section className="grid gap-8 xl:grid-cols-2">
-          <div className="space-y-8">
-            <div className="glass-card space-y-4">
+        <section className="grid gap-5 xl:grid-cols-2">
+          {/* === LEFT COLUMN === */}
+          <div className="space-y-5">
+            {/* AI */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
               <p className="label-mini">AI</p>
               <input className="field" value={aiConfig.provider} onChange={(event) => setAiConfig((current) => ({ ...current, provider: event.target.value }))} placeholder="provider" />
               <input className="field" value={aiConfig.model} onChange={(event) => setAiConfig((current) => ({ ...current, model: event.target.value }))} placeholder="model" />
               <input className="field" value={aiConfig.base_url} onChange={(event) => setAiConfig((current) => ({ ...current, base_url: event.target.value }))} placeholder="base url" />
               <input className="field" type="password" value={aiConfig.api_key} onChange={(event) => setAiConfig((current) => ({ ...current, api_key: event.target.value }))} placeholder="api key" />
-              <p className="text-sm text-slate-300">{aiStatus.configured ? `${aiStatus.provider} / ${aiStatus.model} / ${aiStatus.base_url}` : "AI is not configured yet"}</p>
-              <button className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handleConfigureAI()}>
+              <p className="num text-[0.82rem] text-[color:var(--ink-muted)]">
+                {aiStatus.configured ? `${aiStatus.provider} / ${aiStatus.model} / ${aiStatus.base_url}` : "AI is not configured yet"}
+              </p>
+              <button className="btn btn-primary" onClick={() => void handleConfigureAI()}>
                 Save and test AI config
               </button>
             </div>
 
-            <div className="glass-card space-y-4">
+            {/* Vectors */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
               <p className="label-mini">Vectors</p>
-              <div className="flex gap-3">
+              <div className="flex gap-2.5">
                 <select className="field" value={vectorScope} onChange={(event) => setVectorScope(event.target.value as "templates" | "instances" | "sessions" | "all")}>
                   <option value="all">all</option>
                   <option value="templates">templates</option>
                   <option value="instances">instances</option>
                   <option value="sessions">sessions</option>
                 </select>
-                <button className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handleVectorReindex()}>
+                <button className="btn btn-primary shrink-0" onClick={() => void handleVectorReindex()}>
                   Reindex
                 </button>
               </div>
-              {lastReindex ? <p className="text-sm text-slate-300">{lastReindex.scope} / indexed {lastReindex.indexed_count} / failed {lastReindex.failed_count}</p> : null}
+              {lastReindex ? (
+                <p className="num text-[0.82rem] text-[color:var(--ink-muted)]">
+                  {lastReindex.scope} / indexed {lastReindex.indexed_count} / failed {lastReindex.failed_count}
+                </p>
+              ) : null}
 
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Similar Templates</p>
-                <select className="field mt-3" value={similarTemplateId} onChange={(event) => setSimilarTemplateId(event.target.value)}>
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Similar Templates</p>
+                <select className="field mt-2.5" value={similarTemplateId} onChange={(event) => setSimilarTemplateId(event.target.value)}>
                   <option value="">search by template id</option>
                   {templates.slice(0, 80).map((template) => (
                     <option key={template.id} value={template.id}>
@@ -312,16 +326,16 @@ export function AdminClient() {
                     </option>
                   ))}
                 </select>
-                <textarea className="field mt-3 min-h-24" value={similarPrompt} onChange={(event) => setSimilarPrompt(event.target.value)} placeholder="or type a raw prompt" />
-                <button className="mt-3 rounded-full border border-white/15 px-5 py-3 text-sm text-white" onClick={() => void handleSimilarTemplateSearch()}>
+                <textarea className="field mt-2.5 min-h-24" value={similarPrompt} onChange={(event) => setSimilarPrompt(event.target.value)} placeholder="or type a raw prompt" />
+                <button className="btn btn-ghost mt-2.5" onClick={() => void handleSimilarTemplateSearch()}>
                   Search similar templates
                 </button>
                 {renderHits(similarHits)}
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Similar Sessions</p>
-                <select className="field mt-3" value={similarSessionId} onChange={(event) => setSimilarSessionId(event.target.value)}>
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Similar Sessions</p>
+                <select className="field mt-2.5" value={similarSessionId} onChange={(event) => setSimilarSessionId(event.target.value)}>
                   <option value="">search by session id</option>
                   {sessions.map((session) => (
                     <option key={session.session_id} value={session.session_id}>
@@ -329,27 +343,28 @@ export function AdminClient() {
                     </option>
                   ))}
                 </select>
-                <button className="mt-3 rounded-full border border-white/15 px-5 py-3 text-sm text-white" onClick={() => void handleSimilarSessionSearch()}>
+                <button className="btn btn-ghost mt-2.5" onClick={() => void handleSimilarSessionSearch()}>
                   Search similar sessions
                 </button>
                 {renderHits(similarSessionHits)}
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Sync Failures</p>
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Sync Failures</p>
                 {vectorFailures.length ? (
                   vectorFailures.map((failure) => (
-                    <p key={failure.failure_id} className="mt-2 text-sm text-slate-300">
+                    <p key={failure.failure_id} className="num mt-1.5 text-[0.78rem] text-[color:var(--ink-body)]">
                       {failure.object_type} / {failure.operation} / {failure.error_message}
                     </p>
                   ))
                 ) : (
-                  <p className="mt-2 text-sm text-slate-400">No failure records</p>
+                  <p className="mt-1.5 text-[0.82rem] text-[color:var(--ink-faint)]">No failure records</p>
                 )}
               </div>
             </div>
 
-            <div className="glass-card space-y-4">
+            {/* Rewrite */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
               <p className="label-mini">Rewrite</p>
               <select className="field" value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)}>
                 <option value="">select session</option>
@@ -367,13 +382,13 @@ export function AdminClient() {
                   </option>
                 ))}
               </select>
-              <button className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handlePreview()}>
+              <button className="btn btn-primary" onClick={() => void handlePreview()}>
                 Generate rewrite preview
               </button>
               {preview ? (
-                <div className="rounded-2xl border border-cyan-300/15 bg-cyan-300/8 p-4">
-                  <p className="text-sm text-white">{preview.selected.rewritten_prompt}</p>
-                  <p className="mt-2 text-xs text-slate-300">
+                <div className="rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/40 p-3.5">
+                  <p className="text-[0.88rem] leading-6 text-[color:var(--ink-body)]">{preview.selected.rewritten_prompt}</p>
+                  <p className="num mt-2 text-[0.72rem] text-[color:var(--ink-muted)]">
                     retrieval {preview.retrieval_context?.enabled ? "on" : "off"} / reranker {preview.retrieval_context?.reranker_applied ? "on" : "off"}
                   </p>
                   {preview.retrieval_context ? (
@@ -385,12 +400,18 @@ export function AdminClient() {
                   ) : null}
                 </div>
               ) : null}
-              {selectedSession ? <p className="text-xs text-slate-400">Current session: {selectedSession.session_id} / {selectedSession.narrative_label ?? "unnamed"}</p> : null}
+              {selectedSession ? (
+                <p className="num text-[0.72rem] text-[color:var(--ink-faint)]">
+                  Current session: {selectedSession.session_id} / {selectedSession.narrative_label ?? "unnamed"}
+                </p>
+              ) : null}
             </div>
           </div>
 
-          <div className="space-y-8">
-            <div className="glass-card space-y-4">
+          {/* === RIGHT COLUMN === */}
+          <div className="space-y-5">
+            {/* Templates */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
               <p className="label-mini">Templates</p>
               <textarea className="field min-h-32" value={form.prompt} onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))} placeholder="prompt" />
               <input className="field" value={form.template_id} onChange={(event) => setForm((current) => ({ ...current, template_id: event.target.value }))} placeholder="template id for update" />
@@ -399,29 +420,29 @@ export function AdminClient() {
               <input className="field" value={form.subdimension_weights} onChange={(event) => setForm((current) => ({ ...current, subdimension_weights: event.target.value }))} />
               <input className="field" value={form.module_affinities} onChange={(event) => setForm((current) => ({ ...current, module_affinities: event.target.value }))} />
               <input className="field" value={form.scenario_tags} onChange={(event) => setForm((current) => ({ ...current, scenario_tags: event.target.value }))} />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2.5">
                 <input className="field" value={form.discrimination} onChange={(event) => setForm((current) => ({ ...current, discrimination: event.target.value }))} />
                 <input className="field" value={form.difficulty} onChange={(event) => setForm((current) => ({ ...current, difficulty: event.target.value }))} />
               </div>
-              <div className="flex gap-3">
-                <button className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handleCreateTemplate()}>
+              <div className="flex gap-2.5">
+                <button className="btn btn-primary" onClick={() => void handleCreateTemplate()}>
                   Create
                 </button>
-                <button className="rounded-full border border-white/15 px-5 py-3 text-sm text-white" onClick={() => void handleUpdateTemplate()}>
+                <button className="btn btn-ghost" onClick={() => void handleUpdateTemplate()}>
                   Update
                 </button>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {templates.map((template) => (
-                  <div key={template.id} className="rounded-xl border border-white/8 bg-black/20 p-3">
-                    <p className="text-xs text-slate-300">
+                  <div key={template.id} className="surface-sunken p-3">
+                    <p className="num text-[0.72rem] text-[color:var(--ink-muted)]">
                       {template.id} / {template.layer}
                       {template.archived ? " / archived" : ""}
                     </p>
-                    <p className="mt-2 text-sm text-white">{template.prompt}</p>
-                    <div className="mt-3 flex gap-2">
+                    <p className="mt-1.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">{template.prompt}</p>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
                       <button
-                        className="rounded-full border border-white/15 px-3 py-1 text-xs text-white"
+                        className="btn btn-ghost px-3 py-1 text-xs"
                         onClick={() =>
                           setForm((current) => ({
                             ...current,
@@ -434,10 +455,21 @@ export function AdminClient() {
                       >
                         Load
                       </button>
-                      <button className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs text-amber-100" onClick={() => void handleArchiveTemplate(template.id)}>
+                      <button
+                        className="btn px-3 py-1 text-xs"
+                        style={{
+                          background: "var(--warn-soft)",
+                          color: "var(--warn-ink)",
+                          borderColor: "rgba(184,128,31,0.25)",
+                        }}
+                        onClick={() => void handleArchiveTemplate(template.id)}
+                      >
                         Archive
                       </button>
-                      <button className="rounded-full border border-rose-300/20 bg-rose-300/10 px-3 py-1 text-xs text-rose-100" onClick={() => void handleDeleteTemplate(template.id)}>
+                      <button
+                        className="btn btn-danger px-3 py-1 text-xs"
+                        onClick={() => void handleDeleteTemplate(template.id)}
+                      >
                         Delete
                       </button>
                     </div>
@@ -446,34 +478,41 @@ export function AdminClient() {
               </div>
             </div>
 
-            <div className="glass-card space-y-4">
+            {/* Clusters */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
               <p className="label-mini">Clusters</p>
-              <p className="text-sm text-slate-300">{clusterOverview ? `${clusterOverview.current_version} / samples ${clusterOverview.sample_size}` : "No cluster data"}</p>
-              <div className="grid gap-3 md:grid-cols-3">
+              <p className="num text-[0.85rem] text-[color:var(--ink-body)]">
+                {clusterOverview ? `${clusterOverview.current_version} / samples ${clusterOverview.sample_size}` : "No cluster data"}
+              </p>
+              <div className="grid gap-2.5 md:grid-cols-3">
                 <input className="field" value={overrideForm.cluster_index} onChange={(event) => setOverrideForm((current) => ({ ...current, cluster_index: event.target.value }))} placeholder="cluster index" />
                 <input className="field" value={overrideForm.name} onChange={(event) => setOverrideForm((current) => ({ ...current, name: event.target.value }))} placeholder="display name" />
                 <input className="field" value={overrideForm.narrative_label} onChange={(event) => setOverrideForm((current) => ({ ...current, narrative_label: event.target.value }))} placeholder="narrative label" />
               </div>
-              <button className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handleSaveOverride()}>
+              <button className="btn btn-primary" onClick={() => void handleSaveOverride()}>
                 Save cluster override
               </button>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {clusterOverview?.training_history.map((item) => (
-                  <p key={item.version} className="text-sm text-slate-300">
+                  <p key={item.version} className="num text-[0.82rem] text-[color:var(--ink-muted)]">
                     {item.version} / {item.sample_size} samples
                   </p>
                 ))}
               </div>
             </div>
 
-            <div className="glass-card space-y-3">
+            {/* Instances */}
+            <div className="panel fade-rise space-y-2 p-5 md:p-6">
               <p className="label-mini">Instances</p>
               {instances.map((item) => (
-                <div key={item.id} className="rounded-xl border border-cyan-300/10 bg-cyan-300/6 p-3">
-                  <p className="text-xs text-slate-300">
+                <div
+                  key={item.id}
+                  className="rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/35 p-3"
+                >
+                  <p className="num text-[0.72rem] text-[color:var(--ink-muted)]">
                     {item.id} / {item.generation_mode} / {item.layer}
                   </p>
-                  <p className="mt-2 text-sm text-white">{item.prompt}</p>
+                  <p className="mt-1.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">{item.prompt}</p>
                 </div>
               ))}
             </div>
