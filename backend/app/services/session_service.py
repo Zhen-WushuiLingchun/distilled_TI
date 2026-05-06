@@ -35,7 +35,10 @@ from app.domain.models import (
     SessionReport,
     SessionState,
     SessionSummary,
+    VectorSearchHit,
     WorkbenchCheckpoint,
+    WorkbenchEvidence,
+    WorkbenchEvidenceItem,
     WorkbenchMilestone,
     WorkbenchSignal,
 )
@@ -667,6 +670,75 @@ class SessionService:
     def build_workbench_checkpoint(self, session_id: str) -> WorkbenchCheckpoint:
         return self._workbench_checkpoint(self.get_session(session_id))
 
+    def build_workbench_evidence(self, session_id: str) -> WorkbenchEvidence:
+        session = self.get_session(session_id)
+        notes = ["检索证据只用于解释当前选题，不代表最终人格结论。"]
+        try:
+            current_item = self.get_current_question(session_id)
+        except KeyError:
+            current_item = None
+            notes.append("当前题目记录不可用，题目近邻证据暂不可用。")
+
+        base_payload = {
+            "current_question_id": current_item.id if current_item else None,
+            "current_template_id": current_item.template_id if current_item else session.current_template_id,
+        }
+        if not vector_indexer.is_enabled():
+            return WorkbenchEvidence(
+                **base_payload,
+                notes=[*notes, "向量检索当前未启用，因此只展示本地状态解释。"],
+            )
+
+        item_hits: list[VectorSearchHit] = []
+        session_hits: list[VectorSearchHit] = []
+        reranker_applied = False
+
+        if current_item is None:
+            notes.append("当前没有待答题目，题目近邻证据暂不可用。")
+        else:
+            try:
+                source_template = self._items.get(current_item.template_id)
+                retrieval_context = vector_indexer.build_rewrite_retrieval_context(source_template) if source_template else None
+                if retrieval_context is not None:
+                    item_hits = [
+                        *retrieval_context.template_hits,
+                        *retrieval_context.item_instance_hits,
+                        *retrieval_context.rewrite_candidate_hits,
+                    ]
+                    reranker_applied = retrieval_context.reranker_applied or self._any_reranked(item_hits)
+                else:
+                    item_hits = vector_indexer.search_similar_templates(prompt=current_item.prompt, top_k=4)
+                    reranker_applied = self._any_reranked(item_hits)
+            except Exception:
+                notes.append("题目近邻检索暂不可用，已保留主答题流程。")
+
+        try:
+            session_hits = vector_indexer.search_similar_sessions(session, top_k=3)
+            reranker_applied = reranker_applied or self._any_reranked(session_hits)
+        except Exception:
+            notes.append("相似会话检索暂不可用，已保留主答题流程。")
+
+        filtered_item_hits = [
+            hit
+            for hit in item_hits
+            if current_item is None or hit.object_id not in {current_item.id, current_item.template_id}
+        ][:6]
+
+        if not filtered_item_hits:
+            notes.append("没有找到足够稳定的相近题目证据。")
+        if not session_hits:
+            notes.append("没有可展示的相似会话快照；通常需要命中 5 / 10 / 20 / 40 题 milestone 后才会出现。")
+
+        return WorkbenchEvidence(
+            **base_payload,
+            enabled=True,
+            vector_available=True,
+            reranker_applied=reranker_applied,
+            item_evidence=[self._workbench_evidence_item(hit) for hit in filtered_item_hits],
+            session_evidence=[self._workbench_evidence_item(hit) for hit in session_hits[:3]],
+            notes=notes,
+        )
+
     def get_current_question(self, session_id: str) -> ItemInstance | None:
         session = self.get_session(session_id)
         if not session.current_item_id:
@@ -785,6 +857,51 @@ class SessionService:
             unlocked_subdimensions=self._subdimension_workbench_signals(session),
             milestones=self._workbench_milestones(question_count, milestones),
         )
+
+    def _workbench_evidence_item(self, hit: VectorSearchHit) -> WorkbenchEvidenceItem:
+        label_by_type = {
+            "template": "相近模板",
+            "item_instance": "历史实例题",
+            "rewrite_candidate": "历史改写候选",
+            "session_snapshot": "匿名会话快照",
+        }
+        relationship_by_type = {
+            "template": "题库中测量结构接近的模板，可用于解释当前选题方向。",
+            "item_instance": "历史生成题中语义接近的实例，用于检查措辞是否过近。",
+            "rewrite_candidate": "历史改写候选中的相邻表达，用于避免复制近邻表述。",
+            "session_snapshot": "相同 milestone 附近的匿名会话状态，用于观察当前画像是否有近邻。",
+        }
+        prompt_excerpt = hit.prompt_excerpt.strip()
+        if hit.object_type == "session_snapshot":
+            milestone = hit.snapshot_milestone or "unknown"
+            prompt_excerpt = f"匿名会话快照，Q{milestone} 附近的结构状态摘要。"
+        return WorkbenchEvidenceItem(
+            reference_key=f"{hit.object_type}:{hashlib.sha1(hit.object_id.encode('utf-8')).hexdigest()[:10]}",
+            object_type=hit.object_type,
+            label=label_by_type.get(hit.object_type, hit.object_type),
+            relationship=relationship_by_type.get(hit.object_type, "语义检索近邻。"),
+            prompt_excerpt=prompt_excerpt[:180],
+            confidence_tier=self._evidence_confidence_tier(hit),
+            scenario_tags=hit.scenario_tags[:4],
+            snapshot_milestone=hit.snapshot_milestone,
+        )
+
+    def _evidence_confidence_tier(self, hit: VectorSearchHit) -> str:
+        metric = hit.rerank_score if hit.rerank_score is not None else hit.score
+        if hit.rerank_score is not None:
+            if metric >= 0.7:
+                return "high"
+            if metric >= 0.45:
+                return "medium"
+            return "low"
+        if metric >= 0.84:
+            return "high"
+        if metric >= 0.72:
+            return "medium"
+        return "low"
+
+    def _any_reranked(self, hits: list[VectorSearchHit]) -> bool:
+        return any(hit.rerank_score is not None for hit in hits)
 
     def _top_core_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
         ordered = sorted(session.state.core_mu.items(), key=lambda item: abs(item[1]), reverse=True)[:5]

@@ -21,6 +21,7 @@ from app.domain.models import (
     VectorSearchHit,
     VectorSyncFailure,
     WorkbenchCheckpoint,
+    WorkbenchEvidence,
 )
 
 
@@ -202,6 +203,10 @@ class EmbeddingScoreBreakdownResponse(EmbeddingScoreBreakdown):
 class SessionSummaryResponse(SessionSummary):
     current_question: QuestionResponse | None = None
     workbench_checkpoint: WorkbenchCheckpoint | None = None
+
+
+class WorkbenchEvidenceResponse(WorkbenchEvidence):
+    pass
 
 
 class SessionHistoryListResponse(BaseModel):

@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
+from app.domain.models import VectorSearchHit
 from app.main import app as public_app
+from app.services.vector_indexer import vector_indexer
 
 public_client = TestClient(public_app)
 
@@ -144,6 +146,76 @@ def test_session_secret_is_bound_to_owner_fingerprint():
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "session_owner_mismatch"
+
+
+def test_workbench_evidence_requires_secret_and_hides_raw_scores(monkeypatch):
+    start_response = public_client.post("/api/session/start", json={"mode": "core"})
+    payload = start_response.json()
+
+    no_token_response = public_client.get(f"/api/session/{payload['session_id']}/workbench/evidence")
+    assert no_token_response.status_code == 401
+
+    monkeypatch.setattr(vector_indexer, "is_enabled", lambda: True)
+    monkeypatch.setattr(vector_indexer, "build_rewrite_retrieval_context", lambda _template: None)
+    monkeypatch.setattr(
+        vector_indexer,
+        "search_similar_templates",
+        lambda **_kwargs: [
+            VectorSearchHit(
+                object_id="template-neighbor-1",
+                object_type="template",
+                template_id="template-neighbor-1",
+                layer="core",
+                generation_mode="template",
+                prompt_excerpt="A nearby template prompt",
+                score=0.93,
+                rerank_score=0.81,
+                scenario_tags=["study"],
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        vector_indexer,
+        "search_similar_sessions",
+        lambda _session, top_k=None: [
+            VectorSearchHit(
+                object_id="session-neighbor-1:5",
+                object_type="session_snapshot",
+                session_id="session-neighbor-1",
+                snapshot_milestone=5,
+                layer="session",
+                generation_mode="snapshot",
+                prompt_excerpt="session_id=hidden",
+                score=0.89,
+                rerank_score=None,
+            )
+        ],
+    )
+
+    response = public_client.get(
+        f"/api/session/{payload['session_id']}/workbench/evidence",
+        headers=session_headers(payload["session_secret"]),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["vector_available"] is True
+    assert body["reranker_applied"] is True
+    assert body["item_evidence"][0]["confidence_tier"] == "high"
+    assert body["item_evidence"][0]["reference_key"].startswith("template:")
+    assert body["session_evidence"][0]["prompt_excerpt"] != "session_id=hidden"
+
+    def assert_no_raw_scores(value):
+        if isinstance(value, dict):
+            assert "score" not in value
+            assert "rerank_score" not in value
+            for nested in value.values():
+                assert_no_raw_scores(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                assert_no_raw_scores(nested)
+
+    assert_no_raw_scores(body)
 
 
 def test_public_api_does_not_expose_admin_routes():

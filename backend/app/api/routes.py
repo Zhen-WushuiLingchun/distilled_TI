@@ -15,6 +15,7 @@ from app.api.schemas import (
     StartSessionResponse,
     SubmitResponseRequest,
     SubmitResponseResponse,
+    WorkbenchEvidenceResponse,
 )
 from app.api.security import build_owner_key
 from app.core.config import settings
@@ -124,6 +125,19 @@ def get_summary(
             current_question=QuestionResponse.from_item(current_question) if current_question else None,
             workbench_checkpoint=session_service.build_workbench_checkpoint(session_id),
         )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/session/{session_id}/workbench/evidence", response_model=WorkbenchEvidenceResponse)
+def get_workbench_evidence(
+    session_id: str,
+    request: Request,
+    x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
+) -> WorkbenchEvidenceResponse:
+    _require_session_access(session_id, x_session_secret, request)
+    try:
+        return session_service.build_workbench_evidence(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

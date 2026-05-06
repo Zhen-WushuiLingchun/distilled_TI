@@ -83,6 +83,28 @@ export type WorkbenchCheckpoint = {
   milestones: WorkbenchMilestone[];
 };
 
+export type WorkbenchEvidenceItem = {
+  reference_key: string;
+  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot";
+  label: string;
+  relationship: string;
+  prompt_excerpt: string;
+  confidence_tier: "high" | "medium" | "low";
+  scenario_tags: string[];
+  snapshot_milestone?: number | null;
+};
+
+export type WorkbenchEvidence = {
+  enabled: boolean;
+  current_question_id?: string | null;
+  current_template_id?: string | null;
+  vector_available: boolean;
+  reranker_applied: boolean;
+  item_evidence: WorkbenchEvidenceItem[];
+  session_evidence: WorkbenchEvidenceItem[];
+  notes: string[];
+};
+
 export type SessionSummary = {
   session_id: string;
   question_count: number;
@@ -428,6 +450,12 @@ export function getNextQuestion(access: SessionAccessBundle) {
 
 export function getSessionSummary(access: SessionAccessBundle) {
   return publicRequest<SessionSummary>(`/session/${access.session_id}/summary`, undefined, {
+    sessionSecret: access.session_secret,
+  });
+}
+
+export function getWorkbenchEvidence(access: SessionAccessBundle) {
+  return publicRequest<WorkbenchEvidence>(`/session/${access.session_id}/workbench/evidence`, undefined, {
     sessionSecret: access.session_secret,
   });
 }

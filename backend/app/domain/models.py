@@ -235,6 +235,28 @@ class WorkbenchCheckpoint(BaseModel):
     milestones: list[WorkbenchMilestone] = Field(default_factory=list)
 
 
+class WorkbenchEvidenceItem(BaseModel):
+    reference_key: str
+    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot"]
+    label: str
+    relationship: str
+    prompt_excerpt: str
+    confidence_tier: Literal["high", "medium", "low"]
+    scenario_tags: list[str] = Field(default_factory=list)
+    snapshot_milestone: int | None = None
+
+
+class WorkbenchEvidence(BaseModel):
+    enabled: bool = False
+    current_question_id: str | None = None
+    current_template_id: str | None = None
+    vector_available: bool = False
+    reranker_applied: bool = False
+    item_evidence: list[WorkbenchEvidenceItem] = Field(default_factory=list)
+    session_evidence: list[WorkbenchEvidenceItem] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class SessionAccessGrant(BaseModel):
     session_id: str
     session_secret: str

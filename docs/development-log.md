@@ -1,5 +1,41 @@
 # Development Log
 
+## 2026-05-06: Session Workbench Slice 3
+
+### Completed
+
+- Added a public, session-secret-protected evidence endpoint:
+  - `GET /api/session/{session_id}/workbench/evidence`
+- Added safe `WorkbenchEvidence` and `WorkbenchEvidenceItem` response models.
+- Reused existing vector retrieval instead of introducing another vector path:
+  - item evidence from template / historical item instance / rewrite candidate retrieval context
+  - session evidence from `session_vectors` similar-session snapshots
+- Kept evidence loading out of the main answer submission path.
+- Hid raw vector scores and raw rerank scores from the public response.
+- Converted retrieval strength into `high / medium / low` confidence tiers.
+- Sanitized session snapshot evidence so anonymous session canonical text is not exposed.
+- Added an on-demand retrieval evidence drawer in `/session`.
+- Documented that retrieval evidence is explanation support only, not a final personality conclusion.
+
+### Validation
+
+- Backend targeted test: `VECTOR_ENABLED=false pytest backend/tests/test_session_api.py -q` passed with `4 passed`.
+- Full backend: `VECTOR_ENABLED=false pytest` passed with `47 passed`.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+- Tracked secret scan passed with no `sk-...` values found in tracked files.
+
+### Not Completed Yet
+
+- Manual browser visual pass on `/session` is still pending.
+- Slice 4 report preview and user-facing narrative summary are not implemented yet.
+- No `cluster_vectors` work yet.
+
+### Next Step
+
+- Do a browser pass on `/session`.
+- Next feature slice: report preview / narrative summary after the report threshold.
+
 ## 2026-05-06: Session Workbench Slice 2
 
 ### Completed

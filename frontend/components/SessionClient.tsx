@@ -8,6 +8,7 @@ import {
   generateSessionReport,
   getSessionMap,
   getSessionSummary,
+  getWorkbenchEvidence,
   startSession,
   submitAnswer,
   type Question,
@@ -15,6 +16,8 @@ import {
   type SessionReport,
   type SessionState,
   type WorkbenchCheckpoint,
+  type WorkbenchEvidence,
+  type WorkbenchEvidenceItem,
   type WorkbenchMilestone,
   type WorkbenchSignal,
 } from "@/lib/api";
@@ -185,6 +188,10 @@ export function SessionClient() {
   const [remainingUntilReport, setRemainingUntilReport] = useState(20);
   const [canGenerateReport, setCanGenerateReport] = useState(false);
   const [checkpoint, setCheckpoint] = useState<WorkbenchCheckpoint | null>(null);
+  const [evidence, setEvidence] = useState<WorkbenchEvidence | null>(null);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceError, setEvidenceError] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const questionStartRef = useRef<number>(Date.now());
@@ -379,6 +386,21 @@ export function SessionClient() {
 
   const questionRationale = useMemo(() => buildQuestionRationale(question, state), [question, state]);
 
+  async function handleLoadEvidence() {
+    if (!access) return;
+    try {
+      setEvidenceOpen(true);
+      setEvidenceLoading(true);
+      setEvidenceError("");
+      const payload = await getWorkbenchEvidence(access);
+      setEvidence(payload);
+    } catch (reason) {
+      setEvidenceError(reason instanceof Error ? reason.message : "检索证据加载失败。");
+    } finally {
+      setEvidenceLoading(false);
+    }
+  }
+
   async function handleAnswer(optionKey: string) {
     if (!question || !access) return;
 
@@ -392,6 +414,9 @@ export function SessionClient() {
       setCanGenerateReport(response.can_generate_report);
       setRemainingUntilReport(response.remaining_until_report);
       setCheckpoint(response.workbench_checkpoint ?? null);
+      setEvidence(null);
+      setEvidenceOpen(false);
+      setEvidenceError("");
       questionStartRef.current = performance.now();
       setError("");
     } catch (reason) {
@@ -672,6 +697,26 @@ export function SessionClient() {
                   </p>
                 )}
               </div>
+              <div className="mt-5 rounded-[1.35rem] border border-cyan-200/15 bg-cyan-200/[0.06] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/65">Retrieval Evidence</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                      按需读取相近题目和匿名会话快照，只作为解释证据，不显示原始向量分数。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-full border border-cyan-200/25 bg-cyan-200/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-200/20"
+                    onClick={() => void handleLoadEvidence()}
+                    disabled={!access || evidenceLoading}
+                  >
+                    {evidenceLoading ? "检索中..." : evidence ? "刷新证据" : "加载证据"}
+                  </button>
+                </div>
+                {evidenceError ? <p className="mt-3 text-sm text-rose-100">{evidenceError}</p> : null}
+                {evidenceOpen ? <EvidenceDrawer evidence={evidence} loading={evidenceLoading} /> : null}
+              </div>
             </section>
 
             <section className="workbench-panel workbench-load p-5" style={{ animationDelay: "220ms" }}>
@@ -751,6 +796,99 @@ export function SessionClient() {
       </section>
     </main>
   );
+}
+
+function EvidenceDrawer({ evidence, loading }: { evidence: WorkbenchEvidence | null; loading: boolean }) {
+  if (loading && !evidence) {
+    return (
+      <div className="mt-4 rounded-[1.15rem] border border-white/10 bg-black/20 p-4 text-sm text-slate-400">
+        正在从向量层读取近邻证据...
+      </div>
+    );
+  }
+
+  if (!evidence) return null;
+
+  const hasEvidence = evidence.item_evidence.length > 0 || evidence.session_evidence.length > 0;
+
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-slate-300">
+          vector {evidence.vector_available ? "available" : "offline"}
+        </span>
+        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-slate-300">
+          reranker {evidence.reranker_applied ? "applied" : "not applied"}
+        </span>
+      </div>
+
+      {!evidence.enabled || !hasEvidence ? (
+        <div className="rounded-[1.15rem] border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-400">
+          {evidence.notes.length > 0 ? evidence.notes.join(" ") : "当前没有可展示的检索证据。"}
+        </div>
+      ) : (
+        <>
+          <EvidenceList title="相近题目证据" items={evidence.item_evidence} empty="没有稳定的相近题目证据。" />
+          <EvidenceList title="相似会话快照" items={evidence.session_evidence} empty="暂无相似会话快照。" />
+          {evidence.notes.length > 0 ? <p className="text-xs leading-5 text-slate-500">{evidence.notes.join(" ")}</p> : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function EvidenceList({ title, items, empty }: { title: string; items: WorkbenchEvidenceItem[]; empty: string }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-[0.22em] text-slate-500">{title}</p>
+      <div className="mt-3 space-y-3">
+        {items.length > 0 ? (
+          items.map((item) => <EvidenceCard key={item.reference_key} item={item} />)
+        ) : (
+          <p className="rounded-[1.1rem] border border-white/10 bg-black/20 p-3 text-sm text-slate-500">{empty}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceCard({ item }: { item: WorkbenchEvidenceItem }) {
+  return (
+    <div className="rounded-[1.15rem] border border-white/10 bg-white/[0.04] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-black/25 px-3 py-1 text-xs text-cyan-100">{item.label}</span>
+          <span className={`rounded-full px-3 py-1 text-xs ${confidenceTone(item.confidence_tier)}`}>
+            {confidenceLabel(item.confidence_tier)}
+          </span>
+        </div>
+        <span className="font-mono text-[0.65rem] uppercase tracking-[0.2em] text-slate-500">{item.reference_key}</span>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-slate-200">{item.prompt_excerpt}</p>
+      <p className="mt-3 text-xs leading-5 text-slate-500">{item.relationship}</p>
+      {item.scenario_tags.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {item.scenario_tags.map((tag) => (
+            <span key={tag} className="rounded-full border border-white/10 px-2.5 py-1 text-[0.65rem] text-slate-400">
+              {tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function confidenceLabel(tier: WorkbenchEvidenceItem["confidence_tier"]) {
+  if (tier === "high") return "高置信近邻";
+  if (tier === "medium") return "中置信近邻";
+  return "弱近邻";
+}
+
+function confidenceTone(tier: WorkbenchEvidenceItem["confidence_tier"]) {
+  if (tier === "high") return "bg-lime-200/15 text-lime-100";
+  if (tier === "medium") return "bg-amber-200/15 text-amber-100";
+  return "bg-white/10 text-slate-300";
 }
 
 function StatusTile({ label, value, detail }: { label: string; value: string; detail: string }) {
