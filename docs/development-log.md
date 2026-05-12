@@ -1,5 +1,48 @@
 # Development Log
 
+## 2026-05-13: Natural Story Mode Boundary
+
+### Completed
+
+- Removed the last active path that could turn a raw `ItemInstance.prompt` into visible Story Mode dialogue.
+- Changed scene generation payloads so the LLM receives natural branch text plus hidden `option_key`, not option scores or questionnaire labels.
+- Added `choice_text` to the galgame response API so saved `galgame_turns.scene_text` preserves what the player actually saw or wrote.
+- Tightened public scene sanitation:
+  - rejects raw prompts, backend fields, questionnaire labels, and score-like option text
+  - falls back to natural VN-style narration and choices
+  - keeps classifier, embedding, pairwise, and asset evidence behind Debug/Workbench only
+- Updated `/story` copy so the loading state, free-line placeholder, choice buttons, and backlog no longer describe the experience as a converted measurement question.
+- Added a regression test that simulates a bad AI scene containing measurement leakage and verifies the public scene falls back to natural text.
+- Added configurable Story Scene LLM budget:
+  - `GALGAME_AI_SCENE_TIMEOUT_SECONDS`
+  - `GALGAME_AI_SCENE_MAX_TOKENS`
+  - JSON response format is attempted first, then retried without it for provider compatibility.
+
+### Validation
+
+- Backend targeted: `VECTOR_ENABLED=false pytest tests/test_session_api.py::test_galgame_scene_wraps_current_question_and_records_custom_text tests/test_session_api.py::test_galgame_scene_filters_ai_measurement_leaks -q` passed with `2 passed`.
+- Backend compile: `python -m compileall app tests` passed.
+- Backend full: `VECTOR_ENABLED=false GALGAME_AI_SCENE_ENABLED=false LOCAL_DB_PATH=<temp db> pytest -q` passed with `60 passed`.
+- Frontend: `npm run lint` passed with the existing two dynamic `<img>` warnings in `StoryClient.tsx`.
+- Frontend: `npm run build` passed.
+- Browser `/story` smoke:
+  - 5 natural branch choices rendered.
+  - generated background and character assets rendered.
+  - no console errors.
+  - no visible `非常同意 / 非常不同意 / 当前映射 / option_key / prompt_shadow / score-like` leakage.
+  - screenshot: `C:\Users\hydro\AppData\Local\Temp\distilled-ti-story-naturalized\story-naturalized-final.png`
+- DeepSeek local config was switched to `deepseek-v4-pro` and Admin connection test passed. Real scene generation still fell back to natural local fallback because the model did not return valid final scene JSON in `message.content` during the browser/API smoke.
+
+### Not Completed Yet
+
+- Story quality still depends on the configured LLM and SD model; this patch prevents measurement leakage but does not guarantee high literary quality.
+- `deepseek-v4-pro` scene generation needs provider-specific follow-up if it keeps returning reasoning-only or invalid final JSON. Current runtime remains safe because it falls back to natural VN text.
+
+### Next Step
+
+- If the rendered scene is still weak, tune only the story prompt/template/asset prompts, not the measurement scaffolding.
+- Decide whether Story Mode should use a non-reasoning chat model for live scene text while reserving `deepseek-v4-pro` for slower analysis/report tasks.
+
 ## 2026-05-12: VN Asset Pipeline, Share Links, Evolution, Public Social UI
 
 ### Completed

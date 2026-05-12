@@ -59,13 +59,9 @@ const EMPTY_TEMPLATE_FORM: TemplateFormState = {
   backgroundKey: "custom_evening_clubroom",
   backgroundPrompt: "evening school clubroom, warm window light, visual novel background",
   characterPrompt: "visual novel companion portrait, expressive, non sexualized, campus style",
-  stylePrompt: "更像可玩的 galgame；台词可以有悬疑、玩笑和关系张力，但不要像问卷。",
+  stylePrompt: "更像可玩的 galgame；台词可以有悬疑、玩笑和关系张力，角色可以主动改变局面。",
   scenarioTags: "campus, relationship, team_mode",
 };
-
-function formatSigned(value: number) {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
-}
 
 function moodLabel(mood: string) {
   if (mood === "追问") return "Probe";
@@ -119,7 +115,7 @@ function sceneLogEntry(scene: GalgameScene): DialogueLogEntry {
     id: scene.scene_id,
     speaker: scene.speaker,
     text: `${scene.narrator_text}\n${scene.character_text}`,
-    meta: `${scene.location} / ${scene.ai_generated ? "AI" : "fallback"}`,
+    meta: `${scene.location} / ${scene.mood}`,
   };
 }
 
@@ -259,6 +255,7 @@ export function StoryClient() {
         item_id: scene.item_id,
         scene_id: scene.scene_id,
         option_key: optionKey,
+        choice_text: choiceText,
         custom_text: textOverride?.trim() || undefined,
         latency_ms: latencyMs,
       });
@@ -341,7 +338,6 @@ export function StoryClient() {
     }
   }
 
-  const selectedChoice = scene?.choices.find((choice) => choice.option_key === selectedOptionKey);
   const backgroundUrl = scene?.background_asset?.url ?? "/galgame-assets/backgrounds/campus_courtyard.svg";
   const characterUrl = scene?.character_asset?.url ?? "/galgame-assets/sprites/desk_mate.svg";
 
@@ -351,7 +347,7 @@ export function StoryClient() {
         <section className="story-loading-card">
           <p className="eyebrow">Distilled TI / Story Mode</p>
           <h1 className="mt-4 text-4xl">正在生成第一幕</h1>
-          <p className="mt-3 text-[color:var(--ink-muted)]">系统会把测量题转换成可玩的校园分支。</p>
+          <p className="mt-3 text-[color:var(--ink-muted)]">正在为你生成一个可推进的校园分支。</p>
         </section>
       </main>
     );
@@ -376,8 +372,7 @@ export function StoryClient() {
           </div>
           <div className="story-vn-pills">
             <span>{scene ? moodLabel(scene.mood) : "Loading"}</span>
-            <span>Q{(state?.question_count ?? 0) + 1}</span>
-            <span>{scene?.ai_generated ? "AI scene" : "Fallback"}</span>
+            <span>Ch.{String((state?.question_count ?? 0) + 1).padStart(2, "0")}</span>
             {user ? <span>{user.handle}</span> : <span>Guest</span>}
           </div>
         </header>
@@ -406,7 +401,6 @@ export function StoryClient() {
                   onClick={() => void handleChoice(choice.option_key)}
                 >
                   <span>{choice.text}</span>
-                  <span className="num">{formatSigned(choice.score)}</span>
                 </button>
               ))}
             </section>
@@ -422,7 +416,7 @@ export function StoryClient() {
                 <textarea
                   value={customText}
                   onChange={(event) => setCustomText(event.target.value)}
-                  placeholder="自己写一句台词，例如：我先把所有人的真实顾虑问出来，再决定要不要接手。"
+                  placeholder="自己写一句台词，例如：我低声问，那封信是谁放在这里的？"
                 />
                 <div className="story-vn-free-actions">
                   <select value={selectedOptionKey} onChange={(event) => setSelectedOptionKey(event.target.value)}>
@@ -437,10 +431,9 @@ export function StoryClient() {
                     disabled={busy || !selectedOptionKey}
                     onClick={() => void handleChoice(selectedOptionKey, customText)}
                   >
-                    以这句推进
+                  以这句推进
                   </button>
                 </div>
-                {selectedChoice ? <p className="story-vn-selected">当前映射：{selectedChoice.text}</p> : null}
               </div>
             </section>
           </>

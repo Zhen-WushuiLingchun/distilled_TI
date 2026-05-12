@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     session_vector_milestones: str = "5,10,20,40"
     session_vector_top_k: int = 5
     galgame_ai_scene_enabled: bool = True
+    galgame_ai_scene_timeout_seconds: float = 90.0
+    galgame_ai_scene_max_tokens: int = 4096
     galgame_asset_generation_enabled: bool = False
     galgame_asset_backend: str = "sdwebui"
     galgame_asset_base_url: str = "http://127.0.0.1:7860"

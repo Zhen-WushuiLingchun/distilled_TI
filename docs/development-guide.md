@@ -8,7 +8,7 @@
 - AI 现在真实介入了哪些环节
 - embedding / reranker / Qdrant 向量层现在如何接入
 - 邀请制匿名用户和长期历史如何工作
-- Galgame / Story Mode 如何把测量题包装成剧情选择
+- Galgame / Story Mode 如何用隐藏测量种子驱动自然剧情
 - 题库、模板、实例题之间是什么关系
 - 如何理解“收敛”“不确定性”“报告”
 - 如何进一步做反作弊、识别瞎答题或伪造答题
@@ -41,7 +41,7 @@
    - 借鉴 AI-GAL 的“主题、角色、剧情历史、分支选择、玩家自定义输入 -> 下一幕”循环
    - 参考 `paper2galgame` 的单屏视觉小说结构：背景、角色、对白框、Log、Hide、设置/模板抽屉
    - 背景、立绘和音频通过 `GalgameAssetReference` 返回给前端；默认使用本地 fallback SVG/WAV，启用后可走 SD WebUI 生成
-   - 把当前 `ItemInstance` 作为隐藏测量种子，而不是把题面直接写进剧情
+  - 把当前 `ItemInstance` 作为隐藏分析种子，而不是把题面、量表选项或分数直接写进剧情
    - 用户可以点选剧情选项，也可以写自由台词
    - 自由台词会走 LLM / embedding / pairwise / 规则融合分类，置信度足够时映射回标准 `option_key`
    - 邀请制匿名用户可以在公开 `/story` 里保存个人剧情模板，模板只绑定随机 `user_id`
@@ -81,17 +81,27 @@
 Story Mode 的核心原则是“改变呈现，不改变测量主链路”。
 
 - `GalgameScene`
-  - 当前题目的剧情包装
+  - 当前回合的视觉小说场景
   - 包含地点、气氛、说话角色、旁白、角色台词、选项、记忆片段
+  - `prompt_shadow` 只返回不含题面的占位符，前端不得展示原始题面
 - `GalgameChoice`
-  - 剧情选择
+  - 玩家可见的自然剧情分支
   - 每个 choice 都映射到一个原始 `option_key`
+  - `score` 仅供后端评分和 Debug，不应在主画面展示
   - scoring 仍然只吃 `option_key`
 - `GalgameTurn`
   - 用户在剧情模式中的一次行为记录
   - 包含 `scene_id / selected_option_key / custom_text / scene_text`
   - 还保存 `inferred_option_key / inference_distribution / embedding_similarity / pairwise_scores`
   - 当前保存在 SQLite `galgame_turns`
+
+主画面必须像正常 galgame，而不是问卷皮肤：
+
+- LLM 场景输入遵循 AI-GAL 风格：`theme + character setting + story history + player branch -> next scene`。
+- 发送给剧情 LLM 的 `choices` 只包含 `option_key` 和自然分支文本，不暴露分数或量表文案。
+- `SessionService._public_scene_text()` 会过滤原题、后台字段和问卷式标签；命中泄漏时使用自然 fallback。
+- 玩家提交自由台词时，`choice_text` 用于保存“玩家看到的分支”，`option_key` 只作为隐藏评分锚点。
+- 心理/embedding/pairwise/聚类证据只放 Debug、Workbench、Report，不放主剧情画面。
 
 当前自由文本处理不是心理诊断，而是“把玩家这句台词映射到当前场景的哪个选项更接近”。流程是：
 
@@ -175,6 +185,13 @@ Admin 操作接口：
 生成后的图片写到 `frontend/public/generated/galgame`，该目录被 `.gitignore` 忽略。已生成 PNG 会优先于 fallback 被 `/story` 使用；`GALGAME_ASSET_GENERATION_ENABLED` 只控制缺图时是否自动生成。背景 prompt 强制走视觉小说背景、no humans/no text；角色 prompt 走非色情半身立绘。角色 PNG 会做一次保守的角落背景连通域抠底，让 SD WebUI 产出的纯色背景更接近透明 sprite。生成失败只回退本地素材，不阻塞剧情。
 
 2026-05-12 本地验收记录：Windows 本机 SD WebUI `http://127.0.0.1:7860` 可用，模型为 `anything-v5-PrtRE.safetensors`；Admin 手动生成接口成功产出 4 张背景和 4 张角色图，`/story` 浏览器验收中 Debug 面板显示 `generated / generated`。
+
+Story Scene LLM 生成：
+
+- `GALGAME_AI_SCENE_ENABLED=true` 时，`AIService.generate_galgame_scene()` 会调用已配置的 OpenAI-compatible chat provider。
+- `GALGAME_AI_SCENE_TIMEOUT_SECONDS` 默认 `90`，`GALGAME_AI_SCENE_MAX_TOKENS` 默认 `4096`，用于兼容 `deepseek-v4-pro` 这类 reasoning 更重的模型。
+- 请求会优先带 `response_format={"type":"json_object"}`；如果 provider 断连或 400/422 不支持，会自动重试一次不带 `response_format`。
+- 如果模型没有返回有效最终 JSON，Story Mode 必须回退到自然 fallback，不阻塞游玩、不暴露后台测量锚点。
 
 ### 2.1 `SessionState`
 

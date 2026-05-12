@@ -1,7 +1,7 @@
 # Plan: Galgame Story Mode
 
 - Date: 2026-05-12
-- Status: AI-GAL style generation, free-text classifier, SD WebUI asset generation, share/evolution/social UI slice implemented
+- Status: AI-GAL style generation, free-text classifier, SD WebUI asset generation, share/evolution/social UI slice implemented; 2026-05-13 natural Story Mode boundary patch in progress
 - Scope: make Distilled TI playable by wrapping measurement questions in a visual-novel style scenario loop.
 
 ## Reference Review
@@ -23,12 +23,14 @@ Decision: borrow the AI-GAL product pattern, not its runtime or code. Implement 
 
 Follow-up after inspecting AI-GAL more closely: the useful part is not a fixed questionnaire wrapper, but the loop of `theme + character setting + story history + branch choice + optional player custom input -> next generated scene`. The current implementation therefore keeps the measurement prompt as a hidden seed and lets the LLM write a playable scene with only two hard constraints: keep option keys mappable, and do not present direct psychological diagnosis.
 
+2026-05-13 correction: the public Story Mode must not feel like a converted test item. The visible scene, choices, backlog, and custom-input placeholder must be natural visual-novel content. Measurement anchors remain only as backend `option_key` values and hidden analysis seeds; option scores and questionnaire labels are not sent to the story LLM and are not rendered in the main UI.
+
 ## Product Goal
 
 The normal test loop is accurate but not fun. Story Mode changes the presentation:
 
-- each item becomes a campus/relationship scenario
-- options become in-scene choices
+- each item becomes a hidden analysis seed for a campus/relationship scenario
+- options become natural in-scene choices, not agreement labels
 - user can also write a custom line
 - the custom line is stored as additional context
 - existing scoring still receives a normal `option_key`
@@ -41,6 +43,7 @@ This gives users a game-like loop while still preserving measurement continuity.
 - Added `GalgameScene`, `GalgameChoice`, and `GalgameTurn`.
 - Added SQLite `galgame_turns`.
 - Added AI-GAL style scene construction in `SessionService.build_galgame_scene()`.
+- Added public text sanitation so raw prompts, backend fields, score-like labels, and questionnaire wording fall back to natural VN text.
 - Added `AIService.generate_galgame_scene()` for OpenAI-compatible story generation.
 - Added turn recording in `SessionService.record_galgame_turn()`.
 - Added free-text tendency inference:
@@ -63,6 +66,7 @@ This gives users a game-like loop while still preserving measurement continuity.
   - conservative generated-character alpha post-processing for sprite-like PNGs
   - generated assets written under ignored `frontend/public/generated/galgame`
 - `respond` records the story turn, resolves free-text tendency when available, then calls the existing scoring path through `submit_answer()`.
+- `respond` accepts `choice_text` so `galgame_turns.scene_text` records the visible player branch or custom line instead of an internal option label.
 
 ## Implemented Frontend
 
@@ -77,8 +81,8 @@ This gives users a game-like loop while still preserving measurement continuity.
   - character line
   - in-scene choice buttons
   - custom free-line input
-  - recent memory fragments
-  - AI/fallback scene indicator
+- recent memory fragments hidden in Debug
+- AI/fallback scene evidence hidden in Debug
   - background/character asset keys
   - free-text tendency distribution after custom input
   - report readiness entry
@@ -130,6 +134,8 @@ References checked:
 - Audio generation is not implemented yet; current audio path is fallback/static only.
 - Branching remains item-by-item rather than a persistent Ren'Py-style graph.
 - Real AI acceptance with DeepSeek/SiliconFlow should be rerun after setting local secrets.
+- Full regression and browser smoke need to be rerun after the 2026-05-13 natural Story Mode boundary patch.
+- DeepSeek `deepseek-v4-pro` Admin connection test passes, but live Story Scene generation currently falls back because the model did not return valid final scene JSON in `message.content` during local smoke.
 
 ## Next Slices
 
@@ -137,6 +143,7 @@ References checked:
 2. Tune SD prompt templates and add a ComfyUI workflow adapter if local SD WebUI quality is not enough.
 3. Add a cloud image provider adapter if local generation is too heavy for deployment.
 4. Add deeper branch memory once story quality is stable.
+5. Decide provider routing for live Story Scene text: keep `deepseek-v4-pro` for analysis/reporting, or use a non-reasoning chat model for low-latency playable scenes.
 
 ## 2026-05-12 SD WebUI Acceptance
 

@@ -374,42 +374,49 @@ class AIService:
             return None
 
         try:
-            with httpx.Client(timeout=20.0, follow_redirects=False) as client:
-                response = client.post(
-                    f"{active_config.base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {active_config.api_key}",
-                        "Content-Type": "application/json",
+            headers = {
+                "Authorization": f"Bearer {active_config.api_key}",
+                "Content-Type": "application/json",
+            }
+            request_json: dict[str, object] = {
+                "model": active_config.model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是一个 AI galgame 剧情引擎。像 AI-GAL 一样，根据主题、角色设定、剧情历史和玩家上一轮分支自然续写下一幕。"
+                            "前台体验优先：台词要像角色真的在现场说话，可以有误会、玩笑、暧昧、冲突、悬疑、沉默和反转。"
+                            "private_analysis_seed 只给后台分析，不得复述、解释或改写成题目；不要出现问卷式等级标签、测评解释或后台分析目的。"
+                            "choice_texts 必须是自然剧情行动，但 key 必须沿用输入里的 option_key。"
+                            "同时为每一幕生成可给生图模型使用的英文素材提示："
+                            "background_prompt 写视觉小说背景图提示，强调场景、时间、光线、构图，必须 no humans/no text；"
+                            "character_prompt 写正面半身立绘提示，非色情、非暴露，保留角色气质。"
+                            "输出纯 JSON："
+                            '{"title":"...","location":"...","mood":"...","speaker":"...",'
+                            '"narrator_text":"...","character_text":"...",'
+                            '"choice_texts":{"option_key":"场景化选项文本"},'
+                            '"background_key":"...","background_prompt":"...",'
+                            '"character_key":"...","character_prompt":"..."}'
+                        ),
                     },
-                    json={
-                        "model": active_config.model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": (
-                                    "你是一个 AI galgame 剧情引擎。像 AI-GAL 一样，根据主题、人物、最近剧情和玩家上一轮选择继续写下一幕。"
-                                    "可以有校园悬疑、社团冲突、暧昧关系、轻喜剧、突发事件和分支张力；不要写成问卷，也不要解释测量目的。"
-                                    "唯一硬规则：choice_texts 的 key 必须沿用输入里的 option_key；不要直接给玩家下心理诊断。"
-                                    "同时为每一幕生成可给生图模型使用的英文素材提示："
-                                    "background_prompt 写视觉小说背景图提示，强调场景、时间、光线、构图，必须 no humans/no text；"
-                                    "character_prompt 写正面半身立绘提示，非色情、非暴露，保留角色气质。"
-                                    "输出纯 JSON："
-                                    '{"title":"...","location":"...","mood":"...","speaker":"...",'
-                                    '"narrator_text":"...","character_text":"...",'
-                                    '"choice_texts":{"option_key":"场景化选项文本"},'
-                                    '"background_key":"...","background_prompt":"...",'
-                                    '"character_key":"...","character_prompt":"..."}'
-                                ),
-                            },
-                            {
-                                "role": "user",
-                                "content": json.dumps(scene_payload, ensure_ascii=False),
-                            },
-                        ],
-                        "temperature": 0.85,
-                        "max_tokens": 700,
+                    {
+                        "role": "user",
+                        "content": json.dumps(scene_payload, ensure_ascii=False),
                     },
-                )
+                ],
+                "temperature": 0.85,
+                "max_tokens": settings.galgame_ai_scene_max_tokens,
+                "response_format": {"type": "json_object"},
+            }
+            with httpx.Client(timeout=settings.galgame_ai_scene_timeout_seconds, follow_redirects=False) as client:
+                try:
+                    response = client.post(f"{active_config.base_url}/chat/completions", headers=headers, json=request_json)
+                except httpx.RemoteProtocolError:
+                    request_json.pop("response_format", None)
+                    response = client.post(f"{active_config.base_url}/chat/completions", headers=headers, json=request_json)
+                if response.status_code in {400, 422} and "response_format" in request_json:
+                    request_json.pop("response_format", None)
+                    response = client.post(f"{active_config.base_url}/chat/completions", headers=headers, json=request_json)
                 response.raise_for_status()
                 data = response.json()
                 content = str(data["choices"][0]["message"]["content"]).strip()

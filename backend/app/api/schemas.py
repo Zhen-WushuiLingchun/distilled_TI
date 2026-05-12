@@ -175,6 +175,7 @@ class GalgameRespondRequest(BaseModel):
     item_id: str
     scene_id: str
     option_key: str
+    choice_text: str | None = None
     custom_text: str | None = None
     latency_ms: int | None = None
 

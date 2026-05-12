@@ -380,6 +380,7 @@ def respond_galgame_scene(
             item_id=payload.item_id,
             scene_id=payload.scene_id,
             option_key=payload.option_key,
+            choice_text=payload.choice_text,
             custom_text=payload.custom_text,
         )
         resolved_option_key = payload.option_key

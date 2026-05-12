@@ -736,6 +736,7 @@ export function respondGalgameScene(
     item_id: string;
     scene_id: string;
     option_key: string;
+    choice_text?: string;
     custom_text?: string;
     latency_ms?: number;
   }

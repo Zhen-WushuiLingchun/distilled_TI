@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.domain.models import VectorSearchHit
 from app.main import app as public_app
 from app.services.ai_service import ai_service
+from app.services.storage import local_session_store
 from app.services.vector_indexer import vector_indexer
 
 public_client = TestClient(public_app)
@@ -219,7 +220,18 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatc
     assert scene["background_asset"]["url"].startswith("/galgame-assets/backgrounds/")
     assert scene["character_asset"]["url"].startswith("/galgame-assets/sprites/")
     assert scene["ai_generated"] is False
-    assert scene["prompt_shadow"].startswith("测量影子")
+    assert scene["prompt_shadow"] == "hidden_measurement_seed"
+    visible_scene_text = "\n".join(
+        [
+            scene["narrator_text"],
+            scene["character_text"],
+            *[choice["text"] for choice in scene["choices"]],
+        ]
+    )
+    assert payload["question"]["prompt"] not in visible_scene_text
+    assert "非常同意" not in visible_scene_text
+    assert "非常不同意" not in visible_scene_text
+    assert "当前映射" not in visible_scene_text
 
     response = public_client.post(
         f"/api/session/{payload['session_id']}/galgame/respond",
@@ -227,6 +239,7 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatc
             "item_id": scene["item_id"],
             "scene_id": scene["scene_id"],
             "option_key": scene["choices"][0]["option_key"],
+            "choice_text": scene["choices"][0]["text"],
             "custom_text": "我先观察一下对方真正担心什么，再决定要不要推进。",
             "latency_ms": 1800,
         },
@@ -242,6 +255,8 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatc
         assert body["state"]["answers"][-1]["option_key"] == body["text_inference"]["inferred_option_key"]
     assert body["scene"]["item_id"] != scene["item_id"]
     assert body["scene"]["memory_fragments"]
+    turns = local_session_store.list_galgame_turns(payload["session_id"], limit=1)
+    assert turns[-1].scene_text == "我先观察一下对方真正担心什么，再决定要不要推进。"
 
     stale_response = public_client.post(
         f"/api/session/{payload['session_id']}/galgame/respond",
@@ -253,6 +268,58 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatc
         headers=headers,
     )
     assert stale_response.status_code == 404
+
+
+def test_galgame_scene_filters_ai_measurement_leaks(monkeypatch, tmp_path):
+    def fake_scene(scene_payload):
+        first_choice = scene_payload["choices"][0]
+        second_choice = scene_payload["choices"][1]
+        return {
+            "title": "量表场景",
+            "location": "心理测试室",
+            "mood": "测量",
+            "speaker": "option_key",
+            "narrator_text": scene_payload["private_analysis_seed"]["layer"],
+            "character_text": f"请回答：{first_choice['text']}",
+            "choice_texts": {
+                first_choice["option_key"]: "非常同意 +1.00",
+                second_choice["option_key"]: "不同意 -0.50",
+            },
+            "background_key": "bad_background",
+            "background_prompt": "classroom background, no humans, no text",
+            "character_key": "bad_character",
+            "character_prompt": "visual novel portrait",
+        }
+
+    monkeypatch.setattr(ai_service, "generate_galgame_scene", fake_scene)
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path / "generated"))
+    start_response = public_client.post("/api/session/start", json={"mode": "core"})
+    payload = start_response.json()
+
+    scene_response = public_client.get(
+        f"/api/session/{payload['session_id']}/galgame/scene",
+        headers=session_headers(payload["session_secret"]),
+    )
+
+    assert scene_response.status_code == 200
+    scene = scene_response.json()
+    visible_scene_text = "\n".join(
+        [
+            scene["title"],
+            scene["location"],
+            scene["mood"],
+            scene["speaker"],
+            scene["narrator_text"],
+            scene["character_text"],
+            *[choice["text"] for choice in scene["choices"]],
+        ]
+    )
+    assert payload["question"]["prompt"] not in visible_scene_text
+    assert "非常同意" not in visible_scene_text
+    assert "不同意" not in visible_scene_text
+    assert "心理测试" not in visible_scene_text
+    assert "option_key" not in visible_scene_text
+    assert "测量" not in visible_scene_text
 
 
 def test_invite_user_can_manage_private_galgame_story_templates(monkeypatch):
