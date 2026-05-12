@@ -1,7 +1,7 @@
 # Plan: Galgame Story Mode
 
 - Date: 2026-05-12
-- Status: first slice implemented and locally validated
+- Status: AI-GAL style generation and free-text classifier slice implemented
 - Scope: make Distilled TI playable by wrapping measurement questions in a visual-novel style scenario loop.
 
 ## Reference Review
@@ -21,6 +21,8 @@ Two reference projects were downloaded into a temporary local directory for revi
 
 Decision: borrow the AI-GAL product pattern, not its runtime or code. Implement Story Mode natively in the existing Web stack.
 
+Follow-up after inspecting AI-GAL more closely: the useful part is not a fixed questionnaire wrapper, but the loop of `theme + character setting + story history + branch choice + optional player custom input -> next generated scene`. The current implementation therefore keeps the measurement prompt as a hidden seed and lets the LLM write a playable scene with only two hard constraints: keep option keys mappable, and do not present direct psychological diagnosis.
+
 ## Product Goal
 
 The normal test loop is accurate but not fun. Story Mode changes the presentation:
@@ -38,12 +40,22 @@ This gives users a game-like loop while still preserving measurement continuity.
 
 - Added `GalgameScene`, `GalgameChoice`, and `GalgameTurn`.
 - Added SQLite `galgame_turns`.
-- Added scene construction in `SessionService.build_galgame_scene()`.
+- Added AI-GAL style scene construction in `SessionService.build_galgame_scene()`.
+- Added `AIService.generate_galgame_scene()` for OpenAI-compatible story generation.
 - Added turn recording in `SessionService.record_galgame_turn()`.
+- Added free-text tendency inference:
+  - LLM produces option-level probability distribution when configured.
+  - embedding compares the player line against current scene choices when embedding is configured.
+  - a fusion layer returns `source`, `confidence`, `option_scores`, and explanation.
+  - if free text confidence is above `GALGAME_FREE_TEXT_INFERENCE_MIN_CONFIDENCE`, scoring uses the inferred option.
+  - if AI/vector services fail, rule fallback preserves the story flow.
+- Added `EmbeddingService.build_galgame_turn_document()`.
+- Added `VectorIndexer.index_galgame_turn()`, `search_similar_galgame_turns()`, and `galgame_turns` reindex scope.
+- Added Admin story-template APIs and story-turn similar-search API.
 - Added public endpoints:
   - `GET /api/session/{session_id}/galgame/scene`
   - `POST /api/session/{session_id}/galgame/respond`
-- `respond` records the story turn, then calls the existing scoring path through `submit_answer()`.
+- `respond` records the story turn, resolves free-text tendency when available, then calls the existing scoring path through `submit_answer()`.
 
 ## Implemented Frontend
 
@@ -58,38 +70,61 @@ This gives users a game-like loop while still preserving measurement continuity.
   - in-scene choice buttons
   - custom free-line input
   - recent memory fragments
+  - AI/fallback scene indicator
+  - background/character asset keys
+  - free-text tendency distribution after custom input
   - report readiness entry
 - Story Mode reuses current active session if present, or starts a new one.
 - If a user invite profile exists locally, Story Mode starts sessions under that user.
 
+- Added Admin Story Engine panel:
+  - create/update/delete story templates
+  - configure theme, outline, location, speaker, character/background keys and prompts
+  - reindex/search `galgame_turns`
+
 ## Local Validation
 
-- Backend: `VECTOR_ENABLED=false pytest` passed with `50 passed`.
-- Frontend: `npm run lint` passed.
-- Frontend: `npm run build` passed.
-- Browser acceptance covered `/story` scene load, normal choice submission, custom free-line submission, memory fragment update, and the landing page Story Mode entry.
+- Backend: `VECTOR_ENABLED=false pytest` passed with `53 passed`.
+- Frontend: `npm run lint` passed after the current slice.
+- Frontend: `npm run build` passed after the current slice.
+- Browser acceptance covered `/story` scene load, custom free-line submission, classifier evidence display, Admin Story Engine panel, and `galgame_turns` vector scope.
 
 ## Measurement Boundary
 
-The first slice intentionally does not let free text directly determine psychometric score.
+The first slice used manual option selection only. Current slice upgrades this:
 
-- The score still comes from the selected option.
-- Free text is stored as additional context.
-- Later phases can use embedding/LLM classification to infer option tendencies from free text, but that needs validation to avoid noisy scoring.
+- Free text is now classified into option tendencies.
+- Classification is not a psychological diagnosis; it only maps the line to the closest current scene option.
+- The mapping is explainable through LLM score, embedding score, and fused score.
+- Low-confidence or unavailable classification falls back to the selected option/rule path.
+- Every turn is saved for later `galgame_turns` vector search.
+
+Research calibration used in this slice:
+
+- Human-preference learning work treats preferences as signals that can come in multiple feedback formats, not only closed choices.
+- open-ended survey scaling work suggests pairwise/comparative judgments can be more stable than raw zero-shot numeric ratings.
+- value-consistency work warns that open-ended and multiple-choice mappings need consistency checks.
+- embedding work supports using contextual text embeddings as a semantic similarity layer rather than exact lexical matching.
+
+References checked:
+
+- <https://arxiv.org/abs/2406.11191>
+- <https://arxiv.org/pdf/2401.00368>
+- <https://aclanthology.org/2024.findings-emnlp.891.pdf>
+- <https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5112677>
 
 ## Not Done Yet
 
-- No AI-generated scenes yet.
-- No image generation, character sprites, voice, or music.
-- No embedding index for `galgame_turns` yet.
-- No free-text scoring classifier yet.
-- No authoring UI for user-written scenario templates yet.
-- No branching story graph beyond the current item-by-item loop.
+- No generated image assets, character sprites, voice, or music yet.
+- Admin story templates exist, but public user-authored templates are not exposed.
+- Branching remains item-by-item rather than a persistent Ren'Py-style graph.
+- Free-text classifier has fusion plumbing, but no offline calibration dataset or pairwise Bradley-Terry-style scorer yet.
+- Real AI acceptance with DeepSeek/SiliconFlow should be rerun after setting local secrets.
 
 ## Next Slices
 
-1. Add `galgame_turn_vectors` or fold turns into session snapshot canonical text.
-2. Add AI scene generation using current session profile, similar items, and recent turns.
-3. Add admin/user scenario authoring.
-4. Add free-text tendency classification with explicit confidence and fallback to manual option selection.
-5. Add lightweight sprites/background presets without external game-engine dependency.
+1. Build a small calibration set of free-text lines against known option keys and measure classifier agreement.
+2. Add pairwise comparison mode for ambiguous free text, especially when LLM and embedding disagree.
+3. Add lightweight generated/curated sprites and backgrounds keyed by story template.
+4. Expose user-authored story templates only after moderation and privacy decisions.
+5. Add deeper branch memory once story quality is stable.

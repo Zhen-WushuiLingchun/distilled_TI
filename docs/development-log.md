@@ -1,5 +1,45 @@
 # Development Log
 
+## 2026-05-12: AI-GAL Story Generation And Free-Text Classifier
+
+### Completed
+
+- Reviewed AI-GAL and HOILAI references; chose to borrow AI-GAL's generative loop rather than vendoring Ren'Py/Unity runtimes.
+- Relaxed Story Mode generation so the LLM writes playable galgame scenes from theme, characters, history, branch choice, and hidden measurement seed.
+- Added Admin-managed story templates for theme, outline, location, speaker, character/background keys, and asset prompts.
+- Added AI scene generation via OpenAI-compatible chat provider.
+- Added free-text tendency classification:
+  - LLM option distribution when configured
+  - embedding similarity between player line and current choices when configured
+  - rule fallback when AI/vector services are unavailable
+  - fused `text_inference` with option-level scores and reason
+- Let confident free-text inference map back to scoring option keys while preserving fallback to explicit selection.
+- Added `galgame_turns` vector documents, indexing, reindex scope, and Admin similar story-turn search.
+- Updated `/story` to show AI/fallback status, background/character keys, and free-text classification evidence.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false pytest` passed with `53 passed`.
+- Backend: `python -m compileall backend/app backend/tests` passed.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+- Browser acceptance:
+  - `/story` loaded a playable scene with choices, custom free-line input, asset keys, and classifier panel after submission.
+  - `/admin` loaded the Story Engine template panel and vector scope support for `galgame_turns`.
+  - Screenshots:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-galgame-acceptance\story-galgame-classifier.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-galgame-acceptance\admin-story-engine.png`
+
+### Not Completed Yet
+
+- No generated image/sprite/audio asset pipeline yet.
+- No offline calibration dataset or pairwise-comparison scorer for ambiguous free text yet.
+
+### Next Step
+
+- Add a small free-text calibration fixture set before changing classifier weights.
+- Then consider pairwise comparison for ambiguous free-text turns.
+
 ## 2026-05-06: Session Workbench Slice 4
 
 ### Completed

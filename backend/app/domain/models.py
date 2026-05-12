@@ -78,6 +78,14 @@ class GalgameTurn(BaseModel):
     selected_option_key: str
     custom_text: str | None = None
     scene_text: str = ""
+    inferred_option_key: str | None = None
+    inference_confidence: float | None = None
+    inference_reason: str | None = None
+    classifier_source: Literal["none", "rule", "embedding", "llm", "hybrid"] = "none"
+    inference_distribution: dict[str, float] = Field(default_factory=dict)
+    embedding_similarity: dict[str, float] = Field(default_factory=dict)
+    story_template_id: str | None = None
+    ai_generated: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -250,7 +258,7 @@ class WorkbenchCheckpoint(BaseModel):
 
 class WorkbenchEvidenceItem(BaseModel):
     reference_key: str
-    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot"]
+    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot", "galgame_turn"]
     label: str
     relationship: str
     prompt_excerpt: str
@@ -292,7 +300,49 @@ class GalgameScene(BaseModel):
     prompt_shadow: str
     choices: list[GalgameChoice]
     memory_fragments: list[str] = Field(default_factory=list)
+    background_key: str = "campus_window"
+    background_prompt: str = ""
+    character_key: str = "desk_mate"
+    character_prompt: str = ""
+    story_template_id: str | None = None
+    ai_generated: bool = False
     custom_input_enabled: bool = True
+
+
+class GalgameOptionTendency(BaseModel):
+    option_key: str
+    llm_score: float | None = None
+    embedding_score: float | None = None
+    fused_score: float = 0.0
+    reason: str = ""
+
+
+class GalgameTextInference(BaseModel):
+    inferred_option_key: str | None = None
+    confidence: float = 0.0
+    reason: str = ""
+    source: Literal["none", "rule", "embedding", "llm", "hybrid"] = "none"
+    option_scores: list[GalgameOptionTendency] = Field(default_factory=list)
+    embedding_available: bool = False
+    llm_available: bool = False
+    method_version: str = "free_text_fusion_v1"
+
+
+class GalgameStoryTemplate(BaseModel):
+    template_id: str
+    name: str
+    description: str = ""
+    location: str
+    speaker: str
+    character_key: str = "desk_mate"
+    background_key: str = "campus_window"
+    background_prompt: str = ""
+    character_prompt: str = ""
+    style_prompt: str = ""
+    scenario_tags: list[str] = Field(default_factory=list)
+    active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SessionAccessGrant(BaseModel):
@@ -363,7 +413,7 @@ class EmbeddingScoreBreakdown(BaseModel):
 
 class VectorSearchHit(BaseModel):
     object_id: str
-    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot"]
+    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot", "galgame_turn"]
     template_id: str | None = None
     instance_id: str | None = None
     session_id: str | None = None
@@ -422,7 +472,7 @@ class VectorSyncFailure(BaseModel):
 
 
 class VectorReindexSummary(BaseModel):
-    scope: Literal["templates", "instances", "sessions", "all"]
+    scope: Literal["templates", "instances", "sessions", "galgame_turns", "all"]
     enabled: bool = False
     indexed_count: int = 0
     failed_count: int = 0

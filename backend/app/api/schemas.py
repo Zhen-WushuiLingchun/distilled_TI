@@ -10,6 +10,8 @@ from app.domain.models import (
     EmbeddingScoreBreakdown,
     GalgameChoice,
     GalgameScene,
+    GalgameStoryTemplate,
+    GalgameTextInference,
     InviteCode,
     ItemInstance,
     ItemTemplate,
@@ -158,6 +160,7 @@ class GalgameSceneResultResponse(BaseModel):
     can_generate_report: bool
     remaining_until_report: int
     scene: GalgameScene | None = None
+    text_inference: GalgameTextInference | None = None
     workbench_checkpoint: WorkbenchCheckpoint | None = None
 
 
@@ -167,6 +170,28 @@ class GalgameRespondRequest(BaseModel):
     option_key: str
     custom_text: str | None = None
     latency_ms: int | None = None
+
+
+class GalgameStoryTemplateRequest(BaseModel):
+    name: str
+    description: str = ""
+    location: str
+    speaker: str
+    character_key: str = "desk_mate"
+    background_key: str = "campus_window"
+    background_prompt: str = ""
+    character_prompt: str = ""
+    style_prompt: str = ""
+    scenario_tags: list[str] = Field(default_factory=list)
+    active: bool = True
+
+
+class GalgameStoryTemplateResponse(GalgameStoryTemplate):
+    pass
+
+
+class GalgameStoryTemplateListResponse(BaseModel):
+    items: list[GalgameStoryTemplateResponse] = Field(default_factory=list)
 
 
 class MapPoint(BaseModel):

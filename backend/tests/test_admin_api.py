@@ -16,6 +16,7 @@ public_client = TestClient(public_app)
 
 def test_admin_can_configure_ai_provider_without_exposing_key():
     original = ai_service.test_config
+    original_config = local_session_store.load_ai_provider_config()
     ai_service.test_config = lambda _config: (True, "AI connection ok.")
     try:
         response = admin_client.post(
@@ -41,6 +42,13 @@ def test_admin_can_configure_ai_provider_without_exposing_key():
     status_payload = status_response.json()
     assert status_payload["configured"] is True
     assert status_payload["provider"] == "deepseek"
+
+    if original_config is None:
+        local_session_store.delete_ai_provider_config()
+        ai_service._config = None
+    else:
+        local_session_store.save_ai_provider_config(original_config)
+        ai_service._config = None
 
 
 def test_admin_can_issue_session_access_and_preview_rewrite():
@@ -199,11 +207,60 @@ def test_admin_invites_users_and_hidden_recommendations():
     assert recommendations_response.json()["items"] == []
 
 
+def test_admin_can_manage_galgame_story_templates():
+    list_response = admin_client.get("/api/admin/galgame/story-templates")
+    assert list_response.status_code == 200
+    assert len(list_response.json()["items"]) >= 1
+
+    create_response = admin_client.post(
+        "/api/admin/galgame/story-templates",
+        json={
+            "name": "测试用雨天长廊",
+            "description": "用于测试 AI-GAL 风格剧情模板。",
+            "location": "雨声很近的教学楼长廊",
+            "speaker": "社团记录员",
+            "character_key": "recorder",
+            "background_key": "rainy_corridor",
+            "background_prompt": "rainy school corridor, visual novel background",
+            "character_prompt": "club recorder, focused expression, visual novel portrait",
+            "style_prompt": "自由剧情续写，不写成问卷。",
+            "scenario_tags": ["campus", "test"],
+            "active": True,
+        },
+    )
+    assert create_response.status_code == 200
+    template_id = create_response.json()["template_id"]
+
+    update_response = admin_client.put(
+        f"/api/admin/galgame/story-templates/{template_id}",
+        json={
+            "name": "测试用雨天长廊改",
+            "description": "用于测试更新。",
+            "location": "雨声很近的教学楼长廊",
+            "speaker": "社团记录员",
+            "character_key": "recorder",
+            "background_key": "rainy_corridor",
+            "background_prompt": "rainy school corridor, visual novel background",
+            "character_prompt": "club recorder, focused expression, visual novel portrait",
+            "style_prompt": "自由剧情续写，不写成问卷。",
+            "scenario_tags": ["campus", "test"],
+            "active": False,
+        },
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["active"] is False
+
+    delete_response = admin_client.delete(f"/api/admin/galgame/story-templates/{template_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+
+
 def test_admin_vector_endpoints():
     template = build_seed_item_bank()[0]
     original_reindex = vector_indexer.reindex
     original_search = vector_indexer.search_similar_templates
     original_search_sessions = vector_indexer.search_similar_sessions
+    original_search_galgame_turns = vector_indexer.search_similar_galgame_turns
     original_enabled = vector_indexer.is_enabled
     original_failures = local_session_store.list_vector_sync_failures
     vector_indexer.reindex = lambda scope: VectorReindexSummary(
@@ -236,6 +293,20 @@ def test_admin_vector_endpoints():
             score=0.91,
         )
     ]
+    vector_indexer.search_similar_galgame_turns = lambda **_kwargs: [
+        VectorSearchHit(
+            object_id="gal-turn-a",
+            object_type="galgame_turn",
+            template_id="core-plan-1",
+            instance_id="inst-1",
+            session_id="session-story",
+            layer="story",
+            generation_mode="galgame_turn",
+            prompt_excerpt="玩家选择先观察局势。",
+            score=0.87,
+            scenario_tags=["galgame", "story_turn"],
+        )
+    ]
     vector_indexer.is_enabled = lambda: True
     local_session_store.list_vector_sync_failures = lambda limit=25: [
         VectorSyncFailure(
@@ -254,6 +325,10 @@ def test_admin_vector_endpoints():
         assert reindex_response.status_code == 200
         assert reindex_response.json()["indexed_count"] == 4
 
+        galgame_reindex_response = admin_client.post("/api/admin/vector/reindex", json={"scope": "galgame_turns"})
+        assert galgame_reindex_response.status_code == 200
+        assert galgame_reindex_response.json()["scope"] == "galgame_turns"
+
         similar_response = admin_client.get(f"/api/admin/vector/templates/similar?template_id={template.id}")
         assert similar_response.status_code == 200
         assert similar_response.json()["hits"][0]["object_id"] == "core-social-2"
@@ -264,6 +339,10 @@ def test_admin_vector_endpoints():
         assert session_response.status_code == 200
         assert session_response.json()["hits"][0]["object_type"] == "session_snapshot"
 
+        turn_response = admin_client.get("/api/admin/vector/galgame-turns/similar?prompt=%E5%85%88%E8%A7%82%E5%AF%9F")
+        assert turn_response.status_code == 200
+        assert turn_response.json()["hits"][0]["object_type"] == "galgame_turn"
+
         failures_response = admin_client.get("/api/admin/vector/sync-failures")
         assert failures_response.status_code == 200
         assert failures_response.json()["items"][0]["failure_id"] == "vf-1"
@@ -271,5 +350,6 @@ def test_admin_vector_endpoints():
         vector_indexer.reindex = original_reindex
         vector_indexer.search_similar_templates = original_search
         vector_indexer.search_similar_sessions = original_search_sessions
+        vector_indexer.search_similar_galgame_turns = original_search_galgame_turns
         vector_indexer.is_enabled = original_enabled
         local_session_store.list_vector_sync_failures = original_failures

@@ -259,17 +259,24 @@ def respond_galgame_scene(
 ) -> GalgameSceneResultResponse:
     _require_session_access(session_id, x_session_secret, request)
     try:
-        session_service.record_galgame_turn(
+        text_inference = session_service.record_galgame_turn(
             session_id=session_id,
             item_id=payload.item_id,
             scene_id=payload.scene_id,
             option_key=payload.option_key,
             custom_text=payload.custom_text,
         )
+        resolved_option_key = payload.option_key
+        if (
+            payload.custom_text
+            and text_inference.inferred_option_key
+            and text_inference.confidence >= settings.galgame_free_text_inference_min_confidence
+        ):
+            resolved_option_key = text_inference.inferred_option_key
         session, next_item = session_service.submit_answer(
             session_id,
             payload.item_id,
-            payload.option_key,
+            resolved_option_key,
             payload.latency_ms,
         )
         next_scene = session_service.build_galgame_scene(session_id) if next_item else None
@@ -281,6 +288,7 @@ def respond_galgame_scene(
         can_generate_report=session.state.question_count >= settings.min_questions_for_report,
         remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
         scene=next_scene,
+        text_inference=text_inference,
         workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
 

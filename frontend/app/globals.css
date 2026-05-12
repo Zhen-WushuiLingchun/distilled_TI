@@ -429,6 +429,24 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
     radial-gradient(circle at 74% 40%, rgba(248, 232, 187, 0.8), transparent 18%),
     linear-gradient(135deg, #607d78 0%, #a7bda8 44%, #e7d1a5 100%);
 }
+.story-sky[data-background-key*="library"] {
+  background:
+    linear-gradient(180deg, rgba(17, 31, 38, 0.24), rgba(255, 255, 255, 0.12)),
+    radial-gradient(circle at 68% 42%, rgba(155, 204, 166, 0.62), transparent 16%),
+    linear-gradient(135deg, #1d3540 0%, #617c72 52%, #c8b98f 100%);
+}
+.story-sky[data-background-key*="rooftop"] {
+  background:
+    linear-gradient(180deg, rgba(51, 58, 75, 0.18), rgba(255, 255, 255, 0.1)),
+    radial-gradient(circle at 78% 28%, rgba(255, 187, 121, 0.86), transparent 18%),
+    linear-gradient(135deg, #50606e 0%, #b89167 55%, #e7c290 100%);
+}
+.story-sky[data-background-key*="chat"] {
+  background:
+    linear-gradient(180deg, rgba(20, 52, 58, 0.18), rgba(255, 255, 255, 0.16)),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.18) 0 2px, transparent 2px 8px),
+    linear-gradient(135deg, #243f46 0%, #6f9b92 50%, #d4c7a2 100%);
+}
 .story-sky::before {
   content: "";
   position: absolute;
@@ -451,6 +469,21 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
     radial-gradient(circle at 50% 20%, #f4d5bb 0 16%, transparent 17%),
     linear-gradient(140deg, #293f3a 0%, #2f6f5e 45%, #172823 100%);
   filter: drop-shadow(0 24px 38px rgba(26, 24, 22, 0.28));
+}
+.story-character[data-character-key*="librarian"] {
+  background:
+    radial-gradient(circle at 50% 20%, #f0d1b8 0 16%, transparent 17%),
+    linear-gradient(140deg, #24323a 0%, #57705f 48%, #192721 100%);
+}
+.story-character[data-character-key*="transfer"] {
+  background:
+    radial-gradient(circle at 50% 20%, #efd0b5 0 16%, transparent 17%),
+    linear-gradient(140deg, #2c293c 0%, #7a4f42 48%, #181622 100%);
+}
+.story-character[data-character-key*="recorder"] {
+  background:
+    radial-gradient(circle at 50% 20%, #f4d5bb 0 16%, transparent 17%),
+    linear-gradient(140deg, #263431 0%, #6b733d 48%, #19231f 100%);
 }
 .story-character::before,
 .story-character::after {

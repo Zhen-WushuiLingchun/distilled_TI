@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 import re
 from typing import Any
@@ -11,7 +12,8 @@ import httpx
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.domain.models import ItemTemplate
+from app.domain.models import GalgameChoice, GalgameOptionTendency, GalgameTextInference, ItemTemplate
+from app.services.embedding_service import EmbeddingServiceError, embedding_service
 from app.services.storage import local_session_store
 from app.services.validators import validate_contrast_probe, validate_generated_prompt, validate_likert_prompt
 
@@ -362,6 +364,332 @@ class AIService:
         except Exception:
             return fallback
 
+    def generate_galgame_scene(
+        self,
+        scene_payload: dict[str, object],
+        runtime_config: AIProviderConfig | None = None,
+    ) -> dict[str, object] | None:
+        active_config = self._resolve_config(runtime_config)
+        if active_config is None or not settings.galgame_ai_scene_enabled:
+            return None
+
+        try:
+            with httpx.Client(timeout=20.0, follow_redirects=False) as client:
+                response = client.post(
+                    f"{active_config.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {active_config.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": active_config.model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "你是一个 AI galgame 剧情引擎。像 AI-GAL 一样，根据主题、人物、最近剧情和玩家上一轮选择继续写下一幕。"
+                                    "可以有校园悬疑、社团冲突、暧昧关系、轻喜剧、突发事件和分支张力；不要写成问卷，也不要解释测量目的。"
+                                    "唯一硬规则：choice_texts 的 key 必须沿用输入里的 option_key；不要直接给玩家下心理诊断。"
+                                    "输出纯 JSON："
+                                    '{"title":"...","location":"...","mood":"...","speaker":"...",'
+                                    '"narrator_text":"...","character_text":"...",'
+                                    '"choice_texts":{"option_key":"场景化选项文本"},'
+                                    '"background_key":"...","background_prompt":"...",'
+                                    '"character_key":"...","character_prompt":"..."}'
+                                ),
+                            },
+                            {
+                                "role": "user",
+                                "content": json.dumps(scene_payload, ensure_ascii=False),
+                            },
+                        ],
+                        "temperature": 0.85,
+                        "max_tokens": 700,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                content = str(data["choices"][0]["message"]["content"]).strip()
+                parsed = self._parse_json_object(content)
+        except Exception:
+            return None
+
+        required = ["title", "location", "mood", "speaker", "narrator_text", "character_text"]
+        if any(not str(parsed.get(key, "")).strip() for key in required):
+            return None
+        option_keys = {
+            str(choice.get("option_key"))
+            for choice in scene_payload.get("choices", [])
+            if isinstance(choice, dict) and choice.get("option_key")
+        }
+        raw_choice_texts = parsed.get("choice_texts", {})
+        if not isinstance(raw_choice_texts, dict):
+            raw_choice_texts = {}
+        choice_texts = {
+            key: str(value).strip()
+            for key, value in raw_choice_texts.items()
+            if key in option_keys and str(value).strip()
+        }
+        parsed["choice_texts"] = choice_texts
+        return parsed
+
+    def classify_galgame_free_text(
+        self,
+        custom_text: str | None,
+        choices: list[GalgameChoice],
+        runtime_config: AIProviderConfig | None = None,
+    ) -> GalgameTextInference:
+        text = (custom_text or "").strip()
+        if not text:
+            return GalgameTextInference(source="none", reason="no_custom_text")
+
+        embedding_distribution, embedding_similarity = self._embedding_classify_galgame_text(text, choices)
+        llm_distribution: dict[str, float] = {}
+        llm_reason = ""
+        active_config = self._resolve_config(runtime_config)
+        if active_config is not None:
+            try:
+                with httpx.Client(timeout=12.0, follow_redirects=False) as client:
+                    response = client.post(
+                        f"{active_config.base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {active_config.api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": active_config.model,
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "你是自由台词倾向分类器。"
+                                        "只判断玩家这句台词在当前剧情里更接近哪个已给选项；不做心理诊断。"
+                                        "请同时给出每个 option_key 的 0-1 倾向分布，分布总和接近 1。"
+                                        "如果证据不足，分布要更平，confidence 必须低。"
+                                        "输出纯 JSON："
+                                        '{"option_key":"...","confidence":0.0,"reason":"...",'
+                                        '"option_scores":[{"option_key":"...","score":0.0,"reason":"..."}]}'
+                                    ),
+                                },
+                                {
+                                    "role": "user",
+                                    "content": json.dumps(
+                                        {
+                                            "custom_text": text,
+                                            "choices": [
+                                                {
+                                                    "option_key": choice.option_key,
+                                                    "text": choice.text,
+                                                    "score": choice.score,
+                                                }
+                                                for choice in choices
+                                            ],
+                                        },
+                                        ensure_ascii=False,
+                                    ),
+                                },
+                            ],
+                            "temperature": 0.0,
+                            "max_tokens": 160,
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    parsed = self._parse_json_object(str(data["choices"][0]["message"]["content"]).strip())
+                    llm_distribution = self._parse_option_distribution(parsed, choices)
+                    llm_reason = str(parsed.get("reason", "")).strip()[:180]
+            except Exception:
+                pass
+
+        if llm_distribution or embedding_distribution:
+            return self._fuse_galgame_inference(
+                choices=choices,
+                llm_distribution=llm_distribution,
+                embedding_distribution=embedding_distribution,
+                embedding_similarity=embedding_similarity,
+                llm_reason=llm_reason,
+            )
+        return self._rule_classify_galgame_text(text, choices)
+
+    def _embedding_classify_galgame_text(
+        self,
+        text: str,
+        choices: list[GalgameChoice],
+    ) -> tuple[dict[str, float], dict[str, float]]:
+        if not choices or not embedding_service.can_embed():
+            return {}, {}
+        documents = [
+            (
+                "task=galgame_free_text_tendency\n"
+                "role=player_line\n"
+                f"text={text}"
+            )
+        ]
+        documents.extend(
+            (
+                "task=galgame_free_text_tendency\n"
+                "role=choice_anchor\n"
+                f"option_key={choice.option_key}\n"
+                f"score={choice.score:.3f}\n"
+                f"tone={choice.tone}\n"
+                f"text={choice.text}"
+            )
+            for choice in choices
+        )
+        try:
+            vectors = embedding_service.embed_texts(documents)
+        except EmbeddingServiceError:
+            return {}, {}
+        if len(vectors) != len(choices) + 1:
+            return {}, {}
+        query = vectors[0]
+        similarities = {
+            choice.option_key: round(self._cosine_similarity(query, vectors[index + 1]), 4)
+            for index, choice in enumerate(choices)
+        }
+        return self._softmax_distribution(similarities, temperature=8.0), similarities
+
+    def _parse_option_distribution(
+        self,
+        parsed: dict[str, Any],
+        choices: list[GalgameChoice],
+    ) -> dict[str, float]:
+        allowed = {choice.option_key for choice in choices}
+        raw_scores: dict[str, float] = {}
+        raw_option_scores = parsed.get("option_scores")
+        if isinstance(raw_option_scores, list):
+            for item in raw_option_scores:
+                if not isinstance(item, dict):
+                    continue
+                option_key = str(item.get("option_key", "")).strip()
+                if option_key not in allowed:
+                    continue
+                try:
+                    raw_scores[option_key] = max(0.0, float(item.get("score", 0.0)))
+                except (TypeError, ValueError):
+                    continue
+
+        if not raw_scores and isinstance(parsed.get("distribution"), dict):
+            for option_key, value in parsed["distribution"].items():
+                key = str(option_key).strip()
+                if key not in allowed:
+                    continue
+                try:
+                    raw_scores[key] = max(0.0, float(value))
+                except (TypeError, ValueError):
+                    continue
+
+        option_key = str(parsed.get("option_key", "")).strip()
+        if not raw_scores and option_key in allowed:
+            try:
+                confidence = max(0.0, min(1.0, float(parsed.get("confidence", 0.0))))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            remainder = max(0.0, 1.0 - confidence)
+            other_keys = [choice.option_key for choice in choices if choice.option_key != option_key]
+            raw_scores[option_key] = confidence
+            for key in other_keys:
+                raw_scores[key] = remainder / max(len(other_keys), 1)
+
+        return self._normalize_distribution(raw_scores)
+
+    def _fuse_galgame_inference(
+        self,
+        *,
+        choices: list[GalgameChoice],
+        llm_distribution: dict[str, float],
+        embedding_distribution: dict[str, float],
+        embedding_similarity: dict[str, float],
+        llm_reason: str,
+    ) -> GalgameTextInference:
+        option_keys = [choice.option_key for choice in choices]
+        fused: dict[str, float] = {}
+        llm_available = bool(llm_distribution)
+        embedding_available = bool(embedding_distribution)
+        llm_weight = 0.68 if llm_available and embedding_available else 1.0 if llm_available else 0.0
+        embedding_weight = 1.0 - llm_weight if llm_available and embedding_available else 1.0 if embedding_available else 0.0
+
+        for key in option_keys:
+            fused[key] = (
+                llm_weight * llm_distribution.get(key, 0.0)
+                + embedding_weight * embedding_distribution.get(key, 0.0)
+            )
+        fused = self._normalize_distribution(fused)
+        selected_key = max(fused, key=fused.get) if fused else None
+        confidence = fused.get(selected_key, 0.0) if selected_key else 0.0
+        llm_top = max(llm_distribution, key=llm_distribution.get) if llm_distribution else None
+        embedding_top = max(embedding_distribution, key=embedding_distribution.get) if embedding_distribution else None
+        if llm_available and embedding_available:
+            source = "hybrid"
+            if llm_top == embedding_top == selected_key:
+                reason = f"LLM 与 embedding 近邻都指向 {selected_key}。"
+            else:
+                reason = f"融合判断选择 {selected_key}；LLM 指向 {llm_top or 'none'}，embedding 指向 {embedding_top or 'none'}。"
+        elif llm_available:
+            source = "llm"
+            reason = llm_reason or f"LLM 分类指向 {selected_key}。"
+        else:
+            source = "embedding"
+            reason = f"embedding 语义近邻指向 {selected_key}。"
+        if llm_reason and source == "hybrid":
+            reason = f"{reason} LLM 依据：{llm_reason}"
+
+        option_scores = [
+            GalgameOptionTendency(
+                option_key=choice.option_key,
+                llm_score=round(llm_distribution[choice.option_key], 3) if choice.option_key in llm_distribution else None,
+                embedding_score=round(embedding_distribution[choice.option_key], 3) if choice.option_key in embedding_distribution else None,
+                fused_score=round(fused.get(choice.option_key, 0.0), 3),
+                reason=self._option_reason(choice, selected_key, embedding_similarity),
+            )
+            for choice in choices
+        ]
+        option_scores.sort(key=lambda item: item.fused_score, reverse=True)
+        return GalgameTextInference(
+            inferred_option_key=selected_key,
+            confidence=round(confidence, 3),
+            reason=reason[:220],
+            source=source,  # type: ignore[arg-type]
+            option_scores=option_scores,
+            embedding_available=embedding_available,
+            llm_available=llm_available,
+        )
+
+    def _option_reason(
+        self,
+        choice: GalgameChoice,
+        selected_key: str | None,
+        embedding_similarity: dict[str, float],
+    ) -> str:
+        marker = "selected" if choice.option_key == selected_key else "candidate"
+        if choice.option_key in embedding_similarity:
+            return f"{marker}; embedding_similarity={embedding_similarity[choice.option_key]:.3f}"
+        return marker
+
+    def _normalize_distribution(self, scores: dict[str, float]) -> dict[str, float]:
+        total = sum(max(0.0, value) for value in scores.values())
+        if total <= 0:
+            return {}
+        return {key: round(max(0.0, value) / total, 4) for key, value in scores.items()}
+
+    def _softmax_distribution(self, similarities: dict[str, float], temperature: float) -> dict[str, float]:
+        if not similarities:
+            return {}
+        maximum = max(similarities.values())
+        exp_scores = {
+            key: math.exp((value - maximum) * temperature)
+            for key, value in similarities.items()
+        }
+        return self._normalize_distribution(exp_scores)
+
+    def _cosine_similarity(self, left: list[float], right: list[float]) -> float:
+        numerator = sum(a * b for a, b in zip(left, right, strict=False))
+        left_norm = math.sqrt(sum(a * a for a in left))
+        right_norm = math.sqrt(sum(b * b for b in right))
+        if left_norm == 0 or right_norm == 0:
+            return 0.0
+        return numerator / (left_norm * right_norm)
+
     def summarize_report_with_config(
         self,
         report_payload: dict[str, object],
@@ -403,6 +731,52 @@ class AIService:
                 return str(data["choices"][0]["message"]["content"]).strip()
         except Exception:
             return self._fallback_summary(report_payload)
+
+    def _rule_classify_galgame_text(self, text: str, choices: list[GalgameChoice]) -> GalgameTextInference:
+        lowered = text.lower()
+        neutral_markers = ["不确定", "看情况", "观察", "折中", "先看看", "暂时", "再说", "balanced", "observe"]
+        positive_markers = ["同意", "推进", "主动", "支持", "愿意", "接受", "会做", "往前", "plan", "offer"]
+        negative_markers = ["不同意", "拒绝", "后撤", "不想", "不会", "反对", "停止", "退后", "avoid", "wait"]
+        if any(marker in lowered for marker in neutral_markers):
+            target_score = 0.0
+            reason = "规则回退：台词包含观望或折中信号。"
+        elif any(marker in lowered for marker in negative_markers):
+            target_score = -1.0
+            reason = "规则回退：台词包含后撤或否定信号。"
+        elif any(marker in lowered for marker in positive_markers):
+            target_score = 1.0
+            reason = "规则回退：台词包含主动推进或肯定信号。"
+        else:
+            option_scores = [
+                GalgameOptionTendency(option_key=choice.option_key, fused_score=round(1 / max(len(choices), 1), 3), reason="rule_uncertain")
+                for choice in choices
+            ]
+            return GalgameTextInference(
+                confidence=0.2,
+                reason="规则回退：没有足够明确的倾向词。",
+                source="rule",
+                option_scores=option_scores,
+            )
+
+        selected = min(choices, key=lambda choice: abs(choice.score - target_score))
+        distribution = {
+            choice.option_key: (0.62 if choice.option_key == selected.option_key else 0.38 / max(len(choices) - 1, 1))
+            for choice in choices
+        }
+        return GalgameTextInference(
+            inferred_option_key=selected.option_key,
+            confidence=0.62,
+            reason=reason,
+            source="rule",
+            option_scores=[
+                GalgameOptionTendency(
+                    option_key=choice.option_key,
+                    fused_score=round(distribution[choice.option_key], 3),
+                    reason="rule_selected" if choice.option_key == selected.option_key else "rule_alternative",
+                )
+                for choice in choices
+            ],
+        )
 
     def _fallback_summary(self, report_payload: dict[str, object]) -> str:
         structural = report_payload.get("structural_labels", [])

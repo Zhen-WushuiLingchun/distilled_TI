@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.domain.models import VectorSearchHit
 from app.main import app as public_app
+from app.services.ai_service import ai_service
 from app.services.vector_indexer import vector_indexer
 
 public_client = TestClient(public_app)
@@ -187,7 +188,8 @@ def test_invite_user_can_keep_long_lived_session_history():
     assert access_response.json()["session_secret"]
 
 
-def test_galgame_scene_wraps_current_question_and_records_custom_text():
+def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatch):
+    monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
     start_response = public_client.post("/api/session/start", json={"mode": "core"})
     payload = start_response.json()
     headers = session_headers(payload["session_secret"])
@@ -201,6 +203,9 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text():
     assert scene["item_id"] == payload["question"]["id"]
     assert scene["choices"]
     assert scene["custom_input_enabled"] is True
+    assert scene["background_key"]
+    assert scene["character_key"]
+    assert scene["ai_generated"] is False
     assert scene["prompt_shadow"].startswith("测量影子")
 
     response = public_client.post(
@@ -217,6 +222,10 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text():
     assert response.status_code == 200
     body = response.json()
     assert body["state"]["question_count"] == 1
+    assert body["text_inference"]["source"] in {"rule", "embedding", "llm", "hybrid"}
+    assert isinstance(body["text_inference"]["option_scores"], list)
+    if body["text_inference"]["inferred_option_key"] and body["text_inference"]["confidence"] >= 0.42:
+        assert body["state"]["answers"][-1]["option_key"] == body["text_inference"]["inferred_option_key"]
     assert body["scene"]["item_id"] != scene["item_id"]
     assert body["scene"]["memory_fragments"]
 

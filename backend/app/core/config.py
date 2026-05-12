@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     vector_search_score_threshold: float = 0.58
     session_vector_milestones: str = "5,10,20,40"
     session_vector_top_k: int = 5
+    galgame_ai_scene_enabled: bool = True
+    galgame_turn_vector_top_k: int = 5
+    galgame_free_text_inference_min_confidence: float = 0.42
     invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
     invite_default_max_uses: int = 1000
     registered_session_ttl_days: int = 3650

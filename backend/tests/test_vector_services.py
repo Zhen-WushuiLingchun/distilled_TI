@@ -6,7 +6,16 @@ import pytest
 
 from app.core.config import settings
 from app.domain.item_bank import build_seed_item_bank
-from app.domain.models import EmbeddingScoreBreakdown, ItemInstance, RewriteRetrievalContext, SessionRecord, SessionState, VectorSearchHit
+from app.domain.models import (
+    EmbeddingScoreBreakdown,
+    GalgameChoice,
+    GalgameTurn,
+    ItemInstance,
+    RewriteRetrievalContext,
+    SessionRecord,
+    SessionState,
+    VectorSearchHit,
+)
 from app.domain.dimensions import make_zero_module_vector, make_zero_subdimension_vector, make_zero_vector
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.embedding_service import EmbeddingServiceError, embedding_service
@@ -70,6 +79,35 @@ def test_session_snapshot_canonical_text_is_stable():
     assert "recent_answer_style=" in document.text
 
 
+def test_galgame_turn_canonical_text_includes_free_text_inference():
+    turn = GalgameTurn(
+        turn_id="gal-test",
+        session_id="session-story",
+        item_id="inst-story",
+        template_id="core-plan-1",
+        scene_id="session-story:inst-story:1",
+        selected_option_key="neutral",
+        custom_text="我先观察一下所有人的顾虑，再决定要不要推进。",
+        scene_text="社团活动室里突然需要有人接手。",
+        inferred_option_key="neutral",
+        inference_confidence=0.71,
+        inference_reason="融合判断",
+        classifier_source="hybrid",
+        inference_distribution={"neutral": 0.71, "agree": 0.29},
+        embedding_similarity={"neutral": 0.64, "agree": 0.36},
+        story_template_id="campus-council-window",
+        ai_generated=True,
+    )
+
+    document = embedding_service.build_galgame_turn_document(turn)
+
+    assert document.object_type == "galgame_turn"
+    assert "object_type=galgame_turn" in document.text
+    assert "custom_line=我先观察一下" in document.text
+    assert "inference_distribution=" in document.text
+    assert document.payload["story_template_id"] == "campus-council-window"
+
+
 def test_embed_texts_returns_provider_vectors(monkeypatch):
     _enable_vectors(monkeypatch)
 
@@ -102,6 +140,34 @@ def test_embed_texts_wraps_timeout(monkeypatch):
 
     with pytest.raises(EmbeddingServiceError):
         embedding_service.embed_texts(["alpha"])
+
+
+def test_galgame_free_text_classifier_fuses_embedding_without_llm(monkeypatch):
+    _enable_vectors(monkeypatch)
+    monkeypatch.setattr(ai_service, "_resolve_config", lambda _runtime_config=None: None)
+    monkeypatch.setattr(
+        embedding_service,
+        "embed_texts",
+        lambda _texts: [
+            [1.0, 0.0, 0.0],
+            [0.1, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.2, 1.0],
+        ],
+    )
+
+    choices = [
+        GalgameChoice(key="choice-1", text="先退后观察局势", option_key="disagree", score=-0.5, tone="guarded"),
+        GalgameChoice(key="choice-2", text="暂时不表态，继续收集信息", option_key="neutral", score=0.0, tone="ambivalent"),
+        GalgameChoice(key="choice-3", text="主动推进并接下任务", option_key="agree", score=0.5, tone="direct"),
+    ]
+
+    inference = ai_service.classify_galgame_free_text("我先不表态，观察大家真实担心什么。", choices)
+
+    assert inference.source == "embedding"
+    assert inference.embedding_available is True
+    assert inference.inferred_option_key == "neutral"
+    assert inference.option_scores[0].option_key == "neutral"
 
 
 def test_vector_store_uses_qdrant_client_methods(monkeypatch):

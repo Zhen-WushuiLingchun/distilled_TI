@@ -38,9 +38,11 @@
    - 不保存真实姓名、手机号、邮箱或学校身份
 9. `story mode`
    - 由 `SessionService.build_galgame_scene()` 和 `/story` 前端组成
-   - 把当前 `ItemInstance` 包装成视觉小说场景
-   - 用户仍然选择标准 option，因此不破坏现有 scoring
-   - 用户自定义台词会记录到 `galgame_turns`，后续可进入 embedding/LLM 分析
+   - 借鉴 AI-GAL 的“主题、角色、剧情历史、分支选择、玩家自定义输入 -> 下一幕”循环
+   - 把当前 `ItemInstance` 作为隐藏测量种子，而不是把题面直接写进剧情
+   - 用户可以点选剧情选项，也可以写自由台词
+   - 自由台词会走 LLM/embedding/规则融合分类，置信度足够时映射回标准 `option_key`
+   - 每轮行为记录到 `galgame_turns`，并可写入向量层做相似剧情检索
 
 一个典型请求流大致如下：
 
@@ -85,9 +87,16 @@ Story Mode 的核心原则是“改变呈现，不改变测量主链路”。
 - `GalgameTurn`
   - 用户在剧情模式中的一次行为记录
   - 包含 `scene_id / selected_option_key / custom_text / scene_text`
+  - 还保存 `inferred_option_key / inference_distribution / embedding_similarity`
   - 当前保存在 SQLite `galgame_turns`
 
-第一版不让自由文本直接决定分数。原因是自由文本分类需要置信度和误判处理，否则会污染心理测量结果。当前做法是：自由文本记录为上下文，用户仍选择一个倾向选项，后续可再用 embedding/LLM 做辅助分类。
+当前自由文本处理不是心理诊断，而是“把玩家这句台词映射到当前场景的哪个选项更接近”。流程是：
+
+1. 若配置 LLM，`AIService.classify_galgame_free_text()` 要求模型输出每个 option 的概率分布。
+2. 若配置 embedding，系统把玩家台词和当前 choices 做语义相似度，并转成概率分布。
+3. 融合层合并 LLM 分布和 embedding 分布，返回 `source / confidence / option_scores / reason`。
+4. 如果 `confidence >= GALGAME_FREE_TEXT_INFERENCE_MIN_CONFIDENCE`，`respond_galgame_scene()` 用推断出的 option 更新 scoring。
+5. 如果分类失败或置信度低，继续使用用户显式选择的 option，不阻塞剧情。
 
 ### 2.0 `UserProfile`、`InviteCode` 与 `UserRelationship`
 
@@ -866,18 +875,21 @@ AI 目前主要用于：
 
 1. `item_vectors`
 2. `session_vectors`
-3. embedding 召回
-4. reranker 精排
-5. 改写检索证据
-6. 管理端 reindex / similar / sync failures
+3. `galgame_turns` 复用 `item_vectors` collection 做剧情行为向量
+4. embedding 召回
+5. reranker 精排
+6. 改写检索证据
+7. 管理端 reindex / similar / sync failures
+8. 管理端 Story Engine 模板管理和 story-turn similar search
 
 当前还没做：
 
 1. `cluster_vectors`
-2. `galgame_turns` 的 embedding 索引
-3. 自动异常判定
-4. 后台任务队列和自动重试
-5. 生产级密钥管理
+2. 自动异常判定
+3. 后台任务队列和自动重试
+4. 生产级密钥管理
+5. 自由文本分类的离线校准集和成对比较评分器
+6. 真实图片/角色/音频素材生成与管理
 
 ## 8. 能不能识别瞎答题、伪造答题
 

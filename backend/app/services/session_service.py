@@ -26,6 +26,8 @@ from app.domain.models import (
     ClusterOverview,
     GalgameChoice,
     GalgameScene,
+    GalgameStoryTemplate,
+    GalgameTextInference,
     GalgameTurn,
     ItemInstance,
     ItemTemplate,
@@ -170,6 +172,29 @@ class SessionService:
         if not include_archived:
             items = [item for item in items if not item.archived]
         return sorted(items, key=lambda item: item.id)
+
+    def list_galgame_story_templates(self, include_inactive: bool = True) -> list[GalgameStoryTemplate]:
+        return local_session_store.list_galgame_story_templates(include_inactive=include_inactive)
+
+    def save_galgame_story_template(
+        self,
+        payload: GalgameStoryTemplate,
+    ) -> GalgameStoryTemplate:
+        now = datetime.now(UTC)
+        existing = local_session_store.load_galgame_story_template(payload.template_id)
+        template = payload.model_copy(
+            update={
+                "created_at": existing.created_at if existing else payload.created_at,
+                "updated_at": now,
+            }
+        )
+        local_session_store.save_galgame_story_template(template)
+        return template
+
+    def delete_galgame_story_template(self, template_id: str) -> None:
+        if local_session_store.load_galgame_story_template(template_id) is None:
+            raise KeyError("galgame_story_template_not_found")
+        local_session_store.delete_galgame_story_template(template_id)
 
     def list_item_instances(self, session_id: str | None = None) -> list[ItemInstance]:
         return local_session_store.list_item_instances(session_id)
@@ -755,9 +780,10 @@ class SessionService:
         if item is None:
             raise KeyError("current_item_not_found")
         turns = local_session_store.list_galgame_turns(session_id, limit=4)
+        story_template = self._select_galgame_story_template(item)
         dominant_dimension = max(session.state.core_mu.items(), key=lambda entry: abs(entry[1]))[0]
         uncertain_dimension = max(session.state.core_sigma.items(), key=lambda entry: entry[1])[0]
-        location = self._galgame_location(item)
+        location = story_template.location if story_template else self._galgame_location(item)
         mood = self._galgame_mood(session, item)
         title = f"Episode {session.state.question_count + 1}: {location}"
         narrator_text = (
@@ -768,20 +794,33 @@ class SessionService:
         )
         character_text = self._galgame_character_line(item, session)
         prompt_shadow = f"测量影子：{item.prompt}"
-        choices = [
-            GalgameChoice(
-                key=f"choice-{index + 1}",
-                text=self._galgame_choice_text(option.text, option.score, item.question_type),
-                option_key=option.key,
-                score=option.score,
-                tone=self._galgame_choice_tone(option.score),
-            )
-            for index, option in enumerate(item.options)
-        ]
+        choices = self._build_galgame_choices(item)
         memory_fragments = [
             self._galgame_memory_fragment(turn)
             for turn in turns[-3:]
         ]
+        speaker = story_template.speaker if story_template else self._galgame_speaker(item)
+        ai_scene = ai_service.generate_galgame_scene(
+            self._galgame_ai_payload(
+                session=session,
+                item=item,
+                story_template=story_template,
+                choices=choices,
+                memory_fragments=memory_fragments,
+                dominant_dimension=dominant_dimension,
+                uncertain_dimension=uncertain_dimension,
+            )
+        )
+        if ai_scene:
+            title = str(ai_scene.get("title", title)).strip()[:80] or title
+            location = str(ai_scene.get("location", location)).strip()[:60] or location
+            mood = str(ai_scene.get("mood", mood)).strip()[:32] or mood
+            speaker = str(ai_scene.get("speaker", speaker)).strip()[:32] or speaker
+            narrator_text = str(ai_scene.get("narrator_text", narrator_text)).strip()[:420] or narrator_text
+            character_text = str(ai_scene.get("character_text", character_text)).strip()[:420] or character_text
+            choice_texts = ai_scene.get("choice_texts", {})
+            if isinstance(choice_texts, dict):
+                choices = self._build_galgame_choices(item, {str(key): str(value) for key, value in choice_texts.items()})
         return GalgameScene(
             scene_id=f"{session.session_id}:{item.id}:{session.state.question_count + 1}",
             session_id=session.session_id,
@@ -790,12 +829,18 @@ class SessionService:
             title=title,
             location=location,
             mood=mood,
-            speaker=self._galgame_speaker(item),
+            speaker=speaker,
             narrator_text=narrator_text,
             character_text=character_text,
             prompt_shadow=prompt_shadow,
             choices=choices,
             memory_fragments=memory_fragments,
+            background_key=str(ai_scene.get("background_key", ""))[:60] if ai_scene else (story_template.background_key if story_template else self._galgame_background_key(item)),
+            background_prompt=str(ai_scene.get("background_prompt", ""))[:220] if ai_scene else (story_template.background_prompt if story_template else self._galgame_background_prompt(item)),
+            character_key=str(ai_scene.get("character_key", ""))[:60] if ai_scene else (story_template.character_key if story_template else self._galgame_character_key(item)),
+            character_prompt=str(ai_scene.get("character_prompt", ""))[:220] if ai_scene else (story_template.character_prompt if story_template else self._galgame_character_prompt(item)),
+            story_template_id=story_template.template_id if story_template else None,
+            ai_generated=bool(ai_scene),
         )
 
     def record_galgame_turn(
@@ -805,7 +850,7 @@ class SessionService:
         scene_id: str,
         option_key: str,
         custom_text: str | None = None,
-    ) -> None:
+    ) -> GalgameTextInference:
         session = self.get_session(session_id)
         if session.current_item_id != item_id:
             raise KeyError("current_item_mismatch")
@@ -815,18 +860,147 @@ class SessionService:
         expected_scene_id = f"{session_id}:{item_id}:{session.state.question_count + 1}"
         if scene_id != expected_scene_id:
             raise KeyError("scene_mismatch")
-        local_session_store.save_galgame_turn(
-            GalgameTurn(
-                turn_id=f"gal-{uuid4()}",
-                session_id=session_id,
-                item_id=item.id,
-                template_id=item.template_id,
-                scene_id=scene_id,
-                selected_option_key=option_key,
-                custom_text=custom_text.strip()[:800] if custom_text else None,
-                scene_text=item.prompt,
-            )
+        choices = self._build_galgame_choices(item)
+        inference = ai_service.classify_galgame_free_text(custom_text, choices)
+        story_template = self._select_galgame_story_template(item)
+        turn = GalgameTurn(
+            turn_id=f"gal-{uuid4()}",
+            session_id=session_id,
+            item_id=item.id,
+            template_id=item.template_id,
+            scene_id=scene_id,
+            selected_option_key=option_key,
+            custom_text=custom_text.strip()[:800] if custom_text else None,
+            scene_text=item.prompt,
+            inferred_option_key=inference.inferred_option_key,
+            inference_confidence=inference.confidence,
+            inference_reason=inference.reason,
+            classifier_source=inference.source,
+            inference_distribution={
+                score.option_key: score.fused_score
+                for score in inference.option_scores
+            },
+            embedding_similarity={
+                score.option_key: score.embedding_score
+                for score in inference.option_scores
+                if score.embedding_score is not None
+            },
+            story_template_id=story_template.template_id if story_template else None,
+            ai_generated=settings.galgame_ai_scene_enabled and ai_service.has_config(),
         )
+        local_session_store.save_galgame_turn(turn)
+        vector_indexer.index_galgame_turn(turn)
+        return inference
+
+    def _build_galgame_choices(self, item: ItemInstance, ai_choice_texts: dict[str, str] | None = None) -> list[GalgameChoice]:
+        ai_choice_texts = ai_choice_texts or {}
+        choices: list[GalgameChoice] = []
+        for index, option in enumerate(item.options):
+            ai_text = ai_choice_texts.get(option.key, "").strip()
+            choices.append(
+                GalgameChoice(
+                    key=f"choice-{index + 1}",
+                    text=ai_text[:140] if ai_text else self._galgame_choice_text(option.text, option.score, item.question_type),
+                    option_key=option.key,
+                    score=option.score,
+                    tone=self._galgame_choice_tone(option.score),
+                )
+            )
+        return choices
+
+    def _select_galgame_story_template(self, item: ItemInstance) -> GalgameStoryTemplate | None:
+        templates = local_session_store.list_galgame_story_templates(include_inactive=False)
+        if not templates:
+            return None
+        item_tags = set(item.scenario_tags)
+        ranked = sorted(
+            templates,
+            key=lambda template: len(item_tags & set(template.scenario_tags)),
+            reverse=True,
+        )
+        return ranked[0]
+
+    def _galgame_ai_payload(
+        self,
+        *,
+        session: SessionRecord,
+        item: ItemInstance,
+        story_template: GalgameStoryTemplate | None,
+        choices: list[GalgameChoice],
+        memory_fragments: list[str],
+        dominant_dimension: str,
+        uncertain_dimension: str,
+    ) -> dict[str, object]:
+        recent_turns = local_session_store.list_galgame_turns(session.session_id, limit=8)
+        last_branch = (recent_turns[-1].custom_text or recent_turns[-1].selected_option_key) if recent_turns else "开场"
+        return {
+            "generation_pattern": "AI-GAL: use theme, character setting, story history, branch choice, and optional player custom input to continue the story.",
+            "theme": story_template.name if story_template else "校园关系与选择分支",
+            "outline": story_template.description if story_template else "主角在校园关系网和社团事件中不断做选择，每一幕都让人物关系发生轻微变化。",
+            "style": story_template.style_prompt if story_template else "更像可玩的 galgame，不像问卷；允许戏剧性、悬疑、轻喜剧和关系张力。",
+            "characters": [
+                {
+                    "name": story_template.speaker if story_template else self._galgame_speaker(item),
+                    "role": "会推动这一幕分支的角色",
+                    "portrait_prompt": story_template.character_prompt if story_template else self._galgame_character_prompt(item),
+                }
+            ],
+            "current_branch": last_branch,
+            "story_history": [
+                {
+                    "selected_option_key": turn.selected_option_key,
+                    "custom_text": turn.custom_text,
+                    "inferred_option_key": turn.inferred_option_key,
+                    "scene": turn.scene_text,
+                }
+                for turn in recent_turns[-5:]
+            ],
+            "hidden_measurement_seed": {
+                "prompt_shadow": item.prompt,
+                "layer": item.layer,
+                "scenario_tags": item.scenario_tags,
+                "dominant_dimension_hint": CORE_DIMENSION_LABELS.get(dominant_dimension, dominant_dimension),
+                "uncertain_dimension_hint": CORE_DIMENSION_LABELS.get(uncertain_dimension, uncertain_dimension),
+                "active_modules": session.state.active_modules,
+                "unlocked_subdimensions": session.state.unlocked_subdimensions,
+            },
+            "choices": [choice.model_dump() for choice in choices],
+            "memory_fragments": memory_fragments,
+            "output_expectation": {
+                "format": "single_scene_json",
+                "language": "中文",
+                "make_it_playable": True,
+                "use_hidden_measurement_seed_as_subtext_not_as_question": True,
+                "option_keys_must_match_choices": True,
+            },
+        }
+
+    def _galgame_background_key(self, item: ItemInstance) -> str:
+        tags = set(item.scenario_tags)
+        if {"study", "academic"} & tags:
+            return "night_library"
+        if {"conflict", "high_stakes"} & tags:
+            return "campus_rooftop"
+        if {"online", "chat_mode"} & tags:
+            return "chat_window"
+        return "campus_courtyard"
+
+    def _galgame_background_prompt(self, item: ItemInstance) -> str:
+        location = self._galgame_location(item)
+        return f"{location}, cinematic campus visual novel background, warm muted color, no text"
+
+    def _galgame_character_key(self, item: ItemInstance) -> str:
+        if item.layer == "probe":
+            return "transfer_student"
+        if item.layer == "module":
+            return "club_recorder"
+        if item.layer == "sub":
+            return "librarian"
+        return "desk_mate"
+
+    def _galgame_character_prompt(self, item: ItemInstance) -> str:
+        speaker = self._galgame_speaker(item)
+        return f"{speaker}, campus visual novel portrait, expressive but non sexualized, clean line art"
 
     def _galgame_location(self, item: ItemInstance) -> str:
         tags = set(item.scenario_tags)
@@ -1008,12 +1182,14 @@ class SessionService:
             "item_instance": "历史实例题",
             "rewrite_candidate": "历史改写候选",
             "session_snapshot": "匿名会话快照",
+            "galgame_turn": "历史剧情选择",
         }
         relationship_by_type = {
             "template": "题库中测量结构接近的模板，可用于解释当前选题方向。",
             "item_instance": "历史生成题中语义接近的实例，用于检查措辞是否过近。",
             "rewrite_candidate": "历史改写候选中的相邻表达，用于避免复制近邻表述。",
             "session_snapshot": "相同 milestone 附近的匿名会话状态，用于观察当前画像是否有近邻。",
+            "galgame_turn": "玩家自由台词和剧情分支中的语义近邻，用于观察可玩叙事中的行为模式。",
         }
         prompt_excerpt = hit.prompt_excerpt.strip()
         if hit.object_type == "session_snapshot":

@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   archiveTemplate,
   configureAI,
+  createGalgameStoryTemplate,
   createInvite,
   createTemplate,
+  deleteGalgameStoryTemplate,
   deleteTemplate,
   getAIConfigStatus,
   getClusterOverview,
   getUserRecommendations,
+  listGalgameStoryTemplates,
   listInvites,
   listAdminSessions,
   listItemInstances,
@@ -21,8 +24,10 @@ import {
   previewRewrite,
   reindexVectors,
   saveClusterLabelOverride,
+  searchSimilarGalgameTurns,
   searchSimilarSessions,
   searchSimilarTemplates,
+  type GalgameStoryTemplate,
   type ClusterOverview,
   type InviteCode,
   type Question,
@@ -35,6 +40,7 @@ import {
   type VectorSearchHit,
   type VectorSyncFailure,
   updateTemplate,
+  updateGalgameStoryTemplate,
 } from "@/lib/api";
 
 const defaultOptions = [
@@ -54,11 +60,13 @@ export function AdminClient() {
   const [recommendationsEnabled, setRecommendationsEnabled] = useState(false);
   const [templates, setTemplates] = useState<Question[]>([]);
   const [instances, setInstances] = useState<Question[]>([]);
+  const [storyTemplates, setStoryTemplates] = useState<GalgameStoryTemplate[]>([]);
   const [clusterOverview, setClusterOverview] = useState<ClusterOverview | null>(null);
   const [vectorFailures, setVectorFailures] = useState<VectorSyncFailure[]>([]);
   const [preview, setPreview] = useState<RewritePreviewBundle | null>(null);
   const [similarHits, setSimilarHits] = useState<VectorSearchHit[]>([]);
   const [similarSessionHits, setSimilarSessionHits] = useState<VectorSearchHit[]>([]);
+  const [similarTurnHits, setSimilarTurnHits] = useState<VectorSearchHit[]>([]);
   const [lastReindex, setLastReindex] = useState<VectorReindexResponse | null>(null);
   const [feedback, setFeedback] = useState("");
 
@@ -69,7 +77,22 @@ export function AdminClient() {
   const [similarPrompt, setSimilarPrompt] = useState("");
   const [selectedUserId, setSelectedUserId] = useState("");
   const [inviteForm, setInviteForm] = useState({ created_by_user_id: "", label: "Campus batch", max_uses: "10" });
-  const [vectorScope, setVectorScope] = useState<"templates" | "instances" | "sessions" | "all">("all");
+  const [vectorScope, setVectorScope] = useState<"templates" | "instances" | "sessions" | "galgame_turns" | "all">("all");
+  const [similarTurnPrompt, setSimilarTurnPrompt] = useState("");
+  const [storyTemplateForm, setStoryTemplateForm] = useState({
+    template_id: "",
+    name: "雨天后的社团活动室",
+    description: "更接近 AI-GAL 的自由续写：校园群像、突发事件、关系张力和分支选择。",
+    location: "雨刚停的社团活动室",
+    speaker: "同桌",
+    character_key: "desk_mate",
+    background_key: "rainy_clubroom",
+    background_prompt: "rainy campus clubroom after class, warm lamps, visual novel background",
+    character_prompt: "classmate in casual school outfit, expressive eyes, visual novel portrait",
+    style_prompt: "像可玩的 galgame，允许悬疑、轻喜剧、暧昧和突发事件；不要写成问卷。",
+    scenario_tags: "campus,relationship,team_mode",
+    active: true,
+  });
 
   const [aiConfig, setAiConfig] = useState<RuntimeAIConfig>({
     provider: "siliconflow",
@@ -111,6 +134,7 @@ export function AdminClient() {
       clusterPayload,
       aiStatusPayload,
       failurePayload,
+      storyTemplatePayload,
     ] =
       await Promise.all([
         listAdminSessions(),
@@ -122,6 +146,7 @@ export function AdminClient() {
         getClusterOverview(),
         getAIConfigStatus(),
         listVectorSyncFailures(),
+        listGalgameStoryTemplates(true),
       ]);
     return {
       sessionPayload,
@@ -133,10 +158,11 @@ export function AdminClient() {
       clusterPayload,
       aiStatusPayload,
       failurePayload,
+      storyTemplatePayload,
     };
   }
 
-  function applyAdminState(payload: Awaited<ReturnType<typeof fetchAdminState>>) {
+  const applyAdminState = useCallback((payload: Awaited<ReturnType<typeof fetchAdminState>>) => {
     const {
       sessionPayload,
       userPayload,
@@ -147,6 +173,7 @@ export function AdminClient() {
       clusterPayload,
       aiStatusPayload,
       failurePayload,
+      storyTemplatePayload,
     } = payload;
     setSessions(sessionPayload.sessions);
     setUsers(userPayload.items);
@@ -154,6 +181,7 @@ export function AdminClient() {
     setRelationships(relationshipPayload.items);
     setTemplates(templatePayload.items);
     setInstances(instancePayload.items);
+    setStoryTemplates(storyTemplatePayload.items);
     setClusterOverview(clusterPayload);
     setAiStatus(aiStatusPayload);
     setVectorFailures(failurePayload.items);
@@ -162,7 +190,7 @@ export function AdminClient() {
     setSelectedUserId((current) => current || userPayload.items[0]?.user_id || "");
     setSelectedTemplateId((current) => current || templatePayload.items[0]?.id || "");
     setSimilarTemplateId((current) => current || templatePayload.items[0]?.id || "");
-  }
+  }, []);
 
   async function load() {
     applyAdminState(await fetchAdminState());
@@ -172,36 +200,12 @@ export function AdminClient() {
     let cancelled = false;
     void fetchAdminState().then((payload) => {
       if (cancelled) return;
-      const {
-        sessionPayload,
-        userPayload,
-        invitePayload,
-        relationshipPayload,
-        templatePayload,
-        instancePayload,
-        clusterPayload,
-        aiStatusPayload,
-        failurePayload,
-      } = payload;
-      setSessions(sessionPayload.sessions);
-      setUsers(userPayload.items);
-      setInvites(invitePayload.items);
-      setRelationships(relationshipPayload.items);
-      setTemplates(templatePayload.items);
-      setInstances(instancePayload.items);
-      setClusterOverview(clusterPayload);
-      setAiStatus(aiStatusPayload);
-      setVectorFailures(failurePayload.items);
-      setSelectedSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
-      setSimilarSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
-      setSelectedUserId((current) => current || userPayload.items[0]?.user_id || "");
-      setSelectedTemplateId((current) => current || templatePayload.items[0]?.id || "");
-      setSimilarTemplateId((current) => current || templatePayload.items[0]?.id || "");
+      applyAdminState(payload);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyAdminState]);
 
   async function handleConfigureAI() {
     const response = await configureAI(aiConfig);
@@ -250,6 +254,67 @@ export function AdminClient() {
     const response = await searchSimilarSessions({ sessionId: similarSessionId, topK: 5 });
     setSimilarSessionHits(response.hits);
     setFeedback(response.hits.length ? `Found ${response.hits.length} similar session hits` : "No similar sessions above threshold");
+  }
+
+  async function handleSimilarTurnSearch() {
+    const prompt = similarTurnPrompt.trim();
+    if (!prompt) return;
+    const response = await searchSimilarGalgameTurns({ prompt, topK: 6 });
+    setSimilarTurnHits(response.hits);
+    setFeedback(response.hits.length ? `Found ${response.hits.length} similar story-turn hits` : "No similar story-turns above threshold");
+  }
+
+  function storyTemplatePayload() {
+    return {
+      name: storyTemplateForm.name,
+      description: storyTemplateForm.description,
+      location: storyTemplateForm.location,
+      speaker: storyTemplateForm.speaker,
+      character_key: storyTemplateForm.character_key,
+      background_key: storyTemplateForm.background_key,
+      background_prompt: storyTemplateForm.background_prompt,
+      character_prompt: storyTemplateForm.character_prompt,
+      style_prompt: storyTemplateForm.style_prompt,
+      scenario_tags: storyTemplateForm.scenario_tags.split(",").map((item) => item.trim()).filter(Boolean),
+      active: storyTemplateForm.active,
+    };
+  }
+
+  async function handleCreateStoryTemplate() {
+    const template = await createGalgameStoryTemplate(storyTemplatePayload());
+    setStoryTemplateForm((current) => ({ ...current, template_id: template.template_id }));
+    setFeedback(`Created story template ${template.template_id}`);
+    await load();
+  }
+
+  async function handleUpdateStoryTemplate() {
+    if (!storyTemplateForm.template_id) return;
+    const template = await updateGalgameStoryTemplate(storyTemplateForm.template_id, storyTemplatePayload());
+    setFeedback(`Updated story template ${template.template_id}`);
+    await load();
+  }
+
+  async function handleDeleteStoryTemplate(templateId: string) {
+    await deleteGalgameStoryTemplate(templateId);
+    setFeedback(`Deleted story template ${templateId}`);
+    await load();
+  }
+
+  function loadStoryTemplate(template: GalgameStoryTemplate) {
+    setStoryTemplateForm({
+      template_id: template.template_id,
+      name: template.name,
+      description: template.description,
+      location: template.location,
+      speaker: template.speaker,
+      character_key: template.character_key,
+      background_key: template.background_key,
+      background_prompt: template.background_prompt,
+      character_prompt: template.character_prompt,
+      style_prompt: template.style_prompt,
+      scenario_tags: template.scenario_tags.join(","),
+      active: template.active,
+    });
   }
 
   async function handlePreview() {
@@ -387,6 +452,75 @@ export function AdminClient() {
               </button>
             </div>
 
+            {/* Story engine */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="label-mini">Story Engine</p>
+                  <h2 className="mt-1.5 text-xl">AI-GAL style templates</h2>
+                </div>
+                <span className="chip">{storyTemplates.length} templates</span>
+              </div>
+              <p className="text-[0.82rem] leading-5 text-[color:var(--ink-muted)]">
+                这里控制剧情主题、角色和背景素材提示。测量题只作为隐藏种子，剧情生成不应写成问卷。
+              </p>
+              <div className="grid gap-2.5">
+                <input className="field" value={storyTemplateForm.template_id} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, template_id: event.target.value }))} placeholder="template id for update" />
+                <input className="field" value={storyTemplateForm.name} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, name: event.target.value }))} placeholder="story name" />
+                <textarea className="field min-h-20" value={storyTemplateForm.description} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, description: event.target.value }))} placeholder="outline / premise" />
+                <div className="grid gap-2.5 md:grid-cols-2">
+                  <input className="field" value={storyTemplateForm.location} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, location: event.target.value }))} placeholder="location" />
+                  <input className="field" value={storyTemplateForm.speaker} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, speaker: event.target.value }))} placeholder="speaker" />
+                </div>
+                <div className="grid gap-2.5 md:grid-cols-2">
+                  <input className="field" value={storyTemplateForm.background_key} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, background_key: event.target.value }))} placeholder="background key" />
+                  <input className="field" value={storyTemplateForm.character_key} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, character_key: event.target.value }))} placeholder="character key" />
+                </div>
+                <textarea className="field min-h-20" value={storyTemplateForm.background_prompt} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, background_prompt: event.target.value }))} placeholder="background prompt" />
+                <textarea className="field min-h-20" value={storyTemplateForm.character_prompt} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, character_prompt: event.target.value }))} placeholder="character prompt" />
+                <textarea className="field min-h-24" value={storyTemplateForm.style_prompt} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, style_prompt: event.target.value }))} placeholder="generation style" />
+                <input className="field" value={storyTemplateForm.scenario_tags} onChange={(event) => setStoryTemplateForm((current) => ({ ...current, scenario_tags: event.target.value }))} placeholder="scenario tags, comma separated" />
+                <label className="flex items-center gap-2 text-sm text-[color:var(--ink-muted)]">
+                  <input
+                    type="checkbox"
+                    checked={storyTemplateForm.active}
+                    onChange={(event) => setStoryTemplateForm((current) => ({ ...current, active: event.target.checked }))}
+                  />
+                  active
+                </label>
+                <div className="flex flex-wrap gap-2.5">
+                  <button className="btn btn-primary" onClick={() => void handleCreateStoryTemplate()}>
+                    Create story template
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => void handleUpdateStoryTemplate()}>
+                    Update selected
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {storyTemplates.map((template) => (
+                  <div key={template.template_id} className="surface-sunken p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="num text-[0.72rem] text-[color:var(--ink-muted)]">
+                        {template.template_id} / {template.active ? "active" : "inactive"}
+                      </p>
+                      <span className="chip">{template.background_key} · {template.character_key}</span>
+                    </div>
+                    <p className="mt-1.5 text-sm font-medium text-[color:var(--ink-strong)]">{template.name}</p>
+                    <p className="mt-1 text-[0.82rem] leading-5 text-[color:var(--ink-muted)]">{template.description}</p>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <button className="btn btn-ghost px-3 py-1 text-xs" onClick={() => loadStoryTemplate(template)}>
+                        Load
+                      </button>
+                      <button className="btn btn-danger px-3 py-1 text-xs" onClick={() => void handleDeleteStoryTemplate(template.template_id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Users and invites */}
             <div className="panel fade-rise space-y-3 p-5 md:p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -485,11 +619,12 @@ export function AdminClient() {
             <div className="panel fade-rise space-y-3 p-5 md:p-6">
               <p className="label-mini">Vectors</p>
               <div className="flex gap-2.5">
-                <select className="field" value={vectorScope} onChange={(event) => setVectorScope(event.target.value as "templates" | "instances" | "sessions" | "all")}>
+                <select className="field" value={vectorScope} onChange={(event) => setVectorScope(event.target.value as "templates" | "instances" | "sessions" | "galgame_turns" | "all")}>
                   <option value="all">all</option>
                   <option value="templates">templates</option>
                   <option value="instances">instances</option>
                   <option value="sessions">sessions</option>
+                  <option value="galgame_turns">galgame turns</option>
                 </select>
                 <button className="btn btn-primary shrink-0" onClick={() => void handleVectorReindex()}>
                   Reindex
@@ -532,6 +667,20 @@ export function AdminClient() {
                   Search similar sessions
                 </button>
                 {renderHits(similarSessionHits)}
+              </div>
+
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Similar Story Turns</p>
+                <textarea
+                  className="field mt-2.5 min-h-24"
+                  value={similarTurnPrompt}
+                  onChange={(event) => setSimilarTurnPrompt(event.target.value)}
+                  placeholder="输入一段玩家自由台词或剧情片段，检索相近的 galgame_turns"
+                />
+                <button className="btn btn-ghost mt-2.5" onClick={() => void handleSimilarTurnSearch()}>
+                  Search similar story turns
+                </button>
+                {renderHits(similarTurnHits)}
               </div>
 
               <div className="surface-sunken p-3.5">

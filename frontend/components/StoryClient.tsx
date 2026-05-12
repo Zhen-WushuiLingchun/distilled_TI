@@ -10,6 +10,7 @@ import {
   respondGalgameScene,
   startSession,
   type GalgameScene,
+  type GalgameTextInference,
   type SessionState,
 } from "@/lib/api";
 import {
@@ -39,6 +40,7 @@ export function StoryClient() {
   const [access, setAccess] = useState<SessionAccessBundle | null>(null);
   const [scene, setScene] = useState<GalgameScene | null>(null);
   const [state, setState] = useState<SessionState | null>(null);
+  const [lastInference, setLastInference] = useState<GalgameTextInference | null>(null);
   const [customText, setCustomText] = useState("");
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
   const [busy, setBusy] = useState(true);
@@ -101,6 +103,7 @@ export function StoryClient() {
       });
       setState(response.state);
       setScene(response.scene);
+      setLastInference(response.text_inference ?? null);
       setRemainingUntilReport(response.remaining_until_report);
       setCanGenerateReport(response.can_generate_report);
       setCustomText("");
@@ -150,14 +153,15 @@ export function StoryClient() {
     <main className="story-shell">
       <section className="relative z-10 mx-auto grid min-h-[calc(100vh-3rem)] max-w-[1440px] gap-5 p-4 lg:grid-cols-[1fr_360px]">
         <div className="story-stage fade-rise flex flex-col overflow-hidden">
-          <div className="story-sky">
-            <div className="story-character" aria-hidden>
+          <div className="story-sky" data-background-key={scene?.background_key ?? "campus_window"}>
+            <div className="story-character" data-character-key={scene?.character_key ?? "desk_mate"} aria-hidden>
               <div className="story-character-face" />
             </div>
             <div className="absolute left-5 top-5 flex flex-wrap gap-2">
               <span className="chip chip-accent">{scene?.location ?? "Unknown"}</span>
               <span className="chip">{scene ? moodLabel(scene.mood) : "Loading"}</span>
               <span className="chip">Q{(state?.question_count ?? 0) + 1}</span>
+              <span className="chip">{scene?.ai_generated ? "AI scene" : "Fallback scene"}</span>
             </div>
           </div>
 
@@ -173,6 +177,11 @@ export function StoryClient() {
             </div>
             <p className="text-[0.92rem] leading-7 text-[color:var(--ink-muted)]">{scene?.narrator_text}</p>
             <p className="mt-3 text-[1.15rem] leading-8 text-[color:var(--ink-strong)]">{scene?.character_text}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="chip">BG {scene?.background_key ?? "none"}</span>
+              <span className="chip">CHAR {scene?.character_key ?? "none"}</span>
+              {scene?.story_template_id ? <span className="chip">TEMPLATE {scene.story_template_id}</span> : null}
+            </div>
           </div>
         </div>
 
@@ -219,6 +228,35 @@ export function StoryClient() {
               以这句台词推进
             </button>
           </div>
+
+          {lastInference ? (
+            <div className="panel fade-rise p-5">
+              <p className="label-mini">Tendency Classifier</p>
+              <h2 className="mt-1.5 text-xl">自由台词解析</h2>
+              <p className="num mt-2 text-[0.82rem] text-[color:var(--ink-muted)]">
+                {lastInference.source} / {lastInference.inferred_option_key ?? "uncertain"} / confidence {lastInference.confidence.toFixed(2)}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]">{lastInference.reason}</p>
+              {lastInference.option_scores.length ? (
+                <div className="mt-3 space-y-2">
+                  {lastInference.option_scores.slice(0, 5).map((score) => (
+                    <div key={score.option_key} className="surface-sunken p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="num text-[0.72rem] text-[color:var(--ink-muted)]">{score.option_key}</span>
+                        <span className="num text-[0.72rem] text-[color:var(--ink-strong)]">{score.fused_score.toFixed(2)}</span>
+                      </div>
+                      <div className="bar-track mt-2">
+                        <div className="bar-fill" style={{ width: `${Math.max(4, Math.min(score.fused_score * 100, 100))}%` }} />
+                      </div>
+                      <p className="num mt-1.5 text-[0.68rem] text-[color:var(--ink-faint)]">
+                        LLM {score.llm_score?.toFixed(2) ?? "-"} / EMB {score.embedding_score?.toFixed(2) ?? "-"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="panel fade-rise p-5">
             <p className="label-mini">Context</p>

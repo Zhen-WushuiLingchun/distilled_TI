@@ -85,7 +85,7 @@ export type WorkbenchCheckpoint = {
 
 export type WorkbenchEvidenceItem = {
   reference_key: string;
-  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot";
+  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot" | "galgame_turn";
   label: string;
   relationship: string;
   prompt_excerpt: string;
@@ -127,7 +127,30 @@ export type GalgameScene = {
   prompt_shadow: string;
   choices: GalgameChoice[];
   memory_fragments: string[];
+  background_key: string;
+  background_prompt: string;
+  character_key: string;
+  character_prompt: string;
+  story_template_id?: string | null;
+  ai_generated: boolean;
   custom_input_enabled: boolean;
+};
+
+export type GalgameTextInference = {
+  inferred_option_key?: string | null;
+  confidence: number;
+  reason: string;
+  source: "none" | "rule" | "embedding" | "llm" | "hybrid";
+  option_scores: Array<{
+    option_key: string;
+    llm_score?: number | null;
+    embedding_score?: number | null;
+    fused_score: number;
+    reason: string;
+  }>;
+  embedding_available: boolean;
+  llm_available: boolean;
+  method_version: string;
 };
 
 export type GalgameSceneResult = {
@@ -136,7 +159,25 @@ export type GalgameSceneResult = {
   can_generate_report: boolean;
   remaining_until_report: number;
   scene: GalgameScene | null;
+  text_inference?: GalgameTextInference | null;
   workbench_checkpoint?: WorkbenchCheckpoint | null;
+};
+
+export type GalgameStoryTemplate = {
+  template_id: string;
+  name: string;
+  description: string;
+  location: string;
+  speaker: string;
+  character_key: string;
+  background_key: string;
+  background_prompt: string;
+  character_prompt: string;
+  style_prompt: string;
+  scenario_tags: string[];
+  active: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type SessionSummary = {
@@ -324,7 +365,7 @@ export type EmbeddingScoreBreakdown = {
 
 export type VectorSearchHit = {
   object_id: string;
-  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot";
+  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot" | "galgame_turn";
   template_id?: string | null;
   instance_id?: string | null;
   session_id?: string | null;
@@ -346,7 +387,7 @@ export type RewriteRetrievalContext = {
 };
 
 export type VectorReindexResponse = {
-  scope: "templates" | "instances" | "sessions" | "all";
+  scope: "templates" | "instances" | "sessions" | "galgame_turns" | "all";
   enabled: boolean;
   indexed_count: number;
   failed_count: number;
@@ -666,6 +707,35 @@ export function createInvite(payload: { created_by_user_id?: string | null; labe
   });
 }
 
+export function listGalgameStoryTemplates(includeInactive = true) {
+  return adminRequest<{ items: GalgameStoryTemplate[] }>(
+    `/admin/galgame/story-templates?include_inactive=${encodeURIComponent(String(includeInactive))}`
+  );
+}
+
+export function createGalgameStoryTemplate(payload: Omit<GalgameStoryTemplate, "template_id" | "created_at" | "updated_at">) {
+  return adminRequest<GalgameStoryTemplate>("/admin/galgame/story-templates", {
+    method: "POST",
+    json: payload as JsonBody,
+  });
+}
+
+export function updateGalgameStoryTemplate(
+  templateId: string,
+  payload: Omit<GalgameStoryTemplate, "template_id" | "created_at" | "updated_at">
+) {
+  return adminRequest<GalgameStoryTemplate>(`/admin/galgame/story-templates/${encodeURIComponent(templateId)}`, {
+    method: "PUT",
+    json: payload as JsonBody,
+  });
+}
+
+export function deleteGalgameStoryTemplate(templateId: string) {
+  return adminRequest<{ deleted: boolean }>(`/admin/galgame/story-templates/${encodeURIComponent(templateId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function listInvites(limit = 100) {
   return adminRequest<{ items: InviteCode[] }>(`/admin/invites?limit=${encodeURIComponent(String(limit))}`);
 }
@@ -792,11 +862,18 @@ export function deleteTemplate(templateId: string) {
   });
 }
 
-export function reindexVectors(scope: "templates" | "instances" | "sessions" | "all") {
+export function reindexVectors(scope: "templates" | "instances" | "sessions" | "galgame_turns" | "all") {
   return adminRequest<VectorReindexResponse>("/admin/vector/reindex", {
     method: "POST",
     json: { scope },
   });
+}
+
+export function searchSimilarGalgameTurns(payload: { prompt: string; topK?: number }) {
+  const params = new URLSearchParams();
+  params.set("prompt", payload.prompt);
+  if (typeof payload.topK === "number") params.set("top_k", String(payload.topK));
+  return adminRequest<VectorSearchResponse>(`/admin/vector/galgame-turns/similar?${params.toString()}`);
 }
 
 export function searchSimilarTemplates(payload: { templateId?: string; prompt?: string; topK?: number }) {

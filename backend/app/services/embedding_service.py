@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
-from app.domain.models import ItemInstance, ItemTemplate, SessionRecord
+from app.domain.models import GalgameTurn, ItemInstance, ItemTemplate, SessionRecord
 
 
 class EmbeddingServiceError(RuntimeError):
@@ -27,18 +27,23 @@ class EmbeddingDocument:
 
 
 class EmbeddingService:
-    def is_enabled(self) -> bool:
+    def can_embed(self) -> bool:
         return bool(
             settings.vector_enabled
             and settings.embedding_base_url.strip()
             and settings.embedding_model.strip()
+        )
+
+    def is_enabled(self) -> bool:
+        return bool(
+            self.can_embed()
             and (settings.qdrant_local_path.strip() or settings.qdrant_url.strip())
         )
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        if not self.is_enabled():
+        if not self.can_embed():
             raise EmbeddingServiceError("embedding_not_configured")
         try:
             with httpx.Client(timeout=settings.embedding_timeout_seconds, follow_redirects=False) as client:
@@ -238,6 +243,42 @@ class EmbeddingService:
             payload=payload,
         )
 
+    def build_galgame_turn_document(self, turn: GalgameTurn) -> EmbeddingDocument:
+        prompt = self._galgame_turn_prompt(turn)
+        payload = {
+            "object_id": turn.turn_id,
+            "object_type": "galgame_turn",
+            "template_id": turn.template_id,
+            "instance_id": turn.item_id,
+            "session_id": turn.session_id,
+            "layer": "story",
+            "generation_mode": "galgame_turn",
+            "allow_rewrite": False,
+            "archived": False,
+            "prompt": prompt,
+            "scenario_tags": ["galgame", "story_turn"],
+            "dimension_keys": [],
+            "subdimension_keys": [],
+            "module_keys": [],
+            "scene_id": turn.scene_id,
+            "selected_option_key": turn.selected_option_key,
+            "inferred_option_key": turn.inferred_option_key,
+            "inference_confidence": turn.inference_confidence,
+            "inference_distribution": turn.inference_distribution,
+            "embedding_similarity": turn.embedding_similarity,
+            "classifier_source": turn.classifier_source,
+            "story_template_id": turn.story_template_id,
+            "ai_generated": turn.ai_generated,
+            "created_at": turn.created_at.isoformat(),
+        }
+        return EmbeddingDocument(
+            point_id=turn.turn_id,
+            object_type="galgame_turn",
+            prompt=prompt,
+            text=self._galgame_turn_canonical_text(payload),
+            payload=payload,
+        )
+
     def _base_payload(
         self,
         *,
@@ -307,6 +348,37 @@ class EmbeddingService:
                 f"recent_answer_style={payload['recent_answer_style']}",
                 f"prompt={payload['prompt']}",
             ]
+        )
+
+    def _galgame_turn_canonical_text(self, payload: dict[str, Any]) -> str:
+        return "\n".join(
+            [
+                f"object_type={payload['object_type']}",
+                f"session_id={payload['session_id']}",
+                f"template_id={payload['template_id']}",
+                f"item_id={payload['instance_id']}",
+                f"scene_id={payload['scene_id']}",
+                f"story_template_id={payload['story_template_id']}",
+                f"selected_option_key={payload['selected_option_key']}",
+                f"inferred_option_key={payload['inferred_option_key']}",
+                f"inference_confidence={payload['inference_confidence']}",
+                f"inference_distribution={payload['inference_distribution']}",
+                f"embedding_similarity={payload['embedding_similarity']}",
+                f"classifier_source={payload['classifier_source']}",
+                f"prompt={payload['prompt']}",
+            ]
+        )
+
+    def _galgame_turn_prompt(self, turn: GalgameTurn) -> str:
+        custom = turn.custom_text or ""
+        return (
+            f"scene={turn.scene_text}; "
+            f"selected_option={turn.selected_option_key}; "
+            f"custom_line={custom}; "
+            f"inferred_option={turn.inferred_option_key or 'none'}; "
+            f"distribution={turn.inference_distribution}; "
+            f"embedding_similarity={turn.embedding_similarity}; "
+            f"reason={turn.inference_reason or ''}"
         )
 
     def _format_weight_pairs(self, mapping: dict[str, float]) -> str:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from fastapi import APIRouter, HTTPException, Request
 
 from app.api.schemas import (
@@ -10,6 +12,9 @@ from app.api.schemas import (
     AIProviderConfigResponse,
     ClusterOverviewResponse,
     ClusterLabelOverrideRequest,
+    GalgameStoryTemplateListResponse,
+    GalgameStoryTemplateRequest,
+    GalgameStoryTemplateResponse,
     InviteCreateRequest,
     InviteListResponse,
     InviteResponse,
@@ -33,6 +38,7 @@ from app.api.schemas import (
 )
 from app.api.security import build_owner_key, require_local_admin
 from app.core.config import settings
+from app.domain.models import GalgameStoryTemplate
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.session_service import session_service
 from app.services.storage import local_session_store
@@ -155,10 +161,65 @@ def rewrite_question(payload: RewriteQuestionRequest, request: Request) -> Rewri
 def reindex_vectors(payload: VectorReindexRequest, request: Request) -> VectorReindexResponse:
     require_local_admin(request)
     scope = str(payload.scope or "all")
-    if scope not in {"templates", "instances", "sessions", "all"}:
+    if scope not in {"templates", "instances", "sessions", "galgame_turns", "all"}:
         raise HTTPException(status_code=422, detail="invalid_vector_scope")
     summary = vector_indexer.reindex(scope)  # type: ignore[arg-type]
     return VectorReindexResponse(**summary.model_dump())
+
+
+@router.get("/admin/galgame/story-templates", response_model=GalgameStoryTemplateListResponse)
+def list_galgame_story_templates(
+    request: Request,
+    include_inactive: bool = True,
+) -> GalgameStoryTemplateListResponse:
+    require_local_admin(request)
+    return GalgameStoryTemplateListResponse(
+        items=[
+            GalgameStoryTemplateResponse(**template.model_dump())
+            for template in session_service.list_galgame_story_templates(include_inactive=include_inactive)
+        ]
+    )
+
+
+@router.post("/admin/galgame/story-templates", response_model=GalgameStoryTemplateResponse)
+def create_galgame_story_template(
+    payload: GalgameStoryTemplateRequest,
+    request: Request,
+) -> GalgameStoryTemplateResponse:
+    require_local_admin(request)
+    template = session_service.save_galgame_story_template(
+        GalgameStoryTemplate(
+            template_id=f"story-{uuid4().hex[:12]}",
+            **payload.model_dump(),
+        )
+    )
+    return GalgameStoryTemplateResponse(**template.model_dump())
+
+
+@router.put("/admin/galgame/story-templates/{template_id}", response_model=GalgameStoryTemplateResponse)
+def update_galgame_story_template(
+    template_id: str,
+    payload: GalgameStoryTemplateRequest,
+    request: Request,
+) -> GalgameStoryTemplateResponse:
+    require_local_admin(request)
+    template = session_service.save_galgame_story_template(
+        GalgameStoryTemplate(
+            template_id=template_id,
+            **payload.model_dump(),
+        )
+    )
+    return GalgameStoryTemplateResponse(**template.model_dump())
+
+
+@router.delete("/admin/galgame/story-templates/{template_id}")
+def delete_galgame_story_template(template_id: str, request: Request) -> dict[str, bool]:
+    require_local_admin(request)
+    try:
+        session_service.delete_galgame_story_template(template_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"deleted": True}
 
 
 @router.get("/admin/vector/templates/similar", response_model=VectorSearchResponse)
@@ -193,6 +254,19 @@ def similar_sessions(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     hits = vector_indexer.search_similar_sessions(session, top_k=top_k)
+    return VectorSearchResponse(enabled=vector_indexer.is_enabled(), hits=hits)
+
+
+@router.get("/admin/vector/galgame-turns/similar", response_model=VectorSearchResponse)
+def similar_galgame_turns(
+    request: Request,
+    prompt: str,
+    top_k: int | None = None,
+) -> VectorSearchResponse:
+    require_local_admin(request)
+    if not prompt.strip():
+        raise HTTPException(status_code=422, detail="prompt_required")
+    hits = vector_indexer.search_similar_galgame_turns(prompt=prompt, top_k=top_k)
     return VectorSearchResponse(enabled=vector_indexer.is_enabled(), hits=hits)
 
 
