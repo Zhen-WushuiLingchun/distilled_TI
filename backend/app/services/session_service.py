@@ -173,8 +173,17 @@ class SessionService:
             items = [item for item in items if not item.archived]
         return sorted(items, key=lambda item: item.id)
 
-    def list_galgame_story_templates(self, include_inactive: bool = True) -> list[GalgameStoryTemplate]:
-        return local_session_store.list_galgame_story_templates(include_inactive=include_inactive)
+    def list_galgame_story_templates(
+        self,
+        include_inactive: bool = True,
+        owner_user_id: str | None = None,
+        include_system: bool = True,
+    ) -> list[GalgameStoryTemplate]:
+        return local_session_store.list_galgame_story_templates(
+            include_inactive=include_inactive,
+            owner_user_id=owner_user_id,
+            include_system=include_system,
+        )
 
     def save_galgame_story_template(
         self,
@@ -194,6 +203,39 @@ class SessionService:
     def delete_galgame_story_template(self, template_id: str) -> None:
         if local_session_store.load_galgame_story_template(template_id) is None:
             raise KeyError("galgame_story_template_not_found")
+        local_session_store.delete_galgame_story_template(template_id)
+
+    def get_galgame_story_template(self, template_id: str) -> GalgameStoryTemplate:
+        template = local_session_store.load_galgame_story_template(template_id)
+        if template is None:
+            raise KeyError("galgame_story_template_not_found")
+        return template
+
+    def save_user_galgame_story_template(
+        self,
+        owner_user_id: str,
+        payload: GalgameStoryTemplate,
+    ) -> GalgameStoryTemplate:
+        template_id = payload.template_id if payload.template_id.startswith(f"user-story-{owner_user_id[:8]}-") else f"user-story-{owner_user_id[:8]}-{uuid4().hex[:10]}"
+        existing = local_session_store.load_galgame_story_template(template_id)
+        if existing is not None and existing.owner_user_id != owner_user_id:
+            raise PermissionError("galgame_story_template_owner_mismatch")
+        return self.save_galgame_story_template(
+            payload.model_copy(
+                update={
+                    "template_id": template_id,
+                    "owner_user_id": owner_user_id,
+                    "active": True,
+                }
+            )
+        )
+
+    def delete_user_galgame_story_template(self, owner_user_id: str, template_id: str) -> None:
+        template = local_session_store.load_galgame_story_template(template_id)
+        if template is None:
+            raise KeyError("galgame_story_template_not_found")
+        if template.owner_user_id != owner_user_id:
+            raise PermissionError("galgame_story_template_owner_mismatch")
         local_session_store.delete_galgame_story_template(template_id)
 
     def list_item_instances(self, session_id: str | None = None) -> list[ItemInstance]:
@@ -780,7 +822,7 @@ class SessionService:
         if item is None:
             raise KeyError("current_item_not_found")
         turns = local_session_store.list_galgame_turns(session_id, limit=4)
-        story_template = self._select_galgame_story_template(item)
+        story_template = self._select_galgame_story_template(item, session.user_id)
         dominant_dimension = max(session.state.core_mu.items(), key=lambda entry: abs(entry[1]))[0]
         uncertain_dimension = max(session.state.core_sigma.items(), key=lambda entry: entry[1])[0]
         location = story_template.location if story_template else self._galgame_location(item)
@@ -862,7 +904,7 @@ class SessionService:
             raise KeyError("scene_mismatch")
         choices = self._build_galgame_choices(item)
         inference = ai_service.classify_galgame_free_text(custom_text, choices)
-        story_template = self._select_galgame_story_template(item)
+        story_template = self._select_galgame_story_template(item, session.user_id)
         turn = GalgameTurn(
             turn_id=f"gal-{uuid4()}",
             session_id=session_id,
@@ -884,6 +926,11 @@ class SessionService:
                 score.option_key: score.embedding_score
                 for score in inference.option_scores
                 if score.embedding_score is not None
+            },
+            pairwise_scores={
+                score.option_key: score.pairwise_score
+                for score in inference.option_scores
+                if score.pairwise_score is not None
             },
             story_template_id=story_template.template_id if story_template else None,
             ai_generated=settings.galgame_ai_scene_enabled and ai_service.has_config(),
@@ -908,14 +955,22 @@ class SessionService:
             )
         return choices
 
-    def _select_galgame_story_template(self, item: ItemInstance) -> GalgameStoryTemplate | None:
-        templates = local_session_store.list_galgame_story_templates(include_inactive=False)
+    def _select_galgame_story_template(self, item: ItemInstance, user_id: str | None = None) -> GalgameStoryTemplate | None:
+        templates = local_session_store.list_galgame_story_templates(
+            include_inactive=False,
+            owner_user_id=user_id,
+            include_system=True,
+        )
         if not templates:
             return None
         item_tags = set(item.scenario_tags)
         ranked = sorted(
             templates,
-            key=lambda template: len(item_tags & set(template.scenario_tags)),
+            key=lambda template: (
+                len(item_tags & set(template.scenario_tags)),
+                1 if template.owner_user_id == user_id and user_id is not None else 0,
+                template.updated_at,
+            ),
             reverse=True,
         )
         return ranked[0]

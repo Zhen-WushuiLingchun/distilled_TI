@@ -203,6 +203,28 @@ export function ReportClient({ sessionId }: ReportClientProps) {
               </p>
             ) : null}
 
+            {report.support_risk_flags?.length ? (
+              <div className="mt-6 rounded-[var(--r-lg)] border border-[color:var(--warn)]/20 bg-[color:var(--warn-soft)]/45 p-4">
+                <p className="label-mini">Support Signals / Non Diagnostic</p>
+                <h3 className="mt-1.5 text-lg text-[color:var(--ink-strong)]">AI 助手可复用的支持提示</h3>
+                <p className="mt-2 text-sm leading-6 text-[color:var(--ink-muted)]">
+                  这些信号只适合做产品内的暂停、追问、人工复核或安全支持提示，不是心理诊断结论。
+                </p>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  {report.support_risk_flags.map((flag) => (
+                    <article key={flag.key} className="surface-sunken p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <strong className="text-sm text-[color:var(--ink-strong)]">{flag.label}</strong>
+                        <span className="chip">{flag.severity}</span>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]">{flag.suggested_action}</p>
+                      <p className="num mt-2 text-[0.68rem] text-[color:var(--ink-faint)]">{flag.evidence.join(" / ")}</p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-7 grid gap-3 md:grid-cols-2">
               <label className="surface-flat block p-3.5">
                 <span className="label-mini">Projection Mode</span>

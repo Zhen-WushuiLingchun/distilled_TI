@@ -266,6 +266,7 @@ class EmbeddingService:
             "inference_confidence": turn.inference_confidence,
             "inference_distribution": turn.inference_distribution,
             "embedding_similarity": turn.embedding_similarity,
+            "pairwise_scores": turn.pairwise_scores,
             "classifier_source": turn.classifier_source,
             "story_template_id": turn.story_template_id,
             "ai_generated": turn.ai_generated,
@@ -364,6 +365,7 @@ class EmbeddingService:
                 f"inference_confidence={payload['inference_confidence']}",
                 f"inference_distribution={payload['inference_distribution']}",
                 f"embedding_similarity={payload['embedding_similarity']}",
+                f"pairwise_scores={payload['pairwise_scores']}",
                 f"classifier_source={payload['classifier_source']}",
                 f"prompt={payload['prompt']}",
             ]
@@ -378,6 +380,7 @@ class EmbeddingService:
             f"inferred_option={turn.inferred_option_key or 'none'}; "
             f"distribution={turn.inference_distribution}; "
             f"embedding_similarity={turn.embedding_similarity}; "
+            f"pairwise_scores={turn.pairwise_scores}; "
             f"reason={turn.inference_reason or ''}"
         )
 

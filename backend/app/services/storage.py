@@ -181,6 +181,7 @@ class LocalSessionStore:
                 """
                 CREATE TABLE IF NOT EXISTS galgame_story_templates (
                     template_id TEXT PRIMARY KEY,
+                    owner_user_id TEXT,
                     name TEXT NOT NULL,
                     active INTEGER NOT NULL,
                     payload_json TEXT NOT NULL,
@@ -189,6 +190,12 @@ class LocalSessionStore:
                 )
                 """
             )
+            story_columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(galgame_story_templates)").fetchall()
+            }
+            if "owner_user_id" not in story_columns:
+                connection.execute("ALTER TABLE galgame_story_templates ADD COLUMN owner_user_id TEXT")
             self._ensure_bootstrap_invite(connection)
             self._ensure_default_story_templates(connection)
             connection.commit()
@@ -294,16 +301,18 @@ class LocalSessionStore:
                 """
                 INSERT INTO galgame_story_templates (
                     template_id,
+                    owner_user_id,
                     name,
                     active,
                     payload_json,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     template.template_id,
+                    template.owner_user_id,
                     template.name,
                     int(template.active),
                     template.model_dump_json(),
@@ -860,14 +869,16 @@ class LocalSessionStore:
                 """
                 INSERT INTO galgame_story_templates (
                     template_id,
+                    owner_user_id,
                     name,
                     active,
                     payload_json,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(template_id) DO UPDATE SET
+                    owner_user_id = excluded.owner_user_id,
                     name = excluded.name,
                     active = excluded.active,
                     payload_json = excluded.payload_json,
@@ -875,6 +886,7 @@ class LocalSessionStore:
                 """,
                 (
                     template.template_id,
+                    template.owner_user_id,
                     template.name,
                     int(template.active),
                     template.model_dump_json(),
@@ -884,23 +896,34 @@ class LocalSessionStore:
             )
             connection.commit()
 
-    def list_galgame_story_templates(self, include_inactive: bool = False) -> list[GalgameStoryTemplate]:
+    def list_galgame_story_templates(
+        self,
+        include_inactive: bool = False,
+        owner_user_id: str | None = None,
+        include_system: bool = True,
+    ) -> list[GalgameStoryTemplate]:
         with self._connect() as connection:
-            if include_inactive:
-                rows = connection.execute(
-                    """
-                    SELECT payload_json FROM galgame_story_templates
-                    ORDER BY created_at ASC
-                    """
-                ).fetchall()
-            else:
-                rows = connection.execute(
-                    """
-                    SELECT payload_json FROM galgame_story_templates
-                    WHERE active = 1
-                    ORDER BY created_at ASC
-                    """
-                ).fetchall()
+            conditions: list[str] = []
+            params: list[object] = []
+            if not include_inactive:
+                conditions.append("active = 1")
+            if owner_user_id is not None:
+                if include_system:
+                    conditions.append("(owner_user_id IS NULL OR owner_user_id = ?)")
+                else:
+                    conditions.append("owner_user_id = ?")
+                params.append(owner_user_id)
+            elif not include_system:
+                conditions.append("owner_user_id IS NOT NULL")
+            where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            rows = connection.execute(
+                f"""
+                SELECT payload_json FROM galgame_story_templates
+                {where_clause}
+                ORDER BY created_at ASC
+                """,
+                tuple(params),
+            ).fetchall()
         return [GalgameStoryTemplate.model_validate_json(row[0]) for row in rows]
 
     def load_galgame_story_template(self, template_id: str) -> GalgameStoryTemplate | None:

@@ -11,7 +11,7 @@ from app.domain.dimensions import (
     SUBDIMENSION_LABELS,
     SUBDIMENSION_TO_PARENT,
 )
-from app.domain.models import AnswerRecord, ItemTemplate, SessionReport, SessionState, StructuralLabel
+from app.domain.models import AnswerRecord, ItemTemplate, SessionReport, SessionState, StructuralLabel, SupportRiskFlag
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.clustering import clustering_service
 from app.services.reporting import build_module_insights, build_subdimension_insights, render_narrative_label
@@ -96,6 +96,59 @@ class ScoringEngine:
 
         return next_state
 
+    def build_support_risk_flags(self, state: SessionState) -> list[SupportRiskFlag]:
+        flags: list[SupportRiskFlag] = []
+        if state.question_count < 5:
+            return flags
+
+        recent_answers = state.answers[-8:]
+        if recent_answers:
+            fast_ratio = sum(1 for answer in recent_answers if answer.latency_ms is not None and answer.latency_ms < 900) / len(recent_answers)
+            large_residual_ratio = sum(1 for answer in recent_answers if abs(answer.residual) > 1.2) / len(recent_answers)
+            extreme_ratio = sum(1 for answer in recent_answers if abs(answer.mapped_score) >= 1.0) / len(recent_answers)
+        else:
+            fast_ratio = 0.0
+            large_residual_ratio = 0.0
+            extreme_ratio = 0.0
+
+        if state.zeta.get("fatigue", 0.0) >= 0.45 or fast_ratio >= 0.65:
+            flags.append(
+                SupportRiskFlag(
+                    key="interaction_fatigue_or_rushing",
+                    severity="medium" if state.zeta.get("fatigue", 0.0) >= 0.6 else "low",
+                    label="可能存在疲劳或快速作答信号",
+                    evidence=[
+                        f"fatigue={state.zeta.get('fatigue', 0.0):.2f}",
+                        f"recent_fast_ratio={fast_ratio:.2f}",
+                    ],
+                    suggested_action="建议在界面中提供暂停、稍后继续和非评判性说明。",
+                )
+            )
+        if state.zeta.get("consistency", 0.5) <= 0.25 or large_residual_ratio >= 0.55:
+            flags.append(
+                SupportRiskFlag(
+                    key="low_response_consistency",
+                    severity="medium",
+                    label="近期回答一致性较低",
+                    evidence=[
+                        f"consistency={state.zeta.get('consistency', 0.5):.2f}",
+                        f"recent_large_residual_ratio={large_residual_ratio:.2f}",
+                    ],
+                    suggested_action="建议仅作为人工复核或后续追问信号，不应直接解释为心理问题。",
+                )
+            )
+        if extreme_ratio >= 0.8 and len(recent_answers) >= 5:
+            flags.append(
+                SupportRiskFlag(
+                    key="high_extreme_choice_ratio",
+                    severity="low",
+                    label="近期极端选项比例较高",
+                    evidence=[f"recent_extreme_ratio={extreme_ratio:.2f}"],
+                    suggested_action="建议后续增加情境化追问，确认这是稳定偏好还是情绪化/随意选择。",
+                )
+            )
+        return flags
+
     def build_report(
         self,
         session_id: str,
@@ -154,6 +207,7 @@ class ScoringEngine:
             "sub_insights": [insight.model_dump() for insight in sub_insights],
             "module_insights": [insight.model_dump() for insight in module_insights],
             "uncertainty_summary": uncertainty_summary,
+            "support_risk_flags": [flag.model_dump() for flag in self.build_support_risk_flags(state)],
         }
         ai_interpretation = ai_service.interpret_report_with_config(report_payload, runtime_ai_config, naming_style)
         ai_summary = str(ai_interpretation["ai_summary"])
@@ -179,6 +233,7 @@ class ScoringEngine:
             active_module_labels=active_module_labels,
             sub_insights=sub_insights,
             module_insights=module_insights,
+            support_risk_flags=self.build_support_risk_flags(state),
             current_state=state,
         )
 

@@ -4,12 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  createUserGalgameStoryTemplate,
+  deleteUserGalgameStoryTemplate,
   generateSessionReport,
   getGalgameScene,
   getSessionMap,
+  listUserGalgameStoryTemplates,
   respondGalgameScene,
   startSession,
+  updateUserGalgameStoryTemplate,
   type GalgameScene,
+  type GalgameStoryTemplate,
+  type GalgameStoryTemplatePayload,
   type GalgameTextInference,
   type SessionState,
 } from "@/lib/api";
@@ -21,7 +27,41 @@ import {
   saveActiveSessionAccess,
   saveFinalReportSnapshot,
   type SessionAccessBundle,
+  type UserAccessBundle,
 } from "@/lib/runtime-store";
+
+type DialogueLogEntry = {
+  id: string;
+  speaker: string;
+  text: string;
+  meta: string;
+};
+
+type TemplateFormState = {
+  name: string;
+  description: string;
+  location: string;
+  speaker: string;
+  characterKey: string;
+  backgroundKey: string;
+  backgroundPrompt: string;
+  characterPrompt: string;
+  stylePrompt: string;
+  scenarioTags: string;
+};
+
+const EMPTY_TEMPLATE_FORM: TemplateFormState = {
+  name: "我的校园分支",
+  description: "围绕一次关系、社团或学习场景展开，允许角色主动制造分歧。",
+  location: "黄昏后的旧社团楼",
+  speaker: "临时同伴",
+  characterKey: "custom_companion",
+  backgroundKey: "custom_evening_clubroom",
+  backgroundPrompt: "evening school clubroom, warm window light, visual novel background",
+  characterPrompt: "visual novel companion portrait, expressive, non sexualized, campus style",
+  stylePrompt: "更像可玩的 galgame；台词可以有悬疑、玩笑和关系张力，但不要像问卷。",
+  scenarioTags: "campus, relationship, team_mode",
+};
 
 function formatSigned(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
@@ -35,9 +75,58 @@ function moodLabel(mood: string) {
   return "Opening";
 }
 
+function splitTags(value: string) {
+  return value
+    .split(/[,，\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function templateToForm(template: GalgameStoryTemplate): TemplateFormState {
+  return {
+    name: template.name,
+    description: template.description,
+    location: template.location,
+    speaker: template.speaker,
+    characterKey: template.character_key,
+    backgroundKey: template.background_key,
+    backgroundPrompt: template.background_prompt,
+    characterPrompt: template.character_prompt,
+    stylePrompt: template.style_prompt,
+    scenarioTags: template.scenario_tags.join(", "),
+  };
+}
+
+function formToPayload(form: TemplateFormState): GalgameStoryTemplatePayload {
+  return {
+    name: form.name.trim() || EMPTY_TEMPLATE_FORM.name,
+    description: form.description.trim(),
+    location: form.location.trim() || EMPTY_TEMPLATE_FORM.location,
+    speaker: form.speaker.trim() || EMPTY_TEMPLATE_FORM.speaker,
+    character_key: form.characterKey.trim() || EMPTY_TEMPLATE_FORM.characterKey,
+    background_key: form.backgroundKey.trim() || EMPTY_TEMPLATE_FORM.backgroundKey,
+    background_prompt: form.backgroundPrompt.trim(),
+    character_prompt: form.characterPrompt.trim(),
+    style_prompt: form.stylePrompt.trim(),
+    scenario_tags: splitTags(form.scenarioTags),
+    active: true,
+  };
+}
+
+function sceneLogEntry(scene: GalgameScene): DialogueLogEntry {
+  return {
+    id: scene.scene_id,
+    speaker: scene.speaker,
+    text: `${scene.narrator_text}\n${scene.character_text}`,
+    meta: `${scene.location} / ${scene.ai_generated ? "AI" : "fallback"}`,
+  };
+}
+
 export function StoryClient() {
   const router = useRouter();
   const [access, setAccess] = useState<SessionAccessBundle | null>(null);
+  const [user, setUser] = useState<UserAccessBundle | null>(null);
   const [scene, setScene] = useState<GalgameScene | null>(null);
   const [state, setState] = useState<SessionState | null>(null);
   const [lastInference, setLastInference] = useState<GalgameTextInference | null>(null);
@@ -47,6 +136,18 @@ export function StoryClient() {
   const [error, setError] = useState("");
   const [remainingUntilReport, setRemainingUntilReport] = useState(20);
   const [canGenerateReport, setCanGenerateReport] = useState(false);
+  const [typedText, setTypedText] = useState("");
+  const [typedDone, setTypedDone] = useState(false);
+  const [autoReveal, setAutoReveal] = useState(false);
+  const [hideUI, setHideUI] = useState(false);
+  const [showLog, setShowLog] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [templates, setTemplates] = useState<GalgameStoryTemplate[]>([]);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [templateForm, setTemplateForm] = useState<TemplateFormState>(EMPTY_TEMPLATE_FORM);
+  const [templateStatus, setTemplateStatus] = useState("");
+  const [dialogueLog, setDialogueLog] = useState<DialogueLogEntry[]>([]);
   const startedAtRef = useRef<number>(Date.now());
 
   useEffect(() => {
@@ -55,10 +156,12 @@ export function StoryClient() {
     async function bootstrap() {
       try {
         setBusy(true);
+        const currentUser = getUserAccess();
+        setUser(currentUser);
         let currentAccess = getActiveSessionAccess();
         if (!currentAccess) {
           clearFinalReportSnapshot();
-          const started = await startSession(getUserAccess());
+          const started = await startSession(currentUser);
           currentAccess = {
             session_id: started.session_id,
             session_secret: started.session_secret,
@@ -68,10 +171,14 @@ export function StoryClient() {
           setState(started.state);
           setRemainingUntilReport(started.min_questions_for_report);
         }
-        const nextScene = await getGalgameScene(currentAccess);
+        const [nextScene, templatePayload] = await Promise.all([
+          getGalgameScene(currentAccess),
+          currentUser ? listUserGalgameStoryTemplates(currentUser).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
+        ]);
         if (cancelled) return;
         setAccess(currentAccess);
         setScene(nextScene);
+        setTemplates(templatePayload.items);
         setSelectedOptionKey(nextScene.choices.find((choice) => choice.tone === "ambivalent")?.option_key ?? nextScene.choices[0]?.option_key ?? "");
         startedAtRef.current = performance.now();
         setError("");
@@ -89,10 +196,54 @@ export function StoryClient() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!scene) return;
+    setDialogueLog((current) => {
+      if (current.some((entry) => entry.id === scene.scene_id)) return current;
+      return [...current, sceneLogEntry(scene)].slice(-18);
+    });
+  }, [scene]);
+
+  useEffect(() => {
+    const line = scene?.character_text ?? "";
+    setTypedText("");
+    setTypedDone(false);
+    if (!line) return;
+    let cursor = 0;
+    const step = autoReveal ? 4 : 2;
+    const interval = window.setInterval(() => {
+      cursor += step;
+      if (cursor >= line.length) {
+        setTypedText(line);
+        setTypedDone(true);
+        window.clearInterval(interval);
+      } else {
+        setTypedText(line.slice(0, cursor));
+      }
+    }, autoReveal ? 18 : 26);
+    return () => window.clearInterval(interval);
+  }, [scene?.scene_id, scene?.character_text, autoReveal]);
+
+  async function refreshTemplates(currentUser = user) {
+    if (!currentUser) return;
+    const payload = await listUserGalgameStoryTemplates(currentUser);
+    setTemplates(payload.items);
+  }
+
   async function handleChoice(optionKey: string, textOverride?: string) {
     if (!access || !scene) return;
     try {
       setBusy(true);
+      const choiceText = scene.choices.find((choice) => choice.option_key === optionKey)?.text ?? optionKey;
+      setDialogueLog((current) => [
+        ...current,
+        {
+          id: `${scene.scene_id}:player:${Date.now()}`,
+          speaker: "你",
+          text: textOverride?.trim() || choiceText,
+          meta: "player branch",
+        },
+      ].slice(-18));
       const latencyMs = Math.round(performance.now() - startedAtRef.current);
       const response = await respondGalgameScene(access, {
         item_id: scene.item_id,
@@ -135,159 +286,350 @@ export function StoryClient() {
     }
   }
 
+  async function handleSaveTemplate() {
+    if (!user) {
+      setTemplateStatus("需要先通过邀请码进入，才能保存个人剧情模板。");
+      return;
+    }
+    try {
+      setTemplateStatus("正在保存模板…");
+      if (editingTemplateId) {
+        await updateUserGalgameStoryTemplate(user, editingTemplateId, formToPayload(templateForm));
+      } else {
+        await createUserGalgameStoryTemplate(user, formToPayload(templateForm));
+      }
+      await refreshTemplates(user);
+      setEditingTemplateId(null);
+      setTemplateForm(EMPTY_TEMPLATE_FORM);
+      setTemplateStatus("模板已保存。下一幕或新会话会按标签自动参与匹配。");
+    } catch (reason) {
+      setTemplateStatus(reason instanceof Error ? reason.message : "模板保存失败。");
+    }
+  }
+
+  async function handleDeleteTemplate(templateId: string) {
+    if (!user) return;
+    try {
+      setTemplateStatus("正在删除模板…");
+      await deleteUserGalgameStoryTemplate(user, templateId);
+      await refreshTemplates(user);
+      if (editingTemplateId === templateId) {
+        setEditingTemplateId(null);
+        setTemplateForm(EMPTY_TEMPLATE_FORM);
+      }
+      setTemplateStatus("模板已删除。");
+    } catch (reason) {
+      setTemplateStatus(reason instanceof Error ? reason.message : "模板删除失败。");
+    }
+  }
+
+  function revealLine() {
+    if (!scene) return;
+    if (!typedDone) {
+      setTypedText(scene.character_text);
+      setTypedDone(true);
+    }
+  }
+
+  const selectedChoice = scene?.choices.find((choice) => choice.option_key === selectedOptionKey);
+
   if (busy && !scene) {
     return (
-      <main className="story-shell">
-        <section className="story-stage mx-auto flex min-h-[72vh] max-w-5xl items-center justify-center p-8 text-center">
-          <div>
-            <p className="eyebrow">Distilled TI / Story Mode</p>
-            <h1 className="mt-4 text-4xl">正在生成第一幕</h1>
-            <p className="mt-3 text-[color:var(--ink-muted)]">系统会把测量题转换成校园情景选择。</p>
-          </div>
+      <main className="story-shell story-shell-vn">
+        <section className="story-loading-card">
+          <p className="eyebrow">Distilled TI / Story Mode</p>
+          <h1 className="mt-4 text-4xl">正在生成第一幕</h1>
+          <p className="mt-3 text-[color:var(--ink-muted)]">系统会把测量题转换成可玩的校园分支。</p>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="story-shell">
-      <section className="relative z-10 mx-auto grid min-h-[calc(100vh-3rem)] max-w-[1440px] gap-5 p-4 lg:grid-cols-[1fr_360px]">
-        <div className="story-stage fade-rise flex flex-col overflow-hidden">
-          <div className="story-sky" data-background-key={scene?.background_key ?? "campus_window"}>
-            <div className="story-character" data-character-key={scene?.character_key ?? "desk_mate"} aria-hidden>
-              <div className="story-character-face" />
-            </div>
-            <div className="absolute left-5 top-5 flex flex-wrap gap-2">
-              <span className="chip chip-accent">{scene?.location ?? "Unknown"}</span>
-              <span className="chip">{scene ? moodLabel(scene.mood) : "Loading"}</span>
-              <span className="chip">Q{(state?.question_count ?? 0) + 1}</span>
-              <span className="chip">{scene?.ai_generated ? "AI scene" : "Fallback scene"}</span>
-            </div>
-          </div>
-
-          <div className="story-dialogue mt-auto">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="label-mini">{scene?.title ?? "Story Mode"}</p>
-                <h1 className="mt-1 text-2xl md:text-3xl">{scene?.speaker ?? "同桌"}</h1>
-              </div>
-              <button className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => router.push("/session")}>
-                切回工作台
-              </button>
-            </div>
-            <p className="text-[0.92rem] leading-7 text-[color:var(--ink-muted)]">{scene?.narrator_text}</p>
-            <p className="mt-3 text-[1.15rem] leading-8 text-[color:var(--ink-strong)]">{scene?.character_text}</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="chip">BG {scene?.background_key ?? "none"}</span>
-              <span className="chip">CHAR {scene?.character_key ?? "none"}</span>
-              {scene?.story_template_id ? <span className="chip">TEMPLATE {scene.story_template_id}</span> : null}
-            </div>
-          </div>
+    <main className={`story-shell story-shell-vn ${hideUI ? "is-ui-hidden" : ""}`}>
+      <section className="story-vn-frame">
+        <div className="story-vn-bg" data-background-key={scene?.background_key ?? "campus_window"} />
+        <div className="story-vn-atmosphere" />
+        <div className="story-vn-character" data-character-key={scene?.character_key ?? "desk_mate"} aria-hidden>
+          <div className="story-vn-face" />
         </div>
 
-        <aside className="space-y-4">
-          <div className="panel fade-rise p-5">
-            <p className="label-mini">Choices</p>
-            <h2 className="mt-1.5 text-2xl">你会怎么做</h2>
-            <div className="mt-4 space-y-2.5">
-              {scene?.choices.map((choice) => (
+        <header className="story-vn-hud">
+          <div>
+            <p className="label-mini">{scene?.location ?? "Unknown"}</p>
+            <h1>{scene?.title ?? "Story Mode"}</h1>
+          </div>
+          <div className="story-vn-pills">
+            <span>{scene ? moodLabel(scene.mood) : "Loading"}</span>
+            <span>Q{(state?.question_count ?? 0) + 1}</span>
+            <span>{scene?.ai_generated ? "AI scene" : "Fallback"}</span>
+            {user ? <span>{user.handle}</span> : <span>Guest</span>}
+          </div>
+        </header>
+
+        <div className="story-vn-controls">
+          <button type="button" onClick={() => setAutoReveal((value) => !value)}>{autoReveal ? "Auto On" : "Auto"}</button>
+          <button type="button" onClick={() => setShowLog(true)}>Log</button>
+          <button type="button" onClick={() => setHideUI((value) => !value)}>{hideUI ? "Show" : "Hide"}</button>
+          <button type="button" onClick={() => setShowTemplates(true)}>Template</button>
+          <button type="button" onClick={() => router.push("/session")}>Workbench</button>
+        </div>
+
+        {!hideUI ? (
+          <>
+            <section className="story-vn-choice-board" aria-label="剧情选项">
+              {scene?.choices.map((choice, index) => (
                 <button
                   key={choice.key}
-                  className={`story-choice ${choice.tone}`}
+                  className={`story-choice story-choice-vn ${choice.tone}`}
                   disabled={busy}
+                  style={{ animationDelay: `${120 + index * 70}ms` }}
                   onClick={() => void handleChoice(choice.option_key)}
                 >
                   <span>{choice.text}</span>
                   <span className="num">{formatSigned(choice.score)}</span>
                 </button>
               ))}
-            </div>
-          </div>
+            </section>
 
-          <div className="panel fade-rise p-5">
-            <p className="label-mini">Free Line</p>
-            <h2 className="mt-1.5 text-xl">自己写一句台词</h2>
-            <textarea
-              className="field mt-3 min-h-28"
-              value={customText}
-              onChange={(event) => setCustomText(event.target.value)}
-              placeholder="例如：我先不表态，但会把所有人的真实顾虑问出来。"
-            />
-            <select className="field mt-2.5" value={selectedOptionKey} onChange={(event) => setSelectedOptionKey(event.target.value)}>
-              {scene?.choices.map((choice) => (
-                <option key={choice.key} value={choice.option_key}>
-                  {choice.text}
-                </option>
-              ))}
-            </select>
-            <button
-              className="btn btn-primary mt-3 w-full"
-              disabled={busy || !selectedOptionKey}
-              onClick={() => void handleChoice(selectedOptionKey, customText)}
-            >
-              以这句台词推进
-            </button>
-          </div>
-
-          {lastInference ? (
-            <div className="panel fade-rise p-5">
-              <p className="label-mini">Tendency Classifier</p>
-              <h2 className="mt-1.5 text-xl">自由台词解析</h2>
-              <p className="num mt-2 text-[0.82rem] text-[color:var(--ink-muted)]">
-                {lastInference.source} / {lastInference.inferred_option_key ?? "uncertain"} / confidence {lastInference.confidence.toFixed(2)}
+            <section className="story-vn-dialogue" onClick={revealLine}>
+              <div className="story-vn-nameplate">{scene?.speaker ?? "同桌"}</div>
+              <p className="story-vn-narrator">{scene?.narrator_text}</p>
+              <p className="story-vn-line">
+                {typedText || scene?.character_text}
+                {!typedDone ? <span className="type-caret" /> : null}
               </p>
-              <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]">{lastInference.reason}</p>
-              {lastInference.option_scores.length ? (
-                <div className="mt-3 space-y-2">
-                  {lastInference.option_scores.slice(0, 5).map((score) => (
-                    <div key={score.option_key} className="surface-sunken p-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="num text-[0.72rem] text-[color:var(--ink-muted)]">{score.option_key}</span>
-                        <span className="num text-[0.72rem] text-[color:var(--ink-strong)]">{score.fused_score.toFixed(2)}</span>
-                      </div>
-                      <div className="bar-track mt-2">
-                        <div className="bar-fill" style={{ width: `${Math.max(4, Math.min(score.fused_score * 100, 100))}%` }} />
-                      </div>
-                      <p className="num mt-1.5 text-[0.68rem] text-[color:var(--ink-faint)]">
-                        LLM {score.llm_score?.toFixed(2) ?? "-"} / EMB {score.embedding_score?.toFixed(2) ?? "-"}
-                      </p>
+              <div className="story-vn-free-line">
+                <textarea
+                  value={customText}
+                  onChange={(event) => setCustomText(event.target.value)}
+                  placeholder="自己写一句台词，例如：我先把所有人的真实顾虑问出来，再决定要不要接手。"
+                />
+                <div className="story-vn-free-actions">
+                  <select value={selectedOptionKey} onChange={(event) => setSelectedOptionKey(event.target.value)}>
+                    {scene?.choices.map((choice) => (
+                      <option key={choice.key} value={choice.option_key}>
+                        {choice.text}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={busy || !selectedOptionKey}
+                    onClick={() => void handleChoice(selectedOptionKey, customText)}
+                  >
+                    以这句推进
+                  </button>
+                </div>
+                {selectedChoice ? <p className="story-vn-selected">当前映射：{selectedChoice.text}</p> : null}
+              </div>
+            </section>
+          </>
+        ) : null}
+
+        <aside className="story-vn-status">
+          <button type="button" className="story-mini-card" onClick={() => setShowDebug((value) => !value)}>
+            <span>Context</span>
+            <strong>{scene?.story_template_id ?? "default"}</strong>
+          </button>
+          <button type="button" className="story-mini-card" disabled={!canGenerateReport || busy} onClick={() => void handleReport()}>
+            <span>Report</span>
+            <strong>{canGenerateReport ? "生成" : `还差 ${remainingUntilReport}`}</strong>
+          </button>
+        </aside>
+
+        {showDebug ? (
+          <section className="story-vn-debug">
+            <p className="label-mini">Retrieval / Classifier Evidence</p>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              <div>
+                <p className="num text-[0.72rem] text-[color:var(--ink-faint)]">BG / CHAR</p>
+                <p>{scene?.background_key ?? "-"} / {scene?.character_key ?? "-"}</p>
+              </div>
+              <div>
+                <p className="num text-[0.72rem] text-[color:var(--ink-faint)]">Template</p>
+                <p>{scene?.story_template_id ?? "none"}</p>
+              </div>
+            </div>
+            {lastInference ? (
+              <div className="mt-3">
+                <p className="num text-[0.75rem] text-[color:var(--ink-muted)]">
+                  {lastInference.source} / {lastInference.inferred_option_key ?? "uncertain"} / confidence {lastInference.confidence.toFixed(2)}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[color:var(--ink-muted)]">{lastInference.reason}</p>
+                <div className="mt-2 space-y-1.5">
+                  {lastInference.option_scores.slice(0, 4).map((score) => (
+                    <div key={score.option_key} className="story-score-row">
+                      <span>{score.option_key}</span>
+                      <span>
+                        F {score.fused_score.toFixed(2)} / L {score.llm_score?.toFixed(2) ?? "-"} / E {score.embedding_score?.toFixed(2) ?? "-"} / P {score.pairwise_score?.toFixed(2) ?? "-"}
+                      </span>
                     </div>
                   ))}
                 </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="panel fade-rise p-5">
-            <p className="label-mini">Context</p>
-            <h2 className="mt-1.5 text-xl">剧情记忆</h2>
-            {scene?.memory_fragments.length ? (
-              <div className="mt-3 space-y-2">
-                {scene.memory_fragments.map((fragment, index) => (
-                  <p key={`${fragment}-${index}`} className="surface-sunken p-3 text-xs leading-5 text-[color:var(--ink-muted)]">
-                    {fragment}
-                  </p>
-                ))}
               </div>
             ) : (
-              <p className="mt-3 text-sm text-[color:var(--ink-muted)]">第一幕还没有留下长期上下文。</p>
+              <p className="mt-3 text-xs text-[color:var(--ink-muted)]">提交自由台词后会显示 LLM / embedding / pairwise 分类证据。</p>
             )}
-            <div className="hairline my-4" />
-            <p className="num text-sm text-[color:var(--ink-muted)]">
-              已答 {state?.question_count ?? 0} · 报告还差 {remainingUntilReport}
-            </p>
-            <button className="btn btn-success-soft mt-3 w-full" disabled={!canGenerateReport || busy} onClick={() => void handleReport()}>
-              {canGenerateReport ? "生成报告" : "报告未解锁"}
-            </button>
-          </div>
+            {scene?.memory_fragments.length ? (
+              <div className="mt-3">
+                <p className="label-mini">Memory</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {scene.memory_fragments.map((fragment, index) => (
+                    <span key={`${fragment}-${index}`} className="chip">{fragment}</span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
-          {error ? (
-            <div className="panel border-[color:var(--danger)]/30 bg-[color:var(--danger-soft)] p-4 text-sm text-[color:var(--danger-ink)]">
-              {error}
-            </div>
-          ) : null}
-        </aside>
+        {error ? <div className="story-vn-error">{error}</div> : null}
+        {busy ? <div className="story-vn-busy">处理中…</div> : null}
       </section>
+
+      {showLog ? (
+        <div className="story-overlay">
+          <section className="story-modal story-log-modal">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="label-mini">Backlog</p>
+                <h2>剧情记录</h2>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={() => setShowLog(false)}>关闭</button>
+            </div>
+            <div className="mt-5 space-y-3">
+              {dialogueLog.map((entry) => (
+                <article key={entry.id} className="story-log-entry">
+                  <div className="flex items-center justify-between gap-3">
+                    <strong>{entry.speaker}</strong>
+                    <span>{entry.meta}</span>
+                  </div>
+                  <p>{entry.text}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {showTemplates ? (
+        <div className="story-overlay">
+          <section className="story-modal story-template-drawer">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="label-mini">Scenario Templates</p>
+                <h2>自定义剧情模板</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-[color:var(--ink-muted)]">
+                  用户模板只绑定随机匿名 ID，不包含真实身份。保存后会和系统模板一起按标签匹配后续剧情。
+                </p>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={() => setShowTemplates(false)}>关闭</button>
+            </div>
+
+            {!user ? (
+              <div className="surface-sunken mt-5 p-4 text-sm text-[color:var(--ink-muted)]">
+                需要先通过邀请码进入，才能长期保存个人剧情模板。未注册访客仍可正常游玩当前剧情。
+              </div>
+            ) : null}
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+              <div className="space-y-2.5">
+                {templates.map((template) => {
+                  const owned = Boolean(user && template.owner_user_id === user.user_id);
+                  return (
+                    <article key={template.template_id} className="story-template-row">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <strong>{template.name}</strong>
+                          <span>{owned ? "Mine" : "System"}</span>
+                        </div>
+                        <p>{template.location} / {template.speaker}</p>
+                      </div>
+                      {owned ? (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingTemplateId(template.template_id);
+                              setTemplateForm(templateToForm(template));
+                            }}
+                          >
+                            编辑
+                          </button>
+                          <button type="button" onClick={() => void handleDeleteTemplate(template.template_id)}>删除</button>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+                {!templates.length ? <p className="text-sm text-[color:var(--ink-muted)]">还没有可显示模板。</p> : null}
+              </div>
+
+              <form className="story-template-form" onSubmit={(event) => { event.preventDefault(); void handleSaveTemplate(); }}>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label>
+                    <span>名称</span>
+                    <input value={templateForm.name} onChange={(event) => setTemplateForm((form) => ({ ...form, name: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>地点</span>
+                    <input value={templateForm.location} onChange={(event) => setTemplateForm((form) => ({ ...form, location: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>说话角色</span>
+                    <input value={templateForm.speaker} onChange={(event) => setTemplateForm((form) => ({ ...form, speaker: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>标签</span>
+                    <input value={templateForm.scenarioTags} onChange={(event) => setTemplateForm((form) => ({ ...form, scenarioTags: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>角色 Key</span>
+                    <input value={templateForm.characterKey} onChange={(event) => setTemplateForm((form) => ({ ...form, characterKey: event.target.value }))} />
+                  </label>
+                  <label>
+                    <span>背景 Key</span>
+                    <input value={templateForm.backgroundKey} onChange={(event) => setTemplateForm((form) => ({ ...form, backgroundKey: event.target.value }))} />
+                  </label>
+                </div>
+                <label>
+                  <span>剧情简介</span>
+                  <textarea value={templateForm.description} onChange={(event) => setTemplateForm((form) => ({ ...form, description: event.target.value }))} />
+                </label>
+                <label>
+                  <span>风格提示词</span>
+                  <textarea value={templateForm.stylePrompt} onChange={(event) => setTemplateForm((form) => ({ ...form, stylePrompt: event.target.value }))} />
+                </label>
+                <label>
+                  <span>背景素材提示</span>
+                  <textarea value={templateForm.backgroundPrompt} onChange={(event) => setTemplateForm((form) => ({ ...form, backgroundPrompt: event.target.value }))} />
+                </label>
+                <label>
+                  <span>角色素材提示</span>
+                  <textarea value={templateForm.characterPrompt} onChange={(event) => setTemplateForm((form) => ({ ...form, characterPrompt: event.target.value }))} />
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="submit" className="btn btn-primary" disabled={!user}>
+                    {editingTemplateId ? "保存修改" : "创建个人模板"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setEditingTemplateId(null);
+                      setTemplateForm(EMPTY_TEMPLATE_FORM);
+                    }}
+                  >
+                    新建草稿
+                  </button>
+                  {templateStatus ? <span className="text-sm text-[color:var(--ink-muted)]">{templateStatus}</span> : null}
+                </div>
+              </form>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

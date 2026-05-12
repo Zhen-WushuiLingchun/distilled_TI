@@ -444,6 +444,7 @@ class AIService:
             return GalgameTextInference(source="none", reason="no_custom_text")
 
         embedding_distribution, embedding_similarity = self._embedding_classify_galgame_text(text, choices)
+        pairwise_distribution, pairwise_scores = self._pairwise_classify_galgame_text(text, choices, embedding_similarity)
         llm_distribution: dict[str, float] = {}
         llm_reason = ""
         active_config = self._resolve_config(runtime_config)
@@ -501,13 +502,37 @@ class AIService:
             except Exception:
                 pass
 
-        if llm_distribution or embedding_distribution:
+        if llm_distribution or embedding_distribution or pairwise_distribution:
             return self._fuse_galgame_inference(
                 choices=choices,
                 llm_distribution=llm_distribution,
                 embedding_distribution=embedding_distribution,
                 embedding_similarity=embedding_similarity,
+                pairwise_distribution=pairwise_distribution,
+                pairwise_scores=pairwise_scores,
                 llm_reason=llm_reason,
+            )
+        return self._rule_classify_galgame_text(text, choices)
+
+    def classify_galgame_free_text_offline(
+        self,
+        custom_text: str | None,
+        choices: list[GalgameChoice],
+    ) -> GalgameTextInference:
+        """Deterministic no-network classifier used by calibration tests/scripts."""
+        text = (custom_text or "").strip()
+        if not text:
+            return GalgameTextInference(source="none", reason="no_custom_text")
+        pairwise_distribution, pairwise_scores = self._pairwise_classify_galgame_text(text, choices, {})
+        if pairwise_distribution:
+            return self._fuse_galgame_inference(
+                choices=choices,
+                llm_distribution={},
+                embedding_distribution={},
+                embedding_similarity={},
+                pairwise_distribution=pairwise_distribution,
+                pairwise_scores=pairwise_scores,
+                llm_reason="",
             )
         return self._rule_classify_galgame_text(text, choices)
 
@@ -548,6 +573,78 @@ class AIService:
             for index, choice in enumerate(choices)
         }
         return self._softmax_distribution(similarities, temperature=8.0), similarities
+
+    def _pairwise_classify_galgame_text(
+        self,
+        text: str,
+        choices: list[GalgameChoice],
+        embedding_similarity: dict[str, float],
+    ) -> tuple[dict[str, float], dict[str, float]]:
+        if not choices:
+            return {}, {}
+        option_keys = [choice.option_key for choice in choices]
+        wins = {key: 0.0 for key in option_keys}
+        comparisons = {key: 0 for key in option_keys}
+        lexical_scores = self._lexical_choice_scores(text, choices)
+        for left_index, left in enumerate(choices):
+            for right in choices[left_index + 1 :]:
+                left_score = self._pairwise_signal(text, left, embedding_similarity, lexical_scores)
+                right_score = self._pairwise_signal(text, right, embedding_similarity, lexical_scores)
+                probability_left = 1 / (1 + math.exp(max(-8.0, min(8.0, (right_score - left_score) * 4.0))))
+                wins[left.option_key] += probability_left
+                wins[right.option_key] += 1 - probability_left
+                comparisons[left.option_key] += 1
+                comparisons[right.option_key] += 1
+        pairwise_scores = {
+            key: wins[key] / max(comparisons[key], 1)
+            for key in option_keys
+        }
+        return self._softmax_distribution(pairwise_scores, temperature=8.0), pairwise_scores
+
+    def _pairwise_signal(
+        self,
+        text: str,
+        choice: GalgameChoice,
+        embedding_similarity: dict[str, float],
+        lexical_scores: dict[str, float],
+    ) -> float:
+        score = 0.0
+        if choice.option_key in embedding_similarity:
+            score += embedding_similarity[choice.option_key] * 0.65
+        score += lexical_scores.get(choice.option_key, 0.0) * 0.25
+        score += self._score_direction_prior(text, choice.score) * 0.10
+        return score
+
+    def _lexical_choice_scores(self, text: str, choices: list[GalgameChoice]) -> dict[str, float]:
+        text_tokens = self._char_bigrams(text)
+        scores: dict[str, float] = {}
+        for choice in choices:
+            choice_tokens = self._char_bigrams(choice.text)
+            if not text_tokens or not choice_tokens:
+                scores[choice.option_key] = 0.0
+                continue
+            overlap = len(text_tokens & choice_tokens)
+            union = len(text_tokens | choice_tokens)
+            scores[choice.option_key] = overlap / max(union, 1)
+        return scores
+
+    def _char_bigrams(self, text: str) -> set[str]:
+        normalized = re.sub(r"\s+", "", text.lower())
+        if len(normalized) <= 1:
+            return {normalized} if normalized else set()
+        return {normalized[index : index + 2] for index in range(len(normalized) - 1)}
+
+    def _score_direction_prior(self, text: str, score: float) -> float:
+        lowered = text.lower()
+        if any(marker in lowered for marker in ["观察", "暂时", "看看", "不表态", "折中", "看情况", "放慢", "observe", "wait"]):
+            target = 0.0
+        elif any(marker in lowered for marker in ["推进", "主动", "接受", "支持", "接下", "开口", "安排", "定下来", "行动", "offer", "push"]):
+            target = 1.0
+        elif any(marker in lowered for marker in ["拒绝", "后撤", "不想", "不会", "不接", "边界", "退后", "avoid", "decline"]):
+            target = -1.0
+        else:
+            target = 0.0
+        return 1 - min(abs(score - target), 2.0) / 2.0
 
     def _parse_option_distribution(
         self,
@@ -600,37 +697,49 @@ class AIService:
         llm_distribution: dict[str, float],
         embedding_distribution: dict[str, float],
         embedding_similarity: dict[str, float],
+        pairwise_distribution: dict[str, float],
+        pairwise_scores: dict[str, float],
         llm_reason: str,
     ) -> GalgameTextInference:
         option_keys = [choice.option_key for choice in choices]
         fused: dict[str, float] = {}
         llm_available = bool(llm_distribution)
         embedding_available = bool(embedding_distribution)
-        llm_weight = 0.68 if llm_available and embedding_available else 1.0 if llm_available else 0.0
-        embedding_weight = 1.0 - llm_weight if llm_available and embedding_available else 1.0 if embedding_available else 0.0
+        pairwise_available = bool(pairwise_distribution)
+        total_weight = (0.56 if llm_available else 0.0) + (0.24 if embedding_available else 0.0) + (0.20 if pairwise_available else 0.0)
+        if total_weight <= 0:
+            total_weight = 1.0
+        llm_weight = (0.56 if llm_available else 0.0) / total_weight
+        embedding_weight = (0.24 if embedding_available else 0.0) / total_weight
+        pairwise_weight = (0.20 if pairwise_available else 0.0) / total_weight
 
         for key in option_keys:
             fused[key] = (
                 llm_weight * llm_distribution.get(key, 0.0)
                 + embedding_weight * embedding_distribution.get(key, 0.0)
+                + pairwise_weight * pairwise_distribution.get(key, 0.0)
             )
         fused = self._normalize_distribution(fused)
         selected_key = max(fused, key=fused.get) if fused else None
         confidence = fused.get(selected_key, 0.0) if selected_key else 0.0
         llm_top = max(llm_distribution, key=llm_distribution.get) if llm_distribution else None
         embedding_top = max(embedding_distribution, key=embedding_distribution.get) if embedding_distribution else None
-        if llm_available and embedding_available:
+        pairwise_top = max(pairwise_distribution, key=pairwise_distribution.get) if pairwise_distribution else None
+        if sum(bool(value) for value in [llm_available, embedding_available, pairwise_available]) >= 2:
             source = "hybrid"
-            if llm_top == embedding_top == selected_key:
-                reason = f"LLM 与 embedding 近邻都指向 {selected_key}。"
+            if len({top for top in [llm_top, embedding_top, pairwise_top] if top}) == 1:
+                reason = f"LLM、embedding 或 pairwise 证据共同指向 {selected_key}。"
             else:
-                reason = f"融合判断选择 {selected_key}；LLM 指向 {llm_top or 'none'}，embedding 指向 {embedding_top or 'none'}。"
+                reason = f"融合判断选择 {selected_key}；LLM={llm_top or 'none'}，embedding={embedding_top or 'none'}，pairwise={pairwise_top or 'none'}。"
         elif llm_available:
             source = "llm"
             reason = llm_reason or f"LLM 分类指向 {selected_key}。"
-        else:
+        elif embedding_available:
             source = "embedding"
             reason = f"embedding 语义近邻指向 {selected_key}。"
+        else:
+            source = "pairwise"
+            reason = f"pairwise 比较器指向 {selected_key}。"
         if llm_reason and source == "hybrid":
             reason = f"{reason} LLM 依据：{llm_reason}"
 
@@ -639,6 +748,7 @@ class AIService:
                 option_key=choice.option_key,
                 llm_score=round(llm_distribution[choice.option_key], 3) if choice.option_key in llm_distribution else None,
                 embedding_score=round(embedding_distribution[choice.option_key], 3) if choice.option_key in embedding_distribution else None,
+                pairwise_score=round(pairwise_distribution[choice.option_key], 3) if choice.option_key in pairwise_distribution else None,
                 fused_score=round(fused.get(choice.option_key, 0.0), 3),
                 reason=self._option_reason(choice, selected_key, embedding_similarity),
             )
@@ -652,6 +762,7 @@ class AIService:
             source=source,  # type: ignore[arg-type]
             option_scores=option_scores,
             embedding_available=embedding_available,
+            pairwise_available=pairwise_available,
             llm_available=llm_available,
         )
 

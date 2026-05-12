@@ -1,5 +1,64 @@
 # Development Log
 
+## 2026-05-12: Galgame UI, Pairwise Calibration, User Story Templates
+
+### Completed
+
+- Reviewed `Nova42x/paper2galgame` locally and borrowed the Web VN interaction pattern without copying code, assets, or API keys.
+- Rebuilt `/story` into a fuller galgame-style window:
+  - full-screen background stage
+  - character silhouette
+  - typewriter dialogue
+  - choice overlay
+  - free-line input inside the dialogue area
+  - Log / Hide / Template / Workbench controls
+  - classifier evidence drawer
+- Added public invite-user story template APIs:
+  - `GET /api/user/galgame/story-templates`
+  - `POST /api/user/galgame/story-templates`
+  - `PUT /api/user/galgame/story-templates/{template_id}`
+  - `DELETE /api/user/galgame/story-templates/{template_id}`
+- Added `owner_user_id` handling for `GalgameStoryTemplate`.
+- Let user-owned templates participate in scene-template selection alongside system templates.
+- Added pairwise free-text comparison scoring:
+  - deterministic no-network pairwise classifier
+  - fused with LLM and embedding distributions when available
+  - persisted `pairwise_scores` into `GalgameTurn`
+- Added offline calibration fixture set and script:
+  - `backend/app/domain/galgame_calibration.py`
+  - `backend/scripts/galgame_text_calibration.py`
+- Added non-diagnostic `support_risk_flags` to `SessionReport`.
+- Added report UI for support signals, explicitly marked as non-diagnostic and suitable only for support/triage workflows.
+- Documented how the backend analysis layer can be reused in AI assistant/chat contexts for safer support escalation without making medical or psychological diagnoses.
+
+### Validation
+
+- Backend: `python -m compileall backend/app backend/tests` passed.
+- Backend: `python backend/scripts/galgame_text_calibration.py` passed with `9/9`.
+- Backend: `VECTOR_ENABLED=false pytest` passed with `56 passed`.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+- Browser acceptance:
+  - `/story` loaded the VN frame with dialogue and 5 choices.
+  - Template drawer created/listed a private `Mine` template for an invite-backed anonymous user.
+  - Free-line submission advanced to Q2 and displayed classifier evidence with LLM / embedding / pairwise fields.
+  - Console error capture was empty.
+  - Screenshots:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-galgame-vn-acceptance\story-template-drawer.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-galgame-vn-acceptance\story-after-free-line.png`
+
+### Not Completed Yet
+
+- No generated image/sprite/audio asset pipeline yet.
+- No public friend/recommendation UI; recommendation remains hidden/admin-side.
+- No production crisis-support workflow, consent copy, audit trail, or human review queue.
+- No true multi-character sprite asset library yet; current UI uses CSS silhouettes and provider-generated text.
+
+### Next Step
+
+- Continue toward share/export, report archive evolution, and optional hidden social graph visualization.
+- If the story experience becomes the primary public mode, add real sprite/background asset generation or curated asset packs next.
+
 ## 2026-05-12: AI-GAL Story Generation And Free-Text Classifier
 
 ### Completed

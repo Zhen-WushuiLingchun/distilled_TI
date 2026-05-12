@@ -140,15 +140,17 @@ export type GalgameTextInference = {
   inferred_option_key?: string | null;
   confidence: number;
   reason: string;
-  source: "none" | "rule" | "embedding" | "llm" | "hybrid";
+  source: "none" | "rule" | "embedding" | "pairwise" | "llm" | "hybrid";
   option_scores: Array<{
     option_key: string;
     llm_score?: number | null;
     embedding_score?: number | null;
+    pairwise_score?: number | null;
     fused_score: number;
     reason: string;
   }>;
   embedding_available: boolean;
+  pairwise_available: boolean;
   llm_available: boolean;
   method_version: string;
 };
@@ -165,6 +167,7 @@ export type GalgameSceneResult = {
 
 export type GalgameStoryTemplate = {
   template_id: string;
+  owner_user_id?: string | null;
   name: string;
   description: string;
   location: string;
@@ -265,6 +268,14 @@ export type SessionReport = {
     strength_label: string;
     evaluation: string;
     metaphor: string;
+  }>;
+  support_risk_flags: Array<{
+    key: string;
+    severity: "low" | "medium" | "high";
+    label: string;
+    evidence: string[];
+    suggested_action: string;
+    diagnostic: boolean;
   }>;
   current_state: SessionState;
 };
@@ -563,6 +574,56 @@ export function issueUserSessionAccess(user: UserAccessBundle, sessionId: string
     {
       method: "POST",
       json: {},
+    },
+    { user }
+  );
+}
+
+export function listUserGalgameStoryTemplates(user: UserAccessBundle) {
+  return publicRequest<{ items: GalgameStoryTemplate[] }>("/user/galgame/story-templates", undefined, { user });
+}
+
+export type GalgameStoryTemplatePayload = {
+  name: string;
+  description: string;
+  location: string;
+  speaker: string;
+  character_key: string;
+  background_key: string;
+  background_prompt: string;
+  character_prompt: string;
+  style_prompt: string;
+  scenario_tags: string[];
+  active: boolean;
+};
+
+export function createUserGalgameStoryTemplate(user: UserAccessBundle, payload: GalgameStoryTemplatePayload) {
+  return publicRequest<GalgameStoryTemplate>(
+    "/user/galgame/story-templates",
+    {
+      method: "POST",
+      json: payload,
+    },
+    { user }
+  );
+}
+
+export function updateUserGalgameStoryTemplate(user: UserAccessBundle, templateId: string, payload: GalgameStoryTemplatePayload) {
+  return publicRequest<GalgameStoryTemplate>(
+    `/user/galgame/story-templates/${templateId}`,
+    {
+      method: "PUT",
+      json: payload,
+    },
+    { user }
+  );
+}
+
+export function deleteUserGalgameStoryTemplate(user: UserAccessBundle, templateId: string) {
+  return publicRequest<{ deleted: boolean }>(
+    `/user/galgame/story-templates/${templateId}`,
+    {
+      method: "DELETE",
     },
     { user }
   );

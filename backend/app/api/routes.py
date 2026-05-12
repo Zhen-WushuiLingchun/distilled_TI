@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.api.schemas import (
+    GalgameStoryTemplateListResponse,
+    GalgameStoryTemplateRequest,
+    GalgameStoryTemplateResponse,
     GalgameRespondRequest,
     GalgameSceneResponse,
     GalgameSceneResultResponse,
@@ -28,6 +34,7 @@ from app.api.schemas import (
 )
 from app.api.security import build_owner_key
 from app.core.config import settings
+from app.domain.models import GalgameStoryTemplate
 from app.services.session_service import session_service
 from app.services.user_service import user_service
 
@@ -135,6 +142,88 @@ def issue_user_session_access(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     return SessionAccessIssueResponse(**access.model_dump())
+
+
+@router.get("/user/galgame/story-templates", response_model=GalgameStoryTemplateListResponse)
+def list_user_galgame_story_templates(
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> GalgameStoryTemplateListResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return GalgameStoryTemplateListResponse(
+        items=[
+            GalgameStoryTemplateResponse(**template.model_dump())
+            for template in session_service.list_galgame_story_templates(
+                include_inactive=False,
+                owner_user_id=profile.user_id,
+                include_system=True,
+            )
+        ]
+    )
+
+
+@router.post("/user/galgame/story-templates", response_model=GalgameStoryTemplateResponse)
+def create_user_galgame_story_template(
+    payload: GalgameStoryTemplateRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> GalgameStoryTemplateResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    now = datetime.now(UTC)
+    template = session_service.save_user_galgame_story_template(
+        profile.user_id,
+        GalgameStoryTemplate(
+            template_id=f"user-story-{profile.user_id[:8]}-{uuid4().hex[:10]}",
+            created_at=now,
+            updated_at=now,
+            **payload.model_dump(),
+        ),
+    )
+    return GalgameStoryTemplateResponse(**template.model_dump())
+
+
+@router.put("/user/galgame/story-templates/{template_id}", response_model=GalgameStoryTemplateResponse)
+def update_user_galgame_story_template(
+    template_id: str,
+    payload: GalgameStoryTemplateRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> GalgameStoryTemplateResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    try:
+        existing = session_service.get_galgame_story_template(template_id)
+        if existing.owner_user_id != profile.user_id:
+            raise PermissionError("galgame_story_template_owner_mismatch")
+        template = session_service.save_user_galgame_story_template(
+            profile.user_id,
+            GalgameStoryTemplate(
+                template_id=template_id,
+                created_at=existing.created_at,
+                updated_at=datetime.now(UTC),
+                **payload.model_dump(),
+            ),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return GalgameStoryTemplateResponse(**template.model_dump())
+
+
+@router.delete("/user/galgame/story-templates/{template_id}")
+def delete_user_galgame_story_template(
+    template_id: str,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> dict[str, bool]:
+    profile = _require_user(x_user_id, x_user_secret)
+    try:
+        session_service.delete_user_galgame_story_template(profile.user_id, template_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {"deleted": True}
 
 
 @router.post("/session/start", response_model=StartSessionResponse)

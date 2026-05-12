@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from app.core.config import settings
+from app.domain.galgame_calibration import FREE_TEXT_CALIBRATION_CASES, build_calibration_choices
 from app.domain.item_bank import build_seed_item_bank
 from app.domain.models import (
     EmbeddingScoreBreakdown,
@@ -164,10 +165,22 @@ def test_galgame_free_text_classifier_fuses_embedding_without_llm(monkeypatch):
 
     inference = ai_service.classify_galgame_free_text("我先不表态，观察大家真实担心什么。", choices)
 
-    assert inference.source == "embedding"
+    assert inference.source == "hybrid"
     assert inference.embedding_available is True
+    assert inference.pairwise_available is True
     assert inference.inferred_option_key == "neutral"
     assert inference.option_scores[0].option_key == "neutral"
+    assert inference.option_scores[0].pairwise_score is not None
+
+
+def test_galgame_free_text_offline_calibration_cases():
+    choices = build_calibration_choices()
+    results = [
+        ai_service.classify_galgame_free_text_offline(case["text"], choices).inferred_option_key == case["expected_option_key"]
+        for case in FREE_TEXT_CALIBRATION_CASES
+    ]
+
+    assert all(results)
 
 
 def test_vector_store_uses_qdrant_client_methods(monkeypatch):

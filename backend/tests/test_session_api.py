@@ -222,7 +222,8 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatc
     assert response.status_code == 200
     body = response.json()
     assert body["state"]["question_count"] == 1
-    assert body["text_inference"]["source"] in {"rule", "embedding", "llm", "hybrid"}
+    assert body["text_inference"]["source"] in {"rule", "embedding", "pairwise", "llm", "hybrid"}
+    assert "pairwise_available" in body["text_inference"]
     assert isinstance(body["text_inference"]["option_scores"], list)
     if body["text_inference"]["inferred_option_key"] and body["text_inference"]["confidence"] >= 0.42:
         assert body["state"]["answers"][-1]["option_key"] == body["text_inference"]["inferred_option_key"]
@@ -239,6 +240,84 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatc
         headers=headers,
     )
     assert stale_response.status_code == 404
+
+
+def test_invite_user_can_manage_private_galgame_story_templates(monkeypatch):
+    monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
+    redeem_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": "DISTILLED-TI-LOCAL"},
+    )
+    assert redeem_response.status_code == 200
+    user_access = redeem_response.json()
+    user_headers = {
+        "X-User-Id": user_access["user_id"],
+        "X-User-Secret": user_access["user_secret"],
+    }
+
+    create_response = public_client.post(
+        "/api/user/galgame/story-templates",
+        headers=user_headers,
+        json={
+            "name": "公开入口自定义社团夜谈",
+            "description": "玩家自定义的校园夜谈模板。",
+            "location": "只在本人账号出现的天台温室",
+            "speaker": "温室值夜员",
+            "character_key": "private_keeper",
+            "background_key": "private_rooftop_greenhouse",
+            "background_prompt": "rooftop greenhouse at night",
+            "character_prompt": "quiet greenhouse keeper",
+            "style_prompt": "更像轻小说分支，不像问卷。",
+            "scenario_tags": ["relationship", "team_mode", "campus"],
+            "active": True,
+        },
+    )
+    assert create_response.status_code == 200
+    template = create_response.json()
+    assert template["template_id"].startswith(f"user-story-{user_access['user_id'][:8]}-")
+    assert template["owner_user_id"] == user_access["user_id"]
+
+    list_response = public_client.get("/api/user/galgame/story-templates", headers=user_headers)
+    assert list_response.status_code == 200
+    assert any(item["template_id"] == template["template_id"] for item in list_response.json()["items"])
+
+    update_response = public_client.put(
+        f"/api/user/galgame/story-templates/{template['template_id']}",
+        headers=user_headers,
+        json={
+            "name": "公开入口自定义社团夜谈改",
+            "description": "玩家自定义的校园夜谈模板。",
+            "location": "只在本人账号出现的天台温室",
+            "speaker": "温室值夜员",
+            "character_key": "private_keeper",
+            "background_key": "private_rooftop_greenhouse",
+            "background_prompt": "rooftop greenhouse at night",
+            "character_prompt": "quiet greenhouse keeper",
+            "style_prompt": "更像轻小说分支，不像问卷。",
+            "scenario_tags": ["relationship", "team_mode", "campus"],
+            "active": True,
+        },
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["name"].endswith("改")
+
+    start_response = public_client.post("/api/session/start", json={"mode": "core"}, headers=user_headers)
+    assert start_response.status_code == 200
+    session_payload = start_response.json()
+    scene_response = public_client.get(
+        f"/api/session/{session_payload['session_id']}/galgame/scene",
+        headers=session_headers(session_payload["session_secret"]),
+    )
+    assert scene_response.status_code == 200
+    scene = scene_response.json()
+    assert scene["story_template_id"]
+
+    delete_response = public_client.delete(
+        f"/api/user/galgame/story-templates/{template['template_id']}",
+        headers=user_headers,
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
 
 
 def test_workbench_evidence_requires_secret_and_hides_raw_scores(monkeypatch):
