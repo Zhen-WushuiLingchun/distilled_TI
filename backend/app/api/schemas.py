@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.domain.models import (
     ClusterOverview,
     EmbeddingScoreBreakdown,
+    InviteCode,
     ItemInstance,
     ItemTemplate,
     ItemTemplateCreate,
@@ -17,6 +18,9 @@ from app.domain.models import (
     SessionReport,
     SessionState,
     SessionSummary,
+    UserProfile,
+    UserRecommendation,
+    UserRelationship,
     VectorReindexSummary,
     VectorSearchHit,
     VectorSyncFailure,
@@ -27,6 +31,52 @@ from app.domain.models import (
 
 class StartSessionRequest(BaseModel):
     mode: str = "core"
+
+
+class RedeemInviteRequest(BaseModel):
+    invite_code: str
+
+
+class UserProfileResponse(BaseModel):
+    user_id: str
+    handle: str
+    invite_code: str
+    invited_by_user_id: str | None = None
+    relationship_opt_in: bool = False
+    recommendation_opt_in: bool = False
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_profile(cls, profile: UserProfile) -> "UserProfileResponse":
+        return cls(
+            user_id=profile.user_id,
+            handle=profile.handle,
+            invite_code=profile.invite_code,
+            invited_by_user_id=profile.invited_by_user_id,
+            relationship_opt_in=profile.relationship_opt_in,
+            recommendation_opt_in=profile.recommendation_opt_in,
+            created_at=profile.created_at.isoformat(),
+            updated_at=profile.updated_at.isoformat(),
+        )
+
+
+class UserAccessResponse(BaseModel):
+    user_id: str
+    user_secret: str
+    handle: str
+    relationship_opt_in: bool = False
+    recommendation_opt_in: bool = False
+
+
+class UserProfileUpdateRequest(BaseModel):
+    relationship_opt_in: bool | None = None
+    recommendation_opt_in: bool | None = None
+
+
+class UserSessionListResponse(BaseModel):
+    user: UserProfileResponse
+    sessions: list[SessionHistoryEntry]
 
 
 class QuestionResponse(BaseModel):
@@ -217,6 +267,53 @@ class SessionAccessIssueResponse(BaseModel):
     session_id: str
     session_secret: str
     delete_token: str
+
+
+class InviteCreateRequest(BaseModel):
+    created_by_user_id: str | None = None
+    label: str = ""
+    max_uses: int = 1
+
+
+class InviteResponse(BaseModel):
+    code: str
+    created_by_user_id: str | None = None
+    label: str
+    max_uses: int
+    use_count: int
+    active: bool
+    created_at: str
+    expires_at: str | None = None
+
+    @classmethod
+    def from_invite(cls, invite: InviteCode) -> "InviteResponse":
+        return cls(
+            code=invite.code,
+            created_by_user_id=invite.created_by_user_id,
+            label=invite.label,
+            max_uses=invite.max_uses,
+            use_count=invite.use_count,
+            active=invite.active,
+            created_at=invite.created_at.isoformat(),
+            expires_at=invite.expires_at.isoformat() if invite.expires_at else None,
+        )
+
+
+class InviteListResponse(BaseModel):
+    items: list[InviteResponse]
+
+
+class UserListResponse(BaseModel):
+    items: list[UserProfileResponse]
+
+
+class RelationshipListResponse(BaseModel):
+    items: list[UserRelationship]
+
+
+class UserRecommendationResponse(BaseModel):
+    enabled: bool
+    items: list[UserRecommendation]
 
 
 class TemplateListResponse(BaseModel):

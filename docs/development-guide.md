@@ -7,6 +7,7 @@
 - 聚类到底基于哪些特征
 - AI 现在真实介入了哪些环节
 - embedding / reranker / Qdrant 向量层现在如何接入
+- 邀请制匿名用户和长期历史如何工作
 - 题库、模板、实例题之间是什么关系
 - 如何理解“收敛”“不确定性”“报告”
 - 如何进一步做反作弊、识别瞎答题或伪造答题
@@ -14,7 +15,7 @@
 
 ## 1. 总体架构
 
-当前系统可以分成 7 层：
+当前系统可以分成 8 层：
 
 1. `domain`
    - 定义核心维度、子维度、模块维度、题目模板、题目实例、会话状态、报告结构等数据模型
@@ -31,6 +32,9 @@
 7. `vector layer`
    - 由 `embedding_service`、`vector_store`、`vector_indexer`、`reranker_service` 组成
    - 负责题目向量、会话快照向量、相似检索、rerank 精排和 best-effort 同步
+8. `user_service`
+   - 负责邀请码兑换、匿名用户档案、长期会话归属、邀请关系边和隐藏推荐候选
+   - 不保存真实姓名、手机号、邮箱或学校身份
 
 一个典型请求流大致如下：
 
@@ -43,6 +47,16 @@
 7. 再由 `SessionService` 选择下一题
 8. 达到最小题量后，`ScoringEngine.build_report()` + `ClusteringService` 输出结构化报告
 
+如果用户先通过邀请码进入：
+
+1. 用户调用 `POST /api/invite/redeem`
+2. `UserService.redeem_invite()` 创建随机 `user_id`、随机 `handle` 和 `user_secret`
+3. 前端把 `user_id / user_secret / handle` 保存到 localStorage
+4. 后续 `POST /api/session/start` 会带上 `X-User-Id` 和 `X-User-Secret`
+5. `SessionRecord.user_id` 被写入 SQLite，session TTL 从短期 TTL 切换为 `REGISTERED_SESSION_TTL_DAYS`
+6. `/api/user/sessions` 可以列出该匿名用户的长期历史
+7. `/api/user/session/{session_id}/access` 可以为用户自己的历史会话重新签发 session secret
+
 所有向量写入都是辅助层：
 
 - 主流程成功后才尝试写向量
@@ -50,6 +64,23 @@
 - 不阻塞新建模板、生成实例题、提交回答、改写预览
 
 ## 2. 核心数据结构
+
+### 2.0 `UserProfile`、`InviteCode` 与 `UserRelationship`
+
+邀请制用户层定义在 `backend/app/domain/models.py`，业务逻辑在 `backend/app/services/user_service.py`。
+
+关键约束：
+
+- `UserProfile.user_id` 是随机 ID。
+- `UserProfile.handle` 是随机用户名，供 Public/Admin 展示。
+- `user_secret_hash` 只保存哈希，不返回给前端。
+- `InviteCode` 控制入口，支持 `max_uses / use_count / active / expires_at`。
+- `UserRelationship` 当前只记录 `invited` 类型的邀请边。
+- `SessionRecord.user_id` 用于把会话归属到匿名用户。
+
+Public 侧只允许用户访问自己的档案和自己的 session。Admin 侧可以查看匿名用户、邀请、关系边和隐藏推荐候选。
+
+隐藏推荐由 `RELATIONSHIP_RECOMMENDATIONS_ENABLED` 控制，默认关闭。即使开启，也要求用户设置 `recommendation_opt_in=true`，并且只在 Admin 实验视图展示候选，不进入公开页面。
 
 ### 2.1 `SessionState`
 

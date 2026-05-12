@@ -268,3 +268,58 @@
   - report readiness panel
   - milestone checkpoint display
 - Do this before `cluster_vectors`, because the backend already has enough vector evidence and session state to make the frontend more explanatory.
+
+## 2026-05-12: Invite-Backed Anonymous Users, Long-Term Archives, Hidden Recommendations Foundation
+
+### Completed
+
+- Added invite-backed anonymous user profiles.
+- Added local bootstrap invite support through `INVITE_BOOTSTRAP_CODE`.
+- Added `user_profiles`, `invite_codes`, and `user_relationships` SQLite tables.
+- Added `sessions.user_id` and long retention for registered anonymous users through `REGISTERED_SESSION_TTL_DAYS`.
+- Added public user APIs:
+  - `POST /api/invite/redeem`
+  - `GET /api/user/me`
+  - `PATCH /api/user/me`
+  - `GET /api/user/sessions`
+  - `POST /api/user/session/{session_id}/access`
+- Added admin user/invite APIs:
+  - `POST /api/admin/invites`
+  - `GET /api/admin/invites`
+  - `GET /api/admin/users`
+  - `GET /api/admin/users/relationships`
+  - `GET /api/admin/users/{user_id}/recommendations`
+- Added hidden recommendation candidate service:
+  - disabled by default through `RELATIONSHIP_RECOMMENDATIONS_ENABLED=false`
+  - requires user recommendation opt-in
+  - excludes directly connected invite relationships
+  - uses report-ready sessions and core profile similarity
+- Added frontend invite entry on the landing page.
+- Added persistent anonymous user credentials in localStorage.
+- Added `/profile` for anonymous handle, privacy opt-ins, long-term session archive, resume, and report entry.
+- Updated History to use user-owned long-term sessions when a user credential exists.
+- Added Admin UI panels for invites, users, relationship edges, and hidden recommendation probing.
+- Added `files.zip` to `.gitignore` so Claude handoff archives are not accidentally committed.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false pytest` passed with `49 passed`.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+
+### Not Completed Yet
+
+- No real login, email, phone, OAuth, or campus SSO.
+- No public friend/recommendation UI.
+- No graph visualization yet.
+- No share/export implementation yet.
+- No long-term evolution timeline across multiple reports yet.
+- No production moderation/abuse controls for invite creation.
+- No privacy policy or consent copy beyond concise in-product warnings.
+
+### Next Step
+
+- Build export/share and report archive polish.
+- Add Admin graph visualization for invite tree and opt-in/recommendation readiness.
+- Add user-facing evolution timeline comparing latest report with previous report.
+- Keep recommendation UI hidden until privacy and product constraints are reviewed.

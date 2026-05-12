@@ -132,10 +132,11 @@ class SessionService:
         mode: str = "core",
         runtime_ai_config: AIProviderConfig | None = None,
         owner_key: str | None = None,
+        user_id: str | None = None,
     ) -> tuple[SessionRecord, ItemInstance, SessionAccessGrant]:
         self.cleanup_expired()
         session_id = str(uuid4())
-        record = SessionRecord(session_id=session_id, mode=mode, state=self._new_state())
+        record = SessionRecord(session_id=session_id, mode=mode, state=self._new_state(), user_id=user_id)
         next_item = self._generate_next_instance(record, runtime_ai_config)
         record.current_item_id = next_item.id
         record.current_template_id = next_item.template_id
@@ -170,8 +171,8 @@ class SessionService:
     def list_item_instances(self, session_id: str | None = None) -> list[ItemInstance]:
         return local_session_store.list_item_instances(session_id)
 
-    def list_sessions(self) -> list[SessionHistoryEntry]:
-        histories = local_session_store.list_sessions()
+    def list_sessions(self, user_id: str | None = None) -> list[SessionHistoryEntry]:
+        histories = local_session_store.list_sessions(user_id=user_id)
         for entry in histories:
             try:
                 record = self.get_session(entry.session_id)

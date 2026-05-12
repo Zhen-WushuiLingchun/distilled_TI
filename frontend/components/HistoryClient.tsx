@@ -6,20 +6,25 @@ import { useRouter } from "next/navigation";
 import {
   cleanupExpiredSessions,
   issueAdminSessionAccess,
+  issueUserSessionAccess,
   listAdminSessions,
+  listUserSessions,
   type SessionHistoryEntry,
 } from "@/lib/api";
-import { saveActiveSessionAccess } from "@/lib/runtime-store";
+import { getUserAccess, saveActiveSessionAccess, type UserAccessBundle } from "@/lib/runtime-store";
 
 export function HistoryClient() {
   const router = useRouter();
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
   const [error, setError] = useState("");
   const [busySessionId, setBusySessionId] = useState("");
+  const [userAccess, setUserAccess] = useState<UserAccessBundle | null>(null);
 
   async function load() {
     try {
-      const payload = await listAdminSessions();
+      const storedUser = getUserAccess();
+      setUserAccess(storedUser);
+      const payload = storedUser ? await listUserSessions(storedUser) : await listAdminSessions();
       setSessions(payload.sessions);
       setError("");
     } catch (reason) {
@@ -39,7 +44,10 @@ export function HistoryClient() {
   async function handleResume(sessionId: string, destination: "/session" | "/report") {
     try {
       setBusySessionId(sessionId);
-      const access = await issueAdminSessionAccess(sessionId);
+      const storedUser = getUserAccess();
+      const access = storedUser
+        ? await issueUserSessionAccess(storedUser, sessionId)
+        : await issueAdminSessionAccess(sessionId);
       saveActiveSessionAccess(access);
       router.push(destination);
     } catch (reason) {
@@ -56,9 +64,11 @@ export function HistoryClient() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="label-mini">History</p>
-              <h1 className="mt-2 text-3xl md:text-4xl">本地会话与短期历史</h1>
+              <h1 className="mt-2 text-3xl md:text-4xl">历史记录与结果档案</h1>
               <p className="mt-3 max-w-2xl text-[0.95rem] leading-7 text-[color:var(--ink-muted)] measure">
-                这里展示仍在 1 小时生命周期内的本地会话。继续或查看报告前，页面会通过 localhost 管理端重新签发一次访问凭证。
+                {userAccess
+                  ? `当前匿名档案 ${userAccess.handle} 的长期会话记录。继续或查看报告前，系统会重新签发一次会话访问凭证。`
+                  : "未输入邀请码时，这里退回到本地短期会话视图；输入邀请码后会显示长期档案历史。"}
               </p>
             </div>
             <div className="flex flex-wrap gap-2.5">
@@ -81,7 +91,7 @@ export function HistoryClient() {
         <div className="grid gap-3">
           {sessions.length === 0 ? (
             <div className="panel-quiet fade-rise p-6 text-center text-[color:var(--ink-muted)]">
-              当前没有可展示的本地会话。
+              当前没有可展示的会话。
             </div>
           ) : (
             sessions.map((session, index) => (
@@ -92,6 +102,7 @@ export function HistoryClient() {
               >
                 <div className="min-w-0">
                   <span className="chip">{session.status}</span>
+                  {session.user_handle ? <span className="chip ml-2">{session.user_handle}</span> : null}
                   <h2 className="mt-2.5 truncate text-xl text-[color:var(--ink-strong)]">
                     {session.narrative_label ?? "会话进行中"}
                   </h2>

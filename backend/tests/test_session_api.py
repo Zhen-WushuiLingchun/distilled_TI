@@ -148,6 +148,45 @@ def test_session_secret_is_bound_to_owner_fingerprint():
     assert response.json()["detail"] == "session_owner_mismatch"
 
 
+def test_invite_user_can_keep_long_lived_session_history():
+    redeem_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": "DISTILLED-TI-LOCAL"},
+    )
+    assert redeem_response.status_code == 200
+    user_access = redeem_response.json()
+    assert user_access["user_id"]
+    assert user_access["user_secret"]
+    assert user_access["handle"]
+
+    user_headers = {
+        "X-User-Id": user_access["user_id"],
+        "X-User-Secret": user_access["user_secret"],
+    }
+    profile_response = public_client.get("/api/user/me", headers=user_headers)
+    assert profile_response.status_code == 200
+    assert profile_response.json()["handle"] == user_access["handle"]
+    assert "user_secret_hash" not in profile_response.json()
+
+    start_response = public_client.post("/api/session/start", json={"mode": "core"}, headers=user_headers)
+    assert start_response.status_code == 200
+    session_payload = start_response.json()
+
+    sessions_response = public_client.get("/api/user/sessions", headers=user_headers)
+    assert sessions_response.status_code == 200
+    sessions_payload = sessions_response.json()
+    assert sessions_payload["user"]["handle"] == user_access["handle"]
+    assert any(item["session_id"] == session_payload["session_id"] for item in sessions_payload["sessions"])
+
+    access_response = public_client.post(
+        f"/api/user/session/{session_payload['session_id']}/access",
+        json={},
+        headers=user_headers,
+    )
+    assert access_response.status_code == 200
+    assert access_response.json()["session_secret"]
+
+
 def test_workbench_evidence_requires_secret_and_hides_raw_scores(monkeypatch):
     start_response = public_client.post("/api/session/start", json={"mode": "core"})
     payload = start_response.json()

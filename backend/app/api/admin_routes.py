@@ -10,24 +10,33 @@ from app.api.schemas import (
     AIProviderConfigResponse,
     ClusterOverviewResponse,
     ClusterLabelOverrideRequest,
+    InviteCreateRequest,
+    InviteListResponse,
+    InviteResponse,
     ItemInstanceListResponse,
     ItemTemplateCreateRequest,
     ItemTemplateCreateResponse,
     QuestionResponse,
+    RelationshipListResponse,
     RewriteQuestionRequest,
     RewriteQuestionResponse,
     SessionAccessIssueResponse,
     SessionHistoryListResponse,
     TemplateListResponse,
+    UserListResponse,
+    UserProfileResponse,
+    UserRecommendationResponse,
     VectorReindexRequest,
     VectorReindexResponse,
     VectorSearchResponse,
     VectorSyncFailureResponse,
 )
 from app.api.security import build_owner_key, require_local_admin
+from app.core.config import settings
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.session_service import session_service
 from app.services.storage import local_session_store
+from app.services.user_service import user_service
 from app.services.vector_indexer import vector_indexer
 
 router = APIRouter()
@@ -83,6 +92,48 @@ def get_ai_provider_config(request: Request) -> AIConfigStatusResponse:
     if config is None:
         return AIConfigStatusResponse(configured=False)
     return AIConfigStatusResponse(**config)
+
+
+@router.post("/admin/invites", response_model=InviteResponse)
+def create_invite(payload: InviteCreateRequest, request: Request) -> InviteResponse:
+    require_local_admin(request)
+    if payload.created_by_user_id and local_session_store.load_user_profile(payload.created_by_user_id) is None:
+        raise HTTPException(status_code=404, detail="created_by_user_not_found")
+    invite = user_service.create_invite(
+        created_by_user_id=payload.created_by_user_id,
+        label=payload.label,
+        max_uses=payload.max_uses,
+    )
+    return InviteResponse.from_invite(invite)
+
+
+@router.get("/admin/invites", response_model=InviteListResponse)
+def list_invites(request: Request, limit: int = 100) -> InviteListResponse:
+    require_local_admin(request)
+    return InviteListResponse(items=[InviteResponse.from_invite(invite) for invite in user_service.list_invites(limit)])
+
+
+@router.get("/admin/users", response_model=UserListResponse)
+def list_users(request: Request, limit: int = 100) -> UserListResponse:
+    require_local_admin(request)
+    return UserListResponse(items=[UserProfileResponse.from_profile(profile) for profile in user_service.list_users(limit)])
+
+
+@router.get("/admin/users/relationships", response_model=RelationshipListResponse)
+def list_user_relationships(request: Request, user_id: str | None = None, limit: int = 200) -> RelationshipListResponse:
+    require_local_admin(request)
+    return RelationshipListResponse(items=user_service.list_relationships(user_id=user_id, limit=limit))
+
+
+@router.get("/admin/users/{user_id}/recommendations", response_model=UserRecommendationResponse)
+def user_recommendations(request: Request, user_id: str, limit: int = 5) -> UserRecommendationResponse:
+    require_local_admin(request)
+    if local_session_store.load_user_profile(user_id) is None:
+        raise HTTPException(status_code=404, detail="user_not_found")
+    return UserRecommendationResponse(
+        enabled=settings.relationship_recommendations_enabled,
+        items=user_service.recommend_candidates(user_id, limit),
+    )
 
 
 @router.post("/ai/rewrite-question", response_model=RewriteQuestionResponse)

@@ -26,6 +26,7 @@ import {
   clearFinalReportSnapshot,
   getActiveSessionAccess,
   getReportViewPreferences,
+  getUserAccess,
   saveActiveSessionAccess,
   saveFinalReportSnapshot,
   type SessionAccessBundle,
@@ -218,7 +219,7 @@ export function SessionClient() {
           setError("");
         } else {
           clearFinalReportSnapshot();
-          const started = await startSession();
+          const started = await startSession(getUserAccess());
           if (cancelled) return;
           const nextAccess: SessionAccessBundle = {
             session_id: started.session_id,

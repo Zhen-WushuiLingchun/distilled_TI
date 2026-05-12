@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     vector_search_score_threshold: float = 0.58
     session_vector_milestones: str = "5,10,20,40"
     session_vector_top_k: int = 5
+    invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
+    invite_default_max_uses: int = 1000
+    registered_session_ttl_days: int = 3650
+    relationship_recommendations_enabled: bool = False
 
 
 settings = Settings()

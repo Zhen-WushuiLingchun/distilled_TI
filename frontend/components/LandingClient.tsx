@@ -1,14 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
+import { getCurrentUser, redeemInvite } from "@/lib/api";
 import {
+  clearUserAccess,
+  getUserAccess,
   getReportViewPreferences,
   saveReportViewPreferences,
+  saveUserAccess,
   type NamingStyle,
   type ProjectionMode,
+  type UserAccessBundle,
 } from "@/lib/runtime-store";
 
 export function LandingClient() {
@@ -16,6 +21,50 @@ export function LandingClient() {
   const [projectionMode, setProjectionMode] = useState<ProjectionMode>(() => getReportViewPreferences().projectionMode);
   const [namingStyle, setNamingStyle] = useState<NamingStyle>(() => getReportViewPreferences().namingStyle);
   const [showBrandModal, setShowBrandModal] = useState(false);
+  const [userAccess, setUserAccess] = useState<UserAccessBundle | null>(null);
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+
+  useEffect(() => {
+    const stored = getUserAccess();
+    if (!stored) return;
+    setUserAccess(stored);
+    getCurrentUser(stored)
+      .then((profile) => {
+        const refreshed = {
+          ...stored,
+          handle: profile.handle,
+          relationship_opt_in: profile.relationship_opt_in,
+          recommendation_opt_in: profile.recommendation_opt_in,
+        };
+        saveUserAccess(refreshed);
+        setUserAccess(refreshed);
+      })
+      .catch(() => {
+        clearUserAccess();
+        setUserAccess(null);
+      });
+  }, []);
+
+  async function handleRedeemInvite() {
+    if (!inviteCode.trim()) {
+      setInviteError("请输入邀请码。");
+      return;
+    }
+    try {
+      setInviteBusy(true);
+      setInviteError("");
+      const access = await redeemInvite(inviteCode.trim());
+      saveUserAccess(access);
+      setUserAccess(access);
+      setInviteCode("");
+    } catch (reason) {
+      setInviteError(reason instanceof Error ? reason.message : "邀请码验证失败。");
+    } finally {
+      setInviteBusy(false);
+    }
+  }
 
   return (
     <main className="cockpit-shell">
@@ -58,9 +107,9 @@ export function LandingClient() {
 
           <div className="mt-9 grid gap-3 md:grid-cols-3">
             {[
-              ["连续作答", "支持随时中断与续答，20 题后即可先看结构化报告。"],
-              ["会话隔离", "每次测试都会下发独立访问令牌，删除后立即失效，1 小时后自动过期。"],
-              ["本地管理", "AI 配置与题库管理已移到独立 localhost 管理端，不再暴露在普通入口。"],
+              ["长期画像", "通过邀请码创建匿名 ID 后，历史报告会长期归属到同一用户档案。"],
+              ["隐私关系网", "后台只看随机 handle 和邀请关系，不要求真实姓名、手机号或校园身份。"],
+              ["隐藏推荐", "关系/相似画像推荐默认关闭，先作为管理员实验视图，不进入公开页面。"],
             ].map(([title, description]) => (
               <div key={title} className="surface-sunken p-4">
                 <p className="label-mini">{title}</p>
@@ -112,12 +161,53 @@ export function LandingClient() {
           </div>
 
           <div className="mt-6 space-y-2.5">
+            <div className="surface-sunken p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="label-mini">Invite Identity</p>
+                  <h3 className="mt-1.5 text-lg text-[color:var(--ink-strong)]">
+                    {userAccess ? `已进入：${userAccess.handle}` : "输入邀请码，启用长期历史"}
+                  </h3>
+                </div>
+                {userAccess ? <span className="chip chip-accent">匿名档案</span> : <span className="chip">可短期体验</span>}
+              </div>
+              {userAccess ? (
+                <p className="mt-3 text-[0.85rem] leading-6 text-[color:var(--ink-muted)]">
+                  后续会话会绑定到这个随机 handle。你可以在历史页继续会话、查看报告档案，也可以清除本机凭证重新输入邀请码。
+                </p>
+              ) : (
+                <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <input
+                    className="field"
+                    value={inviteCode}
+                    onChange={(event) => setInviteCode(event.target.value)}
+                    placeholder="邀请码，例如 DISTILLED-TI-LOCAL"
+                  />
+                  <button className="btn btn-primary" type="button" disabled={inviteBusy} onClick={() => void handleRedeemInvite()}>
+                    {inviteBusy ? "验证中…" : "进入"}
+                  </button>
+                </div>
+              )}
+              {inviteError ? <p className="mt-2 text-xs text-[color:var(--danger-ink)]">{inviteError}</p> : null}
+              {userAccess ? (
+                <button
+                  className="mt-3 text-xs text-[color:var(--ink-faint)] underline underline-offset-4"
+                  type="button"
+                  onClick={() => {
+                    clearUserAccess();
+                    setUserAccess(null);
+                  }}
+                >
+                  清除本机匿名凭证
+                </button>
+              ) : null}
+            </div>
             <p className="surface-sunken p-3.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">
               AI 增强现在由本地管理端统一配置。普通入口不再提交或持久化 API Key，报告会自动使用当前管理员已启用的模型，
               如果没有启用就回退到后端本地摘要。
             </p>
             <p className="rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/55 p-3.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">
-              当前版本会为每次测试分配独立的会话密钥与删除令牌。刷新页面仍可续答；主动删除后立即失效，超过 1 小时也会自动清理。
+              已登录匿名档案时，会话会长期保留；未输入邀请码时仍按短期匿名会话处理，适合临时体验。
             </p>
             <p className="rounded-[var(--r-md)] border border-[color:var(--warn-soft)] bg-[color:var(--warn-soft)]/55 p-3.5 text-[0.85rem] leading-6 text-[color:var(--warn-ink)]">
               提示：此项目仍属于娱乐与结构化自测，不构成专业诊断、人格定论或现实决策建议。
@@ -140,8 +230,17 @@ export function LandingClient() {
               className="btn btn-ghost"
               onClick={() => router.push("/history")}
             >
-              查看本地历史
+              查看历史与档案
             </button>
+            {userAccess ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => router.push("/profile")}
+              >
+                用户配置
+              </button>
+            ) : null}
           </div>
         </section>
       </div>

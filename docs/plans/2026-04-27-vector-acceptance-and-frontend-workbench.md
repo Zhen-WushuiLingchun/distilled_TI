@@ -1,7 +1,7 @@
 # Plan: Vector Acceptance And Frontend Workbench
 
 - Date: 2026-04-27
-- Status: Phase 1/2 live acceptance complete; Session Workbench slices 1-4 implemented
+- Status: Phase 1/2 live acceptance complete; Session Workbench slices 1-5 implemented; invite-backed archive foundation added
 - Scope: close Phase 1/2 vector acceptance first, then upgrade the user-facing session frontend from a question loop into a workbench.
 
 ## Current Status
@@ -78,6 +78,8 @@ Fix discovered during live acceptance:
 - Done: Public retrieval evidence hides raw vector and rerank scores, and only exposes confidence tiers.
 - Done: Browser acceptance passed for `/session` retrieval evidence drawer.
 - Done: Browser acceptance passed for report preview after 20 real UI answer submissions.
+- Done: Slice 5 visual redesign shipped as the Editorial Cockpit frontend.
+- Done: Follow-up foundation added for invite-backed anonymous users, long-term report archives, and hidden relationship recommendations.
 - Pending manual UI check: rewrite preview retrieval context in Admin UI.
 - Pending manual quality check: selected rewrite candidates should not show obvious near-duplicates or measurement-direction drift.
 
@@ -104,7 +106,8 @@ Fix discovered during live acceptance:
 - Done: Slice 2 adds backend `workbench_checkpoint` payloads and checkpoint cards at session vector milestones.
 - Done: Slice 3 adds "similar sessions" and "similar evidence" as an optional insight drawer, loaded on demand and without raw vector scores.
 - Done: Slice 4 adds report preview and user-facing narrative summary after the minimum report threshold.
-- Slice 5: revisit visual design so the product feels like an adaptive assessment cockpit, not a form wizard.
+- Done: Slice 5 revisits visual design so the product feels like an adaptive assessment cockpit, not a form wizard.
+- Done: Follow-up user archive foundation adds invite entry, anonymous profile, long-term history, `/profile`, and hidden Admin recommendation probes.
 
 ## Not In This Step
 
@@ -116,8 +119,9 @@ Fix discovered during live acceptance:
 
 ## Immediate Next Step
 
-- Run a broader manual browser pass on `/session`, `/report`, `/history`, and `/admin`.
-- Build Session Workbench slice 5 polish after the broader browser pass.
+- Build report share/export and long-term archive polish.
+- Add Admin relationship graph visualization.
+- Add user-facing evolution timeline across multiple report-ready sessions.
 - Keep the public answer flow compatible with existing session APIs.
 - Tighten visual hierarchy and mobile behavior now that the core workbench functions are present.
 - Keep vector evidence user-facing only as explanation support, not as a final judgment.

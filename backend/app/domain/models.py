@@ -98,6 +98,7 @@ class SessionRecord(BaseModel):
     mode: str = "core"
     status: Literal["active", "discarded"] = "active"
     state: SessionState
+    user_id: str | None = None
     session_secret_hash: str = ""
     delete_token_hash: str = ""
     owner_key: str | None = None
@@ -263,6 +264,55 @@ class SessionAccessGrant(BaseModel):
     delete_token: str
 
 
+class UserProfile(BaseModel):
+    user_id: str
+    handle: str
+    invite_code: str
+    invited_by_user_id: str | None = None
+    user_secret_hash: str = ""
+    relationship_opt_in: bool = False
+    recommendation_opt_in: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class UserAccessGrant(BaseModel):
+    user_id: str
+    user_secret: str
+    handle: str
+    relationship_opt_in: bool = False
+    recommendation_opt_in: bool = False
+
+
+class InviteCode(BaseModel):
+    code: str
+    created_by_user_id: str | None = None
+    label: str = ""
+    max_uses: int = 1
+    use_count: int = 0
+    active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime | None = None
+
+
+class UserRelationship(BaseModel):
+    relationship_id: str
+    source_user_id: str
+    target_user_id: str
+    relationship_type: Literal["invited"] = "invited"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class UserRecommendation(BaseModel):
+    subject_user_id: str
+    candidate_user_id: str
+    candidate_handle: str
+    score: float
+    reason: str
+    shared_cluster_name: str | None = None
+    via_relationship: str | None = None
+
+
 class EmbeddingScoreBreakdown(BaseModel):
     enabled: bool = False
     source_similarity: float = 0.0
@@ -344,6 +394,8 @@ class VectorReindexSummary(BaseModel):
 
 class SessionHistoryEntry(BaseModel):
     session_id: str
+    user_id: str | None = None
+    user_handle: str | None = None
     status: str
     question_count: int
     can_generate_report: bool

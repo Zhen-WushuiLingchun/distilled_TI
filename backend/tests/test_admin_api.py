@@ -167,6 +167,38 @@ def test_admin_template_and_history_endpoints():
     assert delete_response.json()["deleted"] is True
 
 
+def test_admin_invites_users_and_hidden_recommendations():
+    invite_response = admin_client.post(
+        "/api/admin/invites",
+        json={"label": "test batch", "max_uses": 2},
+    )
+    assert invite_response.status_code == 200
+    invite = invite_response.json()
+    assert invite["code"]
+    assert invite["max_uses"] == 2
+
+    redeem_response = public_client.post("/api/invite/redeem", json={"invite_code": invite["code"]})
+    assert redeem_response.status_code == 200
+    user = redeem_response.json()
+
+    users_response = admin_client.get("/api/admin/users")
+    assert users_response.status_code == 200
+    assert any(item["user_id"] == user["user_id"] for item in users_response.json()["items"])
+
+    invites_response = admin_client.get("/api/admin/invites")
+    assert invites_response.status_code == 200
+    assert any(item["code"] == invite["code"] for item in invites_response.json()["items"])
+
+    relationships_response = admin_client.get("/api/admin/users/relationships")
+    assert relationships_response.status_code == 200
+    assert isinstance(relationships_response.json()["items"], list)
+
+    recommendations_response = admin_client.get(f"/api/admin/users/{user['user_id']}/recommendations")
+    assert recommendations_response.status_code == 200
+    assert recommendations_response.json()["enabled"] is False
+    assert recommendations_response.json()["items"] == []
+
+
 def test_admin_vector_endpoints():
     template = build_seed_item_bank()[0]
     original_reindex = vector_indexer.reindex

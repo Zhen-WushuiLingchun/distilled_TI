@@ -5,13 +5,18 @@ import { useEffect, useMemo, useState } from "react";
 import {
   archiveTemplate,
   configureAI,
+  createInvite,
   createTemplate,
   deleteTemplate,
   getAIConfigStatus,
   getClusterOverview,
+  getUserRecommendations,
+  listInvites,
   listAdminSessions,
   listItemInstances,
   listTemplates,
+  listUserRelationships,
+  listUsers,
   listVectorSyncFailures,
   previewRewrite,
   reindexVectors,
@@ -19,10 +24,13 @@ import {
   searchSimilarSessions,
   searchSimilarTemplates,
   type ClusterOverview,
+  type InviteCode,
   type Question,
   type RewritePreviewBundle,
   type RuntimeAIConfig,
   type SessionHistoryEntry,
+  type UserProfile,
+  type UserRecommendation,
   type VectorReindexResponse,
   type VectorSearchHit,
   type VectorSyncFailure,
@@ -39,6 +47,11 @@ const defaultOptions = [
 
 export function AdminClient() {
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [invites, setInvites] = useState<InviteCode[]>([]);
+  const [relationships, setRelationships] = useState<Array<{ relationship_id: string; source_user_id: string; target_user_id: string; relationship_type: string; created_at: string }>>([]);
+  const [recommendations, setRecommendations] = useState<UserRecommendation[]>([]);
+  const [recommendationsEnabled, setRecommendationsEnabled] = useState(false);
   const [templates, setTemplates] = useState<Question[]>([]);
   const [instances, setInstances] = useState<Question[]>([]);
   const [clusterOverview, setClusterOverview] = useState<ClusterOverview | null>(null);
@@ -54,6 +67,8 @@ export function AdminClient() {
   const [similarTemplateId, setSimilarTemplateId] = useState("");
   const [similarSessionId, setSimilarSessionId] = useState("");
   const [similarPrompt, setSimilarPrompt] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [inviteForm, setInviteForm] = useState({ created_by_user_id: "", label: "Campus batch", max_uses: "10" });
   const [vectorScope, setVectorScope] = useState<"templates" | "instances" | "sessions" | "all">("all");
 
   const [aiConfig, setAiConfig] = useState<RuntimeAIConfig>({
@@ -80,18 +95,63 @@ export function AdminClient() {
     () => sessions.find((item) => item.session_id === selectedSessionId),
     [sessions, selectedSessionId]
   );
+  const selectedUser = useMemo(
+    () => users.find((item) => item.user_id === selectedUserId),
+    [users, selectedUserId]
+  );
 
-  async function load() {
-    const [sessionPayload, templatePayload, instancePayload, clusterPayload, aiStatusPayload, failurePayload] =
+  async function fetchAdminState() {
+    const [
+      sessionPayload,
+      userPayload,
+      invitePayload,
+      relationshipPayload,
+      templatePayload,
+      instancePayload,
+      clusterPayload,
+      aiStatusPayload,
+      failurePayload,
+    ] =
       await Promise.all([
         listAdminSessions(),
+        listUsers(),
+        listInvites(),
+        listUserRelationships(),
         listTemplates(),
         listItemInstances(),
         getClusterOverview(),
         getAIConfigStatus(),
         listVectorSyncFailures(),
       ]);
+    return {
+      sessionPayload,
+      userPayload,
+      invitePayload,
+      relationshipPayload,
+      templatePayload,
+      instancePayload,
+      clusterPayload,
+      aiStatusPayload,
+      failurePayload,
+    };
+  }
+
+  function applyAdminState(payload: Awaited<ReturnType<typeof fetchAdminState>>) {
+    const {
+      sessionPayload,
+      userPayload,
+      invitePayload,
+      relationshipPayload,
+      templatePayload,
+      instancePayload,
+      clusterPayload,
+      aiStatusPayload,
+      failurePayload,
+    } = payload;
     setSessions(sessionPayload.sessions);
+    setUsers(userPayload.items);
+    setInvites(invitePayload.items);
+    setRelationships(relationshipPayload.items);
     setTemplates(templatePayload.items);
     setInstances(instancePayload.items);
     setClusterOverview(clusterPayload);
@@ -99,22 +159,34 @@ export function AdminClient() {
     setVectorFailures(failurePayload.items);
     setSelectedSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
     setSimilarSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
+    setSelectedUserId((current) => current || userPayload.items[0]?.user_id || "");
     setSelectedTemplateId((current) => current || templatePayload.items[0]?.id || "");
     setSimilarTemplateId((current) => current || templatePayload.items[0]?.id || "");
   }
 
+  async function load() {
+    applyAdminState(await fetchAdminState());
+  }
+
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([
-      listAdminSessions(),
-      listTemplates(),
-      listItemInstances(),
-      getClusterOverview(),
-      getAIConfigStatus(),
-      listVectorSyncFailures(),
-    ]).then(([sessionPayload, templatePayload, instancePayload, clusterPayload, aiStatusPayload, failurePayload]) => {
+    void fetchAdminState().then((payload) => {
       if (cancelled) return;
+      const {
+        sessionPayload,
+        userPayload,
+        invitePayload,
+        relationshipPayload,
+        templatePayload,
+        instancePayload,
+        clusterPayload,
+        aiStatusPayload,
+        failurePayload,
+      } = payload;
       setSessions(sessionPayload.sessions);
+      setUsers(userPayload.items);
+      setInvites(invitePayload.items);
+      setRelationships(relationshipPayload.items);
       setTemplates(templatePayload.items);
       setInstances(instancePayload.items);
       setClusterOverview(clusterPayload);
@@ -122,6 +194,7 @@ export function AdminClient() {
       setVectorFailures(failurePayload.items);
       setSelectedSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
       setSimilarSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
+      setSelectedUserId((current) => current || userPayload.items[0]?.user_id || "");
       setSelectedTemplateId((current) => current || templatePayload.items[0]?.id || "");
       setSimilarTemplateId((current) => current || templatePayload.items[0]?.id || "");
     });
@@ -135,6 +208,24 @@ export function AdminClient() {
     setFeedback(response.message);
     setAiConfig((current) => ({ ...current, api_key: "" }));
     await load();
+  }
+
+  async function handleCreateInvite() {
+    const invite = await createInvite({
+      created_by_user_id: inviteForm.created_by_user_id || null,
+      label: inviteForm.label,
+      max_uses: Number(inviteForm.max_uses),
+    });
+    setFeedback(`Created invite ${invite.code}`);
+    await load();
+  }
+
+  async function handleRecommendations() {
+    if (!selectedUserId) return;
+    const response = await getUserRecommendations(selectedUserId, 6);
+    setRecommendationsEnabled(response.enabled);
+    setRecommendations(response.items);
+    setFeedback(response.enabled ? `Loaded ${response.items.length} hidden recommendations` : "Recommendation feature flag is disabled");
   }
 
   async function handleVectorReindex() {
@@ -294,6 +385,100 @@ export function AdminClient() {
               <button className="btn btn-primary" onClick={() => void handleConfigureAI()}>
                 Save and test AI config
               </button>
+            </div>
+
+            {/* Users and invites */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="label-mini">Users / Invites</p>
+                  <h2 className="mt-1.5 text-xl">Anonymous relationship graph</h2>
+                </div>
+                <span className="chip">{users.length} users</span>
+              </div>
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Create Invite</p>
+                <div className="mt-2.5 grid gap-2">
+                  <select
+                    className="field"
+                    value={inviteForm.created_by_user_id}
+                    onChange={(event) => setInviteForm((current) => ({ ...current, created_by_user_id: event.target.value }))}
+                  >
+                    <option value="">root invite</option>
+                    {users.map((user) => (
+                      <option key={user.user_id} value={user.user_id}>
+                        {user.handle}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="field"
+                    value={inviteForm.label}
+                    onChange={(event) => setInviteForm((current) => ({ ...current, label: event.target.value }))}
+                    placeholder="label"
+                  />
+                  <input
+                    className="field"
+                    value={inviteForm.max_uses}
+                    onChange={(event) => setInviteForm((current) => ({ ...current, max_uses: event.target.value }))}
+                    placeholder="max uses"
+                  />
+                  <button className="btn btn-primary" onClick={() => void handleCreateInvite()}>
+                    Create invite
+                  </button>
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {invites.slice(0, 6).map((invite) => (
+                    <p key={invite.code} className="num text-[0.76rem] text-[color:var(--ink-muted)]">
+                      {invite.code} / {invite.use_count}/{invite.max_uses} / {invite.label}
+                    </p>
+                  ))}
+                </div>
+              </div>
+
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Hidden Recommendations</p>
+                <select className="field mt-2.5" value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
+                  <option value="">select user</option>
+                  {users.map((user) => (
+                    <option key={user.user_id} value={user.user_id}>
+                      {user.handle}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn btn-ghost mt-2.5" onClick={() => void handleRecommendations()}>
+                  Load hidden candidates
+                </button>
+                <p className="mt-2 text-[0.78rem] text-[color:var(--ink-faint)]">
+                  Feature flag: {recommendationsEnabled ? "enabled" : "disabled"} · Selected: {selectedUser?.handle ?? "none"}
+                </p>
+                {recommendations.length ? (
+                  <div className="mt-2 space-y-1.5">
+                    {recommendations.map((item) => (
+                      <p key={item.candidate_user_id} className="num text-[0.76rem] text-[color:var(--ink-body)]">
+                        {item.candidate_handle} / {item.score.toFixed(3)} / {item.shared_cluster_name ?? "cross-cluster"}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[0.78rem] text-[color:var(--ink-faint)]">
+                    No candidates shown. Public UI remains disabled.
+                  </p>
+                )}
+              </div>
+
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Relationship Edges</p>
+                {relationships.length ? (
+                  relationships.slice(0, 8).map((edge) => (
+                    <p key={edge.relationship_id} className="num mt-1.5 text-[0.72rem] text-[color:var(--ink-muted)]">
+                      {edge.relationship_type}: {edge.source_user_id.slice(0, 12)} → {edge.target_user_id.slice(0, 12)}
+                    </p>
+                  ))
+                ) : (
+                  <p className="mt-1.5 text-[0.82rem] text-[color:var(--ink-faint)]">No relationship edges yet</p>
+                )}
+              </div>
             </div>
 
             {/* Vectors */}

@@ -1,4 +1,4 @@
-import type { NamingStyle, ProjectionMode, SessionAccessBundle } from "@/lib/runtime-store";
+import type { NamingStyle, ProjectionMode, SessionAccessBundle, UserAccessBundle } from "@/lib/runtime-store";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api";
 const ADMIN_API_BASE_URL = process.env.NEXT_PUBLIC_ADMIN_API_BASE_URL ?? "http://127.0.0.1:8001/api";
@@ -249,6 +249,8 @@ export type RuntimeAIConfig = {
 
 export type SessionHistoryEntry = {
   session_id: string;
+  user_id?: string | null;
+  user_handle?: string | null;
   status: string;
   question_count: number;
   can_generate_report: boolean;
@@ -368,6 +370,7 @@ type JsonBody = Record<string, unknown>;
 type RequestAuth = {
   sessionSecret?: string;
   deleteToken?: string;
+  user?: UserAccessBundle;
 };
 
 async function request<T>(
@@ -385,6 +388,10 @@ async function request<T>(
   }
   if (auth?.deleteToken) {
     headers.set("X-Delete-Token", auth.deleteToken);
+  }
+  if (auth?.user) {
+    headers.set("X-User-Id", auth.user.user_id);
+    headers.set("X-User-Secret", auth.user.user_secret);
   }
 
   const response = await fetch(`${baseUrl}${path}`, {
@@ -414,11 +421,83 @@ function adminRequest<T>(path: string, init?: RequestInit & { json?: JsonBody },
   return request<T>(ADMIN_API_BASE_URL, path, init, auth);
 }
 
-export function startSession() {
+export type UserProfile = {
+  user_id: string;
+  handle: string;
+  invite_code: string;
+  invited_by_user_id?: string | null;
+  relationship_opt_in: boolean;
+  recommendation_opt_in: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InviteCode = {
+  code: string;
+  created_by_user_id?: string | null;
+  label: string;
+  max_uses: number;
+  use_count: number;
+  active: boolean;
+  created_at: string;
+  expires_at?: string | null;
+};
+
+export type UserRecommendation = {
+  subject_user_id: string;
+  candidate_user_id: string;
+  candidate_handle: string;
+  score: number;
+  reason: string;
+  shared_cluster_name?: string | null;
+  via_relationship?: string | null;
+};
+
+export function redeemInvite(inviteCode: string) {
+  return publicRequest<UserAccessBundle>("/invite/redeem", {
+    method: "POST",
+    json: { invite_code: inviteCode },
+  });
+}
+
+export function getCurrentUser(user: UserAccessBundle) {
+  return publicRequest<UserProfile>("/user/me", undefined, { user });
+}
+
+export function updateCurrentUser(user: UserAccessBundle, payload: {
+  relationship_opt_in?: boolean;
+  recommendation_opt_in?: boolean;
+}) {
+  return publicRequest<UserProfile>(
+    "/user/me",
+    {
+      method: "PATCH",
+      json: payload,
+    },
+    { user }
+  );
+}
+
+export function listUserSessions(user: UserAccessBundle) {
+  return publicRequest<{ user: UserProfile; sessions: SessionHistoryEntry[] }>("/user/sessions", undefined, { user });
+}
+
+export function issueUserSessionAccess(user: UserAccessBundle, sessionId: string) {
+  return publicRequest<SessionAccessBundle>(
+    `/user/session/${sessionId}/access`,
+    {
+      method: "POST",
+      json: {},
+    },
+    { user }
+  );
+}
+
+export function startSession(user?: UserAccessBundle | null) {
   return publicRequest<SessionStartResponse>("/session/start", {
     method: "POST",
     json: { mode: "core" },
-  });
+  }, user ? { user } : undefined);
 }
 
 export function submitAnswer(access: SessionAccessBundle, itemId: string, optionKey: string, latencyMs: number) {
@@ -518,6 +597,37 @@ export function issueAdminSessionAccess(sessionId: string) {
 
 export function listAdminSessions() {
   return adminRequest<{ sessions: SessionHistoryEntry[] }>("/admin/sessions");
+}
+
+export function createInvite(payload: { created_by_user_id?: string | null; label?: string; max_uses?: number }) {
+  return adminRequest<InviteCode>("/admin/invites", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export function listInvites(limit = 100) {
+  return adminRequest<{ items: InviteCode[] }>(`/admin/invites?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export function listUsers(limit = 100) {
+  return adminRequest<{ items: UserProfile[] }>(`/admin/users?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export function listUserRelationships(payload?: { userId?: string; limit?: number }) {
+  const params = new URLSearchParams();
+  if (payload?.userId) params.set("user_id", payload.userId);
+  if (payload?.limit) params.set("limit", String(payload.limit));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return adminRequest<{ items: Array<{ relationship_id: string; source_user_id: string; target_user_id: string; relationship_type: string; created_at: string }> }>(
+    `/admin/users/relationships${suffix}`
+  );
+}
+
+export function getUserRecommendations(userId: string, limit = 5) {
+  return adminRequest<{ enabled: boolean; items: UserRecommendation[] }>(
+    `/admin/users/${encodeURIComponent(userId)}/recommendations?limit=${encodeURIComponent(String(limit))}`
+  );
 }
 
 export function listTemplates() {
