@@ -323,3 +323,53 @@
 - Add Admin graph visualization for invite tree and opt-in/recommendation readiness.
 - Add user-facing evolution timeline comparing latest report with previous report.
 - Keep recommendation UI hidden until privacy and product constraints are reviewed.
+
+## 2026-05-12: Galgame Story Mode First Slice
+
+### Completed
+
+- Reviewed two AI/galgame references:
+  - `Empty-ZZJ/HOILAI-Galgame-Framework`: Unity/C# framework, useful design reference but not selected for direct Web integration.
+  - `tamikip/AI-GAL`: Python/Ren'Py AI galgame, useful for AI story/branch/custom-input pattern but not selected for direct runtime integration.
+- Decision: implement a native Web Story Mode instead of vendoring Unity/Ren'Py code.
+- Added backend models:
+  - `GalgameScene`
+  - `GalgameChoice`
+  - `GalgameTurn`
+- Added SQLite `galgame_turns` table.
+- Added `SessionService.build_galgame_scene()`.
+- Added `SessionService.record_galgame_turn()`.
+- Added public endpoints:
+  - `GET /api/session/{session_id}/galgame/scene`
+  - `POST /api/session/{session_id}/galgame/respond`
+- Added frontend `/story`.
+- Added `StoryClient` with visual novel style stage, narrator, character line, choices, custom text input, memory fragments, and report readiness.
+- Added Story Mode entry on the landing page.
+- Story Mode reuses current session or starts a new invite-backed session when a local anonymous user exists.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false pytest` passed with `50 passed`.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+- Browser acceptance passed on `/story`:
+  - loaded the visual-novel scene
+  - submitted a normal choice
+  - submitted a custom free-line with a selected tendency option
+  - confirmed the next scene and memory fragment update
+  - confirmed the landing page exposes Story Mode and Workbench Mode entries
+  - screenshots: `C:\Users\hydro\AppData\Local\Temp\distilled-ti-story-acceptance\story-after-custom.png`, `C:\Users\hydro\AppData\Local\Temp\distilled-ti-story-acceptance\landing-story-cta.png`
+
+### Not Completed Yet
+
+- Scenes are deterministic wrappers around existing items, not LLM-generated yet.
+- Free text is stored as context but does not directly score the user.
+- No image generation, voice, music, or external game engine integration.
+- No vector indexing of `galgame_turns` yet.
+- No authoring UI for user-written scenario/dialogue templates yet.
+
+### Next Step
+
+- Use embedding/LLM to classify free-text custom lines with confidence.
+- Add `galgame_turns` to session canonical text or a dedicated vector collection.
+- Add AI-generated scene text from current profile, current item, and recent story memory.

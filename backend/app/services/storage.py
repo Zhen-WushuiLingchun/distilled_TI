@@ -13,6 +13,7 @@ from app.domain.models import (
     InviteCode,
     ItemInstance,
     ItemTemplate,
+    GalgameTurn,
     SessionHistoryEntry,
     SessionRecord,
     UserProfile,
@@ -155,6 +156,21 @@ class LocalSessionStore:
                     source_user_id TEXT NOT NULL,
                     target_user_id TEXT NOT NULL,
                     relationship_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS galgame_turns (
+                    turn_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    item_id TEXT NOT NULL,
+                    template_id TEXT NOT NULL,
+                    scene_id TEXT NOT NULL,
+                    selected_option_key TEXT NOT NULL,
+                    custom_text TEXT,
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 )
@@ -672,6 +688,51 @@ class LocalSessionStore:
                     (limit,),
                 ).fetchall()
         return [UserRelationship.model_validate_json(row[0]) for row in rows]
+
+    def save_galgame_turn(self, turn: GalgameTurn) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO galgame_turns (
+                    turn_id,
+                    session_id,
+                    item_id,
+                    template_id,
+                    scene_id,
+                    selected_option_key,
+                    custom_text,
+                    payload_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    turn.turn_id,
+                    turn.session_id,
+                    turn.item_id,
+                    turn.template_id,
+                    turn.scene_id,
+                    turn.selected_option_key,
+                    turn.custom_text,
+                    turn.model_dump_json(),
+                    turn.created_at.isoformat(),
+                ),
+            )
+            connection.commit()
+
+    def list_galgame_turns(self, session_id: str, limit: int = 20) -> list[GalgameTurn]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM galgame_turns
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            ).fetchall()
+        turns = [GalgameTurn.model_validate_json(row[0]) for row in rows]
+        return list(reversed(turns))
 
     def save_vector_sync_failure(self, failure: VectorSyncFailure) -> None:
         with self._connect() as connection:

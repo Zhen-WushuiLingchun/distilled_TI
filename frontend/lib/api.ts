@@ -105,6 +105,40 @@ export type WorkbenchEvidence = {
   notes: string[];
 };
 
+export type GalgameChoice = {
+  key: string;
+  text: string;
+  option_key: string;
+  score: number;
+  tone: "direct" | "guarded" | "ambivalent" | string;
+};
+
+export type GalgameScene = {
+  scene_id: string;
+  session_id: string;
+  item_id: string;
+  template_id: string;
+  title: string;
+  location: string;
+  mood: string;
+  speaker: string;
+  narrator_text: string;
+  character_text: string;
+  prompt_shadow: string;
+  choices: GalgameChoice[];
+  memory_fragments: string[];
+  custom_input_enabled: boolean;
+};
+
+export type GalgameSceneResult = {
+  session_id: string;
+  state: SessionState;
+  can_generate_report: boolean;
+  remaining_until_report: number;
+  scene: GalgameScene | null;
+  workbench_checkpoint?: WorkbenchCheckpoint | null;
+};
+
 export type SessionSummary = {
   session_id: string;
   question_count: number;
@@ -537,6 +571,32 @@ export function getWorkbenchEvidence(access: SessionAccessBundle) {
   return publicRequest<WorkbenchEvidence>(`/session/${access.session_id}/workbench/evidence`, undefined, {
     sessionSecret: access.session_secret,
   });
+}
+
+export function getGalgameScene(access: SessionAccessBundle) {
+  return publicRequest<GalgameScene>(`/session/${access.session_id}/galgame/scene`, undefined, {
+    sessionSecret: access.session_secret,
+  });
+}
+
+export function respondGalgameScene(
+  access: SessionAccessBundle,
+  payload: {
+    item_id: string;
+    scene_id: string;
+    option_key: string;
+    custom_text?: string;
+    latency_ms?: number;
+  }
+) {
+  return publicRequest<GalgameSceneResult>(
+    `/session/${access.session_id}/galgame/respond`,
+    {
+      method: "POST",
+      json: payload,
+    },
+    { sessionSecret: access.session_secret }
+  );
 }
 
 export function getSessionReport(access: SessionAccessBundle) {

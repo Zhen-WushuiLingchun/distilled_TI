@@ -8,6 +8,7 @@
 - AI 现在真实介入了哪些环节
 - embedding / reranker / Qdrant 向量层现在如何接入
 - 邀请制匿名用户和长期历史如何工作
+- Galgame / Story Mode 如何把测量题包装成剧情选择
 - 题库、模板、实例题之间是什么关系
 - 如何理解“收敛”“不确定性”“报告”
 - 如何进一步做反作弊、识别瞎答题或伪造答题
@@ -15,7 +16,7 @@
 
 ## 1. 总体架构
 
-当前系统可以分成 8 层：
+当前系统可以分成 9 层：
 
 1. `domain`
    - 定义核心维度、子维度、模块维度、题目模板、题目实例、会话状态、报告结构等数据模型
@@ -35,6 +36,11 @@
 8. `user_service`
    - 负责邀请码兑换、匿名用户档案、长期会话归属、邀请关系边和隐藏推荐候选
    - 不保存真实姓名、手机号、邮箱或学校身份
+9. `story mode`
+   - 由 `SessionService.build_galgame_scene()` 和 `/story` 前端组成
+   - 把当前 `ItemInstance` 包装成视觉小说场景
+   - 用户仍然选择标准 option，因此不破坏现有 scoring
+   - 用户自定义台词会记录到 `galgame_turns`，后续可进入 embedding/LLM 分析
 
 一个典型请求流大致如下：
 
@@ -64,6 +70,24 @@
 - 不阻塞新建模板、生成实例题、提交回答、改写预览
 
 ## 2. 核心数据结构
+
+### 2.-1 `GalgameScene`、`GalgameChoice` 与 `GalgameTurn`
+
+Story Mode 的核心原则是“改变呈现，不改变测量主链路”。
+
+- `GalgameScene`
+  - 当前题目的剧情包装
+  - 包含地点、气氛、说话角色、旁白、角色台词、选项、记忆片段
+- `GalgameChoice`
+  - 剧情选择
+  - 每个 choice 都映射到一个原始 `option_key`
+  - scoring 仍然只吃 `option_key`
+- `GalgameTurn`
+  - 用户在剧情模式中的一次行为记录
+  - 包含 `scene_id / selected_option_key / custom_text / scene_text`
+  - 当前保存在 SQLite `galgame_turns`
+
+第一版不让自由文本直接决定分数。原因是自由文本分类需要置信度和误判处理，否则会污染心理测量结果。当前做法是：自由文本记录为上下文，用户仍选择一个倾向选项，后续可再用 embedding/LLM 做辅助分类。
 
 ### 2.0 `UserProfile`、`InviteCode` 与 `UserRelationship`
 
@@ -850,7 +874,7 @@ AI 目前主要用于：
 当前还没做：
 
 1. `cluster_vectors`
-2. 用户端 Session Workbench
+2. `galgame_turns` 的 embedding 索引
 3. 自动异常判定
 4. 后台任务队列和自动重试
 5. 生产级密钥管理

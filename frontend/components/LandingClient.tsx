@@ -220,10 +220,20 @@ export function LandingClient() {
               className="btn btn-primary"
               onClick={() => {
                 saveReportViewPreferences({ projectionMode, namingStyle });
+                router.push("/story");
+              }}
+            >
+              剧情模式
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                saveReportViewPreferences({ projectionMode, namingStyle });
                 router.push("/session");
               }}
             >
-              开始测试
+              工作台模式
             </button>
             <button
               type="button"
