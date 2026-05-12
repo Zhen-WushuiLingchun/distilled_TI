@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="evening clubroom visual novel background">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b98b68"/>
+      <stop offset=".65" stop-color="#5d5647"/>
+      <stop offset="1" stop-color="#252520"/>
+    </linearGradient>
+    <radialGradient id="warm" cx=".28" cy=".24" r=".48">
+      <stop offset="0" stop-color="#ffe4a0" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#wall)"/>
+  <rect x="90" y="102" width="420" height="260" rx="12" fill="#2e4750"/>
+  <rect x="122" y="132" width="356" height="200" fill="#6f9590"/>
+  <path d="M300 132 V332 M122 232 H478" stroke="#22363b" stroke-width="8" opacity=".5"/>
+  <rect x="696" y="106" width="422" height="318" rx="10" fill="#2c2820"/>
+  <g fill="#eee0b4" opacity=".9">
+    <rect x="734" y="142" width="108" height="70" rx="5"/>
+    <rect x="872" y="142" width="94" height="70" rx="5"/>
+    <rect x="996" y="142" width="80" height="70" rx="5"/>
+    <rect x="734" y="244" width="140" height="70" rx="5"/>
+    <rect x="904" y="244" width="166" height="70" rx="5"/>
+  </g>
+  <rect x="160" y="504" width="960" height="58" rx="16" fill="#241b17"/>
+  <path d="M130 562 H1150 L1240 720 H38Z" fill="#4a3325"/>
+  <g fill="#7f5b3c">
+    <rect x="256" y="386" width="86" height="140" rx="8"/>
+    <rect x="368" y="414" width="86" height="112" rx="8"/>
+    <rect x="846" y="396" width="92" height="130" rx="8"/>
+  </g>
+  <rect width="1280" height="720" fill="url(#warm)"/>
+</svg>

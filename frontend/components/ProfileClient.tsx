@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import {
   getCurrentUser,
   issueUserSessionAccess,
+  listCurrentUserRecommendations,
   listUserSessions,
   updateCurrentUser,
   type SessionHistoryEntry,
   type UserProfile,
+  type UserRecommendation,
 } from "@/lib/api";
 import {
   clearUserAccess,
@@ -24,6 +26,8 @@ export function ProfileClient() {
   const [access, setAccess] = useState<UserAccessBundle | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
+  const [recommendations, setRecommendations] = useState<UserRecommendation[]>([]);
+  const [recommendationsEnabled, setRecommendationsEnabled] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -33,11 +37,14 @@ export function ProfileClient() {
       setAccess(null);
       setProfile(null);
       setSessions([]);
+      setRecommendations([]);
+      setRecommendationsEnabled(false);
       return;
     }
-    const [profilePayload, sessionPayload] = await Promise.all([
+    const [profilePayload, sessionPayload, recommendationPayload] = await Promise.all([
       getCurrentUser(stored),
       listUserSessions(stored),
+      listCurrentUserRecommendations(stored).catch(() => ({ enabled: false, items: [] })),
     ]);
     const refreshed = {
       ...stored,
@@ -49,6 +56,8 @@ export function ProfileClient() {
     setAccess(refreshed);
     setProfile(profilePayload);
     setSessions(sessionPayload.sessions);
+    setRecommendations(recommendationPayload.items);
+    setRecommendationsEnabled(recommendationPayload.enabled);
   }
 
   useEffect(() => {
@@ -123,6 +132,7 @@ export function ProfileClient() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="btn btn-ghost" onClick={() => router.push("/")}>首页</button>
+              <button className="btn btn-ghost" onClick={() => router.push("/evolution")}>历史演化</button>
               <button className="btn btn-primary" onClick={() => router.push("/session")}>继续测量</button>
             </div>
           </div>
@@ -164,10 +174,41 @@ export function ProfileClient() {
               <span>
                 <span className="block text-sm text-[color:var(--ink-strong)]">允许进入隐藏推荐实验池</span>
                 <span className="mt-1 block text-xs leading-5 text-[color:var(--ink-muted)]">
-                  Public 不显示推荐结果；管理员实验视图也会排除已经存在直接邀请关系的人。
+                  公开页只显示匿名 handle、相似理由和分数；已经存在直接邀请关系的人会被排除。
                 </span>
               </span>
             </label>
+            <div className="surface-sunken p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="label-mini">Social Lab</p>
+                  <h3 className="mt-1 text-lg text-[color:var(--ink-strong)]">匿名推荐</h3>
+                </div>
+                <span className="chip">{recommendationsEnabled ? "enabled" : "disabled"}</span>
+              </div>
+              {!recommendationsEnabled ? (
+                <p className="mt-3 text-xs leading-5 text-[color:var(--ink-muted)]">
+                  后端推荐开关尚未开启。开启后，只有双方都 opt-in 且已有报告样本时才会展示。
+                </p>
+              ) : recommendations.length ? (
+                <div className="mt-3 space-y-2">
+                  {recommendations.map((item) => (
+                    <article key={item.candidate_user_id} className="rounded-[var(--r-md)] bg-[color:var(--bg-paper)] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <strong className="text-sm">{item.candidate_handle}</strong>
+                        <span className="num text-xs">{(item.score * 100).toFixed(1)}%</span>
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-[color:var(--ink-muted)]">{item.reason}</p>
+                      {item.shared_cluster_name ? <p className="mt-1 text-xs text-[color:var(--accent-ink)]">{item.shared_cluster_name}</p> : null}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-xs leading-5 text-[color:var(--ink-muted)]">
+                  暂无可推荐对象。通常需要双方都开启推荐，并完成至少一次可出报告的会话。
+                </p>
+              )}
+            </div>
             <button
               className="text-xs text-[color:var(--ink-faint)] underline underline-offset-4"
               onClick={() => {

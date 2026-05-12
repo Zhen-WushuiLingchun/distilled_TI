@@ -20,6 +20,7 @@ from app.domain.models import (
 from app.domain.dimensions import make_zero_module_vector, make_zero_subdimension_vector, make_zero_vector
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.embedding_service import EmbeddingServiceError, embedding_service
+from app.services.galgame_asset_service import galgame_asset_service
 from app.services.generation import generation_service
 from app.services.reranker_service import reranker_service
 from app.services.scoring import ScoringEngine
@@ -107,6 +108,73 @@ def test_galgame_turn_canonical_text_includes_free_text_inference():
     assert "custom_line=我先观察一下" in document.text
     assert "inference_distribution=" in document.text
     assert document.payload["story_template_id"] == "campus-council-window"
+
+
+def test_galgame_asset_service_returns_local_fallbacks(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "galgame_asset_generation_enabled", False)
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path / "generated"))
+
+    background, character, audio = galgame_asset_service.resolve_scene_assets(
+        background_key="night_library",
+        background_prompt="quiet library, no humans",
+        character_key="librarian",
+        character_prompt="reserved librarian",
+        mood="probe",
+    )
+
+    assert background.url == "/galgame-assets/backgrounds/night_library.svg"
+    assert background.source == "fallback"
+    assert character.url == "/galgame-assets/sprites/librarian.svg"
+    assert character.source == "fallback"
+    assert audio is not None
+    assert audio.status == "disabled"
+
+
+def test_galgame_asset_service_manual_generation_is_reused_when_auto_disabled(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "galgame_asset_generation_enabled", False)
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "galgame_asset_public_url_prefix", "/generated/galgame")
+
+    def _write_asset(_kind, _prompt, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"fake-png")
+
+    monkeypatch.setattr(galgame_asset_service, "_generate_image", _write_asset)
+
+    generated = galgame_asset_service.generate_image_asset(
+        kind="background",
+        key="night_library",
+        prompt="quiet library, no humans",
+    )
+    background, _character, _audio = galgame_asset_service.resolve_scene_assets(
+        background_key="night_library",
+        background_prompt="quiet library, no humans",
+        character_key="librarian",
+        character_prompt="reserved librarian",
+    )
+
+    assert generated.source == "generated"
+    assert generated.url == "/generated/galgame/background/night_library.png"
+    assert background.source == "generated"
+    assert background.url == generated.url
+
+
+def test_galgame_character_postprocess_removes_flat_background(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    output_path = tmp_path / "sprite.png"
+    image = Image.new("RGBA", (8, 8), (24, 24, 24, 255))
+    for x in range(3, 5):
+        for y in range(2, 6):
+            image.putpixel((x, y), (220, 180, 90, 255))
+    image.save(output_path)
+
+    galgame_asset_service._postprocess_generated_image("character", output_path)
+
+    processed = Image.open(output_path).convert("RGBA")
+    assert processed.getpixel((0, 0))[3] == 0
+    assert processed.getpixel((4, 4))[3] == 255
 
 
 def test_embed_texts_returns_provider_vectors(monkeypatch):

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080" role="img" aria-label="desk mate visual novel sprite">
+  <defs>
+    <linearGradient id="coat" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#29483f"/>
+      <stop offset=".55" stop-color="#2f6f5e"/>
+      <stop offset="1" stop-color="#172722"/>
+    </linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000" flood-opacity=".28"/></filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M214 1044 C208 860 226 704 278 610 H442 C496 704 512 860 506 1044Z" fill="url(#coat)"/>
+    <path d="M286 610 L360 760 L434 610Z" fill="#f7efe1"/>
+    <path d="M314 650 L360 780 L406 650 L386 1044 H334Z" fill="#1b2b29" opacity=".62"/>
+    <path d="M196 722 C132 810 118 916 108 1044 H210 C218 900 240 792 300 676Z" fill="#24443b"/>
+    <path d="M524 722 C588 810 602 916 612 1044 H510 C502 900 480 792 420 676Z" fill="#24443b"/>
+    <ellipse cx="360" cy="428" rx="126" ry="154" fill="#f2c7a9"/>
+    <path d="M236 396 C238 264 306 196 408 214 C502 230 548 308 516 438 C480 360 404 318 298 332 C278 348 258 370 236 396Z" fill="#33302b"/>
+    <path d="M248 438 C226 430 214 450 222 478 C230 510 252 510 262 494Z" fill="#eebf9f"/>
+    <path d="M472 438 C494 430 506 450 498 478 C490 510 468 510 458 494Z" fill="#eebf9f"/>
+    <path d="M316 430 Q332 418 350 430 M370 430 Q388 418 404 430" stroke="#352821" stroke-width="8" stroke-linecap="round" fill="none"/>
+    <path d="M334 514 Q360 534 388 514" stroke="#9b594c" stroke-width="7" stroke-linecap="round" fill="none"/>
+    <path d="M294 572 C322 614 396 614 426 572 C404 646 316 646 294 572Z" fill="#2e2f2d" opacity=".28"/>
+  </g>
+</svg>

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="campus courtyard visual novel background">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#81b6cc"/>
+      <stop offset=".55" stop-color="#f0c784"/>
+      <stop offset="1" stop-color="#9f7d57"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d8f4ef" stop-opacity=".82"/>
+      <stop offset="1" stop-color="#2d6272" stop-opacity=".7"/>
+    </linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="6"/></filter>
+  </defs>
+  <rect width="1280" height="720" fill="url(#sky)"/>
+  <circle cx="1030" cy="130" r="78" fill="#ffe2a5" opacity=".82" filter="url(#soft)"/>
+  <path d="M0 448 C170 396 286 448 424 402 C560 357 706 402 850 368 C1032 326 1136 374 1280 330 L1280 720 L0 720Z" fill="#586f50"/>
+  <path d="M0 492 C184 452 318 486 462 450 C628 410 782 464 942 416 C1086 373 1184 414 1280 386 L1280 720 L0 720Z" fill="#304838"/>
+  <g opacity=".96">
+    <path d="M92 164 H546 V552 H92Z" fill="#d4c3a0"/>
+    <path d="M92 164 H546 V216 H92Z" fill="#7d8f8b"/>
+    <path d="M118 238 H204 V338 H118Z M230 238 H316 V338 H230Z M342 238 H428 V338 H342Z M454 238 H520 V338 H454Z" fill="url(#glass)"/>
+    <path d="M118 368 H204 V500 H118Z M230 368 H316 V500 H230Z M342 368 H428 V500 H342Z M454 368 H520 V500 H454Z" fill="url(#glass)"/>
+    <path d="M692 122 H1152 V540 H692Z" fill="#c8b48e"/>
+    <path d="M692 122 H1152 V178 H692Z" fill="#657973"/>
+    <path d="M728 212 H820 V326 H728Z M850 212 H942 V326 H850Z M972 212 H1064 V326 H972Z" fill="url(#glass)"/>
+    <path d="M728 362 H820 V505 H728Z M850 362 H942 V505 H850Z M972 362 H1064 V505 H972Z" fill="url(#glass)"/>
+  </g>
+  <path d="M0 590 C212 556 448 548 652 578 C852 607 1010 590 1280 552 L1280 720 L0 720Z" fill="#3a3a32"/>
+  <path d="M210 720 C424 604 668 576 1012 720Z" fill="#d4c9aa" opacity=".65"/>
+  <g fill="#273d30" opacity=".86">
+    <ellipse cx="190" cy="512" rx="44" ry="90"/>
+    <rect x="181" y="512" width="18" height="120"/>
+    <ellipse cx="1116" cy="474" rx="58" ry="112"/>
+    <rect x="1105" y="474" width="23" height="155"/>
+  </g>
+</svg>

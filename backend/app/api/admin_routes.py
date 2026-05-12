@@ -13,6 +13,10 @@ from app.api.schemas import (
     ClusterOverviewResponse,
     ClusterLabelOverrideRequest,
     GalgameStoryTemplateListResponse,
+    GalgameAssetGenerateRequest,
+    GalgameAssetGenerateResponse,
+    GalgameAssetStatusResponse,
+    GalgameStoryTemplateAssetGenerateRequest,
     GalgameStoryTemplateRequest,
     GalgameStoryTemplateResponse,
     InviteCreateRequest,
@@ -40,6 +44,7 @@ from app.api.security import build_owner_key, require_local_admin
 from app.core.config import settings
 from app.domain.models import GalgameStoryTemplate
 from app.services.ai_service import AIProviderConfig, ai_service
+from app.services.galgame_asset_service import galgame_asset_service
 from app.services.session_service import session_service
 from app.services.storage import local_session_store
 from app.services.user_service import user_service
@@ -220,6 +225,55 @@ def delete_galgame_story_template(template_id: str, request: Request) -> dict[st
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"deleted": True}
+
+
+@router.get("/admin/galgame/assets/status", response_model=GalgameAssetStatusResponse)
+def galgame_asset_status(request: Request) -> GalgameAssetStatusResponse:
+    require_local_admin(request)
+    return GalgameAssetStatusResponse(**galgame_asset_service.status())
+
+
+@router.post("/admin/galgame/assets/generate", response_model=GalgameAssetGenerateResponse)
+def generate_galgame_asset(payload: GalgameAssetGenerateRequest, request: Request) -> GalgameAssetGenerateResponse:
+    require_local_admin(request)
+    try:
+        asset = galgame_asset_service.generate_image_asset(
+            kind=payload.kind,
+            key=payload.key,
+            prompt=payload.prompt,
+            force=payload.force,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"galgame_asset_generation_failed: {exc}") from exc
+    return GalgameAssetGenerateResponse(assets={asset.kind: asset})
+
+
+@router.post("/admin/galgame/story-templates/{template_id}/assets", response_model=GalgameAssetGenerateResponse)
+def generate_galgame_story_template_assets(
+    template_id: str,
+    payload: GalgameStoryTemplateAssetGenerateRequest,
+    request: Request,
+) -> GalgameAssetGenerateResponse:
+    require_local_admin(request)
+    try:
+        template = session_service.get_galgame_story_template(template_id)
+        assets = galgame_asset_service.generate_story_template_assets(
+            background_key=template.background_key,
+            background_prompt=template.background_prompt,
+            character_key=template.character_key,
+            character_prompt=template.character_prompt,
+            include_character=payload.include_character,
+            force=payload.force,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"galgame_asset_generation_failed: {exc}") from exc
+    return GalgameAssetGenerateResponse(assets=assets)
 
 
 @router.get("/admin/vector/templates/similar", response_model=VectorSearchResponse)

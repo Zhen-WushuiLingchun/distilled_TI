@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080" role="img" aria-label="custom companion visual novel sprite">
+  <defs>
+    <linearGradient id="coat" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34434d"/>
+      <stop offset=".54" stop-color="#b07645"/>
+      <stop offset="1" stop-color="#212321"/>
+    </linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000" flood-opacity=".28"/></filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M200 1044 C202 842 232 704 292 610 H428 C488 704 518 842 520 1044Z" fill="url(#coat)"/>
+    <path d="M296 610 L360 746 L424 610Z" fill="#f7ead9"/>
+    <path d="M324 656 L360 780 L396 656 L386 1044 H334Z" fill="#2a2c2c" opacity=".66"/>
+    <path d="M190 728 C126 826 112 924 100 1044 H210 C224 904 250 800 306 670Z" fill="#303f48"/>
+    <path d="M530 728 C594 826 608 924 620 1044 H510 C496 904 470 800 414 670Z" fill="#303f48"/>
+    <ellipse cx="360" cy="430" rx="122" ry="150" fill="#efc4a6"/>
+    <path d="M238 426 C230 304 300 218 396 212 C504 206 548 318 502 462 C470 382 418 330 350 318 C306 338 270 376 238 426Z" fill="#2f2d35"/>
+    <path d="M302 428 Q326 412 350 428 M370 428 Q396 412 420 428" stroke="#2d2320" stroke-width="8" stroke-linecap="round" fill="none"/>
+    <path d="M330 516 Q360 538 392 516" stroke="#8d5046" stroke-width="7" stroke-linecap="round" fill="none"/>
+    <path d="M286 574 C322 626 398 626 434 574 C414 646 306 646 286 574Z" fill="#20201f" opacity=".24"/>
+  </g>
+</svg>

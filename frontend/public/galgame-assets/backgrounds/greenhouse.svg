@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="rooftop greenhouse visual novel background">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#24344b"/>
+      <stop offset=".5" stop-color="#7a8d83"/>
+      <stop offset="1" stop-color="#d0a771"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e9fff0" stop-opacity=".58"/>
+      <stop offset="1" stop-color="#5f9c82" stop-opacity=".42"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#sky)"/>
+  <path d="M132 472 L360 160 H920 L1148 472 Z" fill="url(#glass)" stroke="#d8ead8" stroke-width="10"/>
+  <path d="M360 160 V472 M920 160 V472 M246 318 H1034 M640 160 V472" stroke="#d8ead8" stroke-width="8" opacity=".75"/>
+  <path d="M0 510 H1280 V720 H0Z" fill="#252e2c"/>
+  <g fill="#2f5e43" opacity=".92">
+    <ellipse cx="260" cy="500" rx="70" ry="128"/>
+    <ellipse cx="410" cy="486" rx="52" ry="104"/>
+    <ellipse cx="880" cy="488" rx="58" ry="118"/>
+    <ellipse cx="1034" cy="506" rx="84" ry="136"/>
+  </g>
+  <g fill="#8fbc70" opacity=".8">
+    <ellipse cx="302" cy="428" rx="28" ry="54"/>
+    <ellipse cx="1004" cy="430" rx="34" ry="62"/>
+    <ellipse cx="838" cy="438" rx="24" ry="46"/>
+  </g>
+  <rect x="430" y="560" width="420" height="54" rx="18" fill="#513a2e"/>
+  <path d="M0 0 H1280 V720 H0Z" fill="#0b1214" opacity=".18"/>
+</svg>

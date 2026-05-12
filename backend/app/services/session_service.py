@@ -49,6 +49,7 @@ from app.domain.models import (
 )
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.clustering import clustering_service
+from app.services.galgame_asset_service import galgame_asset_service
 from app.services.generation import generation_service
 from app.services.scoring import ScoringEngine
 from app.services.storage import local_session_store
@@ -252,6 +253,37 @@ class SessionService:
             except KeyError:
                 continue
         return histories
+
+    def build_user_evolution(self, user_id: str):
+        records = local_session_store.list_session_records(limit=None, user_id=user_id)
+        records.sort(key=lambda record: record.updated_at)
+        items = []
+        previous_core: dict[str, float] | None = None
+        for record in records:
+            cluster_name, narrative_label, _confidence = clustering_service.cluster_for_state(record.state)
+            core_mu = {key: round(value, 4) for key, value in record.state.core_mu.items()}
+            delta = {}
+            if previous_core is not None:
+                delta = {
+                    key: round(core_mu.get(key, 0.0) - previous_core.get(key, 0.0), 4)
+                    for key in sorted(set(core_mu) | set(previous_core))
+                }
+            previous_core = core_mu
+            items.append(
+                {
+                    "session_id": record.session_id,
+                    "question_count": record.state.question_count,
+                    "can_generate_report": record.state.question_count >= settings.min_questions_for_report,
+                    "cluster_name": cluster_name,
+                    "narrative_label": narrative_label,
+                    "core_mu": core_mu,
+                    "zeta": {key: round(value, 4) for key, value in record.state.zeta.items()},
+                    "active_modules": record.state.active_modules,
+                    "updated_at": record.updated_at,
+                    "core_delta_from_previous": delta,
+                }
+            )
+        return items
 
     def add_item(self, payload: ItemTemplateCreate) -> ItemTemplate:
         errors = validate_item_template(payload)
@@ -863,6 +895,17 @@ class SessionService:
             choice_texts = ai_scene.get("choice_texts", {})
             if isinstance(choice_texts, dict):
                 choices = self._build_galgame_choices(item, {str(key): str(value) for key, value in choice_texts.items()})
+        background_key = str(ai_scene.get("background_key", ""))[:60] if ai_scene else (story_template.background_key if story_template else self._galgame_background_key(item))
+        background_prompt = str(ai_scene.get("background_prompt", ""))[:360] if ai_scene else (story_template.background_prompt if story_template else self._galgame_background_prompt(item))
+        character_key = str(ai_scene.get("character_key", ""))[:60] if ai_scene else (story_template.character_key if story_template else self._galgame_character_key(item))
+        character_prompt = str(ai_scene.get("character_prompt", ""))[:360] if ai_scene else (story_template.character_prompt if story_template else self._galgame_character_prompt(item))
+        background_asset, character_asset, audio_asset = galgame_asset_service.resolve_scene_assets(
+            background_key=background_key,
+            background_prompt=background_prompt,
+            character_key=character_key,
+            character_prompt=character_prompt,
+            mood=mood,
+        )
         return GalgameScene(
             scene_id=f"{session.session_id}:{item.id}:{session.state.question_count + 1}",
             session_id=session.session_id,
@@ -877,10 +920,13 @@ class SessionService:
             prompt_shadow=prompt_shadow,
             choices=choices,
             memory_fragments=memory_fragments,
-            background_key=str(ai_scene.get("background_key", ""))[:60] if ai_scene else (story_template.background_key if story_template else self._galgame_background_key(item)),
-            background_prompt=str(ai_scene.get("background_prompt", ""))[:220] if ai_scene else (story_template.background_prompt if story_template else self._galgame_background_prompt(item)),
-            character_key=str(ai_scene.get("character_key", ""))[:60] if ai_scene else (story_template.character_key if story_template else self._galgame_character_key(item)),
-            character_prompt=str(ai_scene.get("character_prompt", ""))[:220] if ai_scene else (story_template.character_prompt if story_template else self._galgame_character_prompt(item)),
+            background_key=background_key,
+            background_prompt=background_prompt,
+            character_key=character_key,
+            character_prompt=character_prompt,
+            background_asset=background_asset,
+            character_asset=character_asset,
+            audio_asset=audio_asset,
             story_template_id=story_template.template_id if story_template else None,
             ai_generated=bool(ai_scene),
         )

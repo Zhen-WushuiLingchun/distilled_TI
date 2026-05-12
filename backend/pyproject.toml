@@ -9,6 +9,7 @@ dependencies = [
   "pydantic>=2.9,<3.0",
   "pydantic-settings>=2.7,<3.0",
   "httpx>=0.28,<1.0",
+  "pillow>=11,<12",
   "qdrant-client>=1.17,<2.0",
   "scikit-learn>=1.6,<2.0",
 ]

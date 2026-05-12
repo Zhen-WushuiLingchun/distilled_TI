@@ -131,9 +131,33 @@ export type GalgameScene = {
   background_prompt: string;
   character_key: string;
   character_prompt: string;
+  background_asset?: GalgameAssetReference | null;
+  character_asset?: GalgameAssetReference | null;
+  audio_asset?: GalgameAssetReference | null;
   story_template_id?: string | null;
   ai_generated: boolean;
   custom_input_enabled: boolean;
+};
+
+export type GalgameAssetReference = {
+  kind: "background" | "character" | "audio";
+  key: string;
+  prompt: string;
+  url?: string | null;
+  source: "generated" | "fallback" | "external" | "none";
+  status: "ready" | "disabled" | "failed" | "missing";
+};
+
+export type GalgameAssetStatus = {
+  generation_enabled: boolean;
+  backend: string;
+  base_url: string;
+  model: string;
+  public_url_prefix: string;
+  background_count: number;
+  character_count: number;
+  sdwebui_available: boolean;
+  comfyui_available: boolean;
 };
 
 export type GalgameTextInference = {
@@ -344,6 +368,19 @@ export type SessionHistoryEntry = {
   updated_at: string;
   cluster_name: string | null;
   narrative_label: string | null;
+};
+
+export type UserEvolutionEntry = {
+  session_id: string;
+  question_count: number;
+  can_generate_report: boolean;
+  cluster_name: string | null;
+  narrative_label: string | null;
+  core_mu: Record<string, number>;
+  zeta: Record<string, number>;
+  active_modules: string[];
+  updated_at: string;
+  core_delta_from_previous: Record<string, number>;
 };
 
 export type RewritePreview = {
@@ -566,6 +603,18 @@ export function updateCurrentUser(user: UserAccessBundle, payload: {
 
 export function listUserSessions(user: UserAccessBundle) {
   return publicRequest<{ user: UserProfile; sessions: SessionHistoryEntry[] }>("/user/sessions", undefined, { user });
+}
+
+export function getUserEvolution(user: UserAccessBundle) {
+  return publicRequest<{ user: UserProfile; items: UserEvolutionEntry[] }>("/user/evolution", undefined, { user });
+}
+
+export function listCurrentUserRecommendations(user: UserAccessBundle, limit = 5) {
+  return publicRequest<{ enabled: boolean; items: UserRecommendation[] }>(
+    `/user/recommendations?limit=${encodeURIComponent(String(limit))}`,
+    undefined,
+    { user }
+  );
 }
 
 export function issueUserSessionAccess(user: UserAccessBundle, sessionId: string) {
@@ -795,6 +844,35 @@ export function deleteGalgameStoryTemplate(templateId: string) {
   return adminRequest<{ deleted: boolean }>(`/admin/galgame/story-templates/${encodeURIComponent(templateId)}`, {
     method: "DELETE",
   });
+}
+
+export function getGalgameAssetStatus() {
+  return adminRequest<GalgameAssetStatus>("/admin/galgame/assets/status");
+}
+
+export function generateGalgameAsset(payload: {
+  kind: "background" | "character";
+  key: string;
+  prompt: string;
+  force?: boolean;
+}) {
+  return adminRequest<{ assets: Record<string, GalgameAssetReference> }>("/admin/galgame/assets/generate", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export function generateGalgameStoryTemplateAssets(
+  templateId: string,
+  payload: { include_character?: boolean; force?: boolean } = {}
+) {
+  return adminRequest<{ assets: Record<string, GalgameAssetReference> }>(
+    `/admin/galgame/story-templates/${encodeURIComponent(templateId)}/assets`,
+    {
+      method: "POST",
+      json: payload,
+    }
+  );
 }
 
 export function listInvites(limit = 100) {

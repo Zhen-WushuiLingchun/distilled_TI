@@ -1,7 +1,7 @@
 # Plan: Galgame Story Mode
 
 - Date: 2026-05-12
-- Status: AI-GAL style generation and free-text classifier slice implemented
+- Status: AI-GAL style generation, free-text classifier, SD WebUI asset generation, share/evolution/social UI slice implemented
 - Scope: make Distilled TI playable by wrapping measurement questions in a visual-novel style scenario loop.
 
 ## Reference Review
@@ -55,6 +55,13 @@ This gives users a game-like loop while still preserving measurement continuity.
 - Added public endpoints:
   - `GET /api/session/{session_id}/galgame/scene`
   - `POST /api/session/{session_id}/galgame/respond`
+- Added Story Mode asset resolution:
+  - `GalgameAssetReference` on scene responses
+  - local fallback background/sprite/audio assets
+  - optional SD WebUI-compatible and OpenAI-compatible image generation controlled by env vars
+  - Admin asset status/manual generation/story-template pre-generation APIs
+  - conservative generated-character alpha post-processing for sprite-like PNGs
+  - generated assets written under ignored `frontend/public/generated/galgame`
 - `respond` records the story turn, resolves free-text tendency when available, then calls the existing scoring path through `submit_answer()`.
 
 ## Implemented Frontend
@@ -64,7 +71,8 @@ This gives users a game-like loop while still preserving measurement continuity.
 - Added Story Mode entry on the landing page.
 - Story UI includes:
   - visual stage
-  - character silhouette
+  - generated/fallback background image
+  - generated/fallback character sprite
   - narrator text
   - character line
   - in-scene choice buttons
@@ -76,6 +84,9 @@ This gives users a game-like loop while still preserving measurement continuity.
   - report readiness entry
 - Story Mode reuses current active session if present, or starts a new one.
 - If a user invite profile exists locally, Story Mode starts sessions under that user.
+- Added `/share` so report shares carry the sharer's invite code.
+- Added `/evolution` so invite-backed users can see long-term report/session trajectory.
+- Added public `/profile` recommendation UI, still gated by environment flag and opt-in.
 
 - Added Admin Story Engine panel:
   - create/update/delete story templates
@@ -84,8 +95,8 @@ This gives users a game-like loop while still preserving measurement continuity.
 
 ## Local Validation
 
-- Backend: `VECTOR_ENABLED=false pytest` passed with `53 passed`.
-- Frontend: `npm run lint` passed after the current slice.
+- Backend: `VECTOR_ENABLED=false pytest` passed with `59 passed`.
+- Frontend: `npm run lint` passed after the current slice, with only the expected dynamic `<img>` warnings.
 - Frontend: `npm run build` passed after the current slice.
 - Browser acceptance covered `/story` scene load, custom free-line submission, classifier evidence display, Admin Story Engine panel, and `galgame_turns` vector scope.
 
@@ -115,16 +126,22 @@ References checked:
 
 ## Not Done Yet
 
-- No generated image assets, character sprites, voice, or music yet.
-- Admin story templates exist, but public user-authored templates are not exposed.
+- ComfyUI generation adapter is not implemented yet; status probing exists, but generation needs a workflow adapter.
+- Audio generation is not implemented yet; current audio path is fallback/static only.
 - Branching remains item-by-item rather than a persistent Ren'Py-style graph.
-- Free-text classifier has fusion plumbing, but no offline calibration dataset or pairwise Bradley-Terry-style scorer yet.
 - Real AI acceptance with DeepSeek/SiliconFlow should be rerun after setting local secrets.
 
 ## Next Slices
 
-1. Build a small calibration set of free-text lines against known option keys and measure classifier agreement.
-2. Add pairwise comparison mode for ambiguous free text, especially when LLM and embedding disagree.
-3. Add lightweight generated/curated sprites and backgrounds keyed by story template.
-4. Expose user-authored story templates only after moderation and privacy decisions.
-5. Add deeper branch memory once story quality is stable.
+1. Browser-smoke the share page, profile recommendation card, and evolution timeline.
+2. Tune SD prompt templates and add a ComfyUI workflow adapter if local SD WebUI quality is not enough.
+3. Add a cloud image provider adapter if local generation is too heavy for deployment.
+4. Add deeper branch memory once story quality is stable.
+
+## 2026-05-12 SD WebUI Acceptance
+
+- Local SD WebUI: `http://127.0.0.1:7860`
+- Detected model: `anything-v5-PrtRE.safetensors`
+- Admin generated assets: 4 backgrounds and 4 character sprites.
+- Public scene API returned generated background and generated character asset URLs.
+- Browser `/story` smoke rendered generated PNG assets with no console errors; Debug panel reported `generated / generated`.

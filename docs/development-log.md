@@ -1,5 +1,56 @@
 # Development Log
 
+## 2026-05-12: VN Asset Pipeline, Share Links, Evolution, Public Social UI
+
+### Completed
+
+- Added a real Story Mode asset pipeline:
+  - backend `galgame_asset_service.py`
+  - `GalgameAssetReference` fields on `GalgameScene`
+  - local fallback background SVGs, character sprite SVGs, and ambient WAV
+  - optional SD WebUI or OpenAI-compatible image generation through env config
+  - Admin asset status, manual generate, and story-template pre-generation APIs
+  - conservative connected-background alpha post-processing for generated character sprites
+  - generated assets ignored under `frontend/public/generated/`
+- Updated AI scene generation to return image-model-friendly English prompts for background and character assets.
+- Reworked `/story` away from the analysis-heavy side panel:
+  - full-screen visual novel background image
+  - character sprite image
+  - bottom dialogue box
+  - Log / Hide / Template / Debug / Report controls
+  - classifier/asset evidence hidden behind Debug
+- Added public user evolution API and `/evolution` page for long-term report/history trajectory.
+- Added public opt-in recommendation UI on `/profile`, still gated by `RELATIONSHIP_RECOMMENDATIONS_ENABLED` and user opt-in.
+- Added `/share` landing page and report share/export controls.
+- Share links generated from reports include the sharer's invite code, so incoming users preserve invite graph attribution.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false pytest` passed with `59 passed`.
+- Frontend: `npm run lint` passed with two existing `<img>` optimization warnings for dynamic local asset URLs.
+- Frontend: `npm run build` passed.
+- Real SD WebUI acceptance:
+  - local SD WebUI at `http://127.0.0.1:7860` responded through `/sdapi/v1/sd-models`.
+  - model detected: `anything-v5-PrtRE.safetensors`.
+  - Admin asset API generated 4 backgrounds and 4 character sprites under `frontend/public/generated/galgame`.
+  - Public `/api/session/{id}/galgame/scene` returned `background_asset.source=generated` and `character_asset.source=generated`.
+  - Browser smoke on `/story` rendered generated background/sprite, 5 choices, no console errors, and Debug showed `generated / generated`.
+  - Screenshot evidence:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-vn-browser\story-vn-generated-v2.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-vn-browser\story-vn-debug-v2.png`
+
+### Not Completed Yet
+
+- Browser acceptance for share/evolution/profile is still pending; `/story` asset UI is smoke-tested.
+- ComfyUI is only probed in status; generation still needs a workflow adapter file before it can run.
+- Audio generation is not implemented yet; Story Mode has fallback/static ambient audio only.
+- Recommendation remains disabled by default until the operator explicitly enables `RELATIONSHIP_RECOMMENDATIONS_ENABLED`.
+
+### Next Step
+
+- Run local browser smoke against `/`, `/share`, `/profile`, and `/evolution`.
+- Tune SD prompt templates and add a ComfyUI workflow adapter or cloud image backend only if SD WebUI quality is insufficient.
+
 ## 2026-05-12: Galgame UI, Pairwise Calibration, User Story Templates
 
 ### Completed

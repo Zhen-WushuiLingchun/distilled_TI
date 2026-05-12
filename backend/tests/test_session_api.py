@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.domain.models import VectorSearchHit
 from app.main import app as public_app
 from app.services.ai_service import ai_service
@@ -179,6 +180,15 @@ def test_invite_user_can_keep_long_lived_session_history():
     assert sessions_payload["user"]["handle"] == user_access["handle"]
     assert any(item["session_id"] == session_payload["session_id"] for item in sessions_payload["sessions"])
 
+    evolution_response = public_client.get("/api/user/evolution", headers=user_headers)
+    assert evolution_response.status_code == 200
+    assert any(item["session_id"] == session_payload["session_id"] for item in evolution_response.json()["items"])
+
+    recommendations_response = public_client.get("/api/user/recommendations", headers=user_headers)
+    assert recommendations_response.status_code == 200
+    assert "enabled" in recommendations_response.json()
+    assert isinstance(recommendations_response.json()["items"], list)
+
     access_response = public_client.post(
         f"/api/user/session/{session_payload['session_id']}/access",
         json={},
@@ -188,8 +198,9 @@ def test_invite_user_can_keep_long_lived_session_history():
     assert access_response.json()["session_secret"]
 
 
-def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatch):
+def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path / "generated"))
     start_response = public_client.post("/api/session/start", json={"mode": "core"})
     payload = start_response.json()
     headers = session_headers(payload["session_secret"])
@@ -205,6 +216,8 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatc
     assert scene["custom_input_enabled"] is True
     assert scene["background_key"]
     assert scene["character_key"]
+    assert scene["background_asset"]["url"].startswith("/galgame-assets/backgrounds/")
+    assert scene["character_asset"]["url"].startswith("/galgame-assets/sprites/")
     assert scene["ai_generated"] is False
     assert scene["prompt_shadow"].startswith("测量影子")
 

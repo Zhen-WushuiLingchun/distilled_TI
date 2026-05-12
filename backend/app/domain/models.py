@@ -297,6 +297,15 @@ class GalgameChoice(BaseModel):
     tone: str
 
 
+class GalgameAssetReference(BaseModel):
+    kind: Literal["background", "character", "audio"]
+    key: str
+    prompt: str = ""
+    url: str | None = None
+    source: Literal["generated", "fallback", "external", "none"] = "fallback"
+    status: Literal["ready", "disabled", "failed", "missing"] = "ready"
+
+
 class GalgameScene(BaseModel):
     scene_id: str
     session_id: str
@@ -315,6 +324,9 @@ class GalgameScene(BaseModel):
     background_prompt: str = ""
     character_key: str = "desk_mate"
     character_prompt: str = ""
+    background_asset: GalgameAssetReference | None = None
+    character_asset: GalgameAssetReference | None = None
+    audio_asset: GalgameAssetReference | None = None
     story_template_id: str | None = None
     ai_generated: bool = False
     custom_input_enabled: bool = True
@@ -504,6 +516,19 @@ class SessionHistoryEntry(BaseModel):
     updated_at: datetime
     cluster_name: str | None = None
     narrative_label: str | None = None
+
+
+class UserEvolutionEntry(BaseModel):
+    session_id: str
+    question_count: int
+    can_generate_report: bool
+    cluster_name: str | None = None
+    narrative_label: str | None = None
+    core_mu: dict[str, float] = Field(default_factory=dict)
+    zeta: dict[str, float] = Field(default_factory=dict)
+    active_modules: list[str] = Field(default_factory=list)
+    updated_at: datetime
+    core_delta_from_previous: dict[str, float] = Field(default_factory=dict)
 
 
 class ClusterLabelOverride(BaseModel):

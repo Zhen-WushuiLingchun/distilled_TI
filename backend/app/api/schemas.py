@@ -9,6 +9,7 @@ from app.domain.models import (
     ClusterOverview,
     EmbeddingScoreBreakdown,
     GalgameChoice,
+    GalgameAssetReference,
     GalgameScene,
     GalgameStoryTemplate,
     GalgameTextInference,
@@ -22,6 +23,7 @@ from app.domain.models import (
     SessionReport,
     SessionState,
     SessionSummary,
+    UserEvolutionEntry,
     UserProfile,
     UserRecommendation,
     UserRelationship,
@@ -81,6 +83,11 @@ class UserProfileUpdateRequest(BaseModel):
 class UserSessionListResponse(BaseModel):
     user: UserProfileResponse
     sessions: list[SessionHistoryEntry]
+
+
+class UserEvolutionResponse(BaseModel):
+    user: UserProfileResponse
+    items: list[UserEvolutionEntry] = Field(default_factory=list)
 
 
 class QuestionResponse(BaseModel):
@@ -192,6 +199,34 @@ class GalgameStoryTemplateResponse(GalgameStoryTemplate):
 
 class GalgameStoryTemplateListResponse(BaseModel):
     items: list[GalgameStoryTemplateResponse] = Field(default_factory=list)
+
+
+class GalgameAssetStatusResponse(BaseModel):
+    generation_enabled: bool
+    backend: str
+    base_url: str
+    model: str = ""
+    public_url_prefix: str
+    background_count: int = 0
+    character_count: int = 0
+    sdwebui_available: bool = False
+    comfyui_available: bool = False
+
+
+class GalgameAssetGenerateRequest(BaseModel):
+    kind: str = "background"
+    key: str
+    prompt: str
+    force: bool = False
+
+
+class GalgameStoryTemplateAssetGenerateRequest(BaseModel):
+    include_character: bool = False
+    force: bool = False
+
+
+class GalgameAssetGenerateResponse(BaseModel):
+    assets: dict[str, GalgameAssetReference] = Field(default_factory=dict)
 
 
 class MapPoint(BaseModel):

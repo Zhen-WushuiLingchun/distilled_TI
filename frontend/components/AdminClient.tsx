@@ -10,7 +10,10 @@ import {
   createTemplate,
   deleteGalgameStoryTemplate,
   deleteTemplate,
+  generateGalgameAsset,
+  generateGalgameStoryTemplateAssets,
   getAIConfigStatus,
+  getGalgameAssetStatus,
   getClusterOverview,
   getUserRecommendations,
   listGalgameStoryTemplates,
@@ -28,6 +31,8 @@ import {
   searchSimilarSessions,
   searchSimilarTemplates,
   type GalgameStoryTemplate,
+  type GalgameAssetReference,
+  type GalgameAssetStatus,
   type ClusterOverview,
   type InviteCode,
   type Question,
@@ -61,6 +66,8 @@ export function AdminClient() {
   const [templates, setTemplates] = useState<Question[]>([]);
   const [instances, setInstances] = useState<Question[]>([]);
   const [storyTemplates, setStoryTemplates] = useState<GalgameStoryTemplate[]>([]);
+  const [assetStatus, setAssetStatus] = useState<GalgameAssetStatus | null>(null);
+  const [lastGeneratedAssets, setLastGeneratedAssets] = useState<Record<string, GalgameAssetReference>>({});
   const [clusterOverview, setClusterOverview] = useState<ClusterOverview | null>(null);
   const [vectorFailures, setVectorFailures] = useState<VectorSyncFailure[]>([]);
   const [preview, setPreview] = useState<RewritePreviewBundle | null>(null);
@@ -79,6 +86,8 @@ export function AdminClient() {
   const [inviteForm, setInviteForm] = useState({ created_by_user_id: "", label: "Campus batch", max_uses: "10" });
   const [vectorScope, setVectorScope] = useState<"templates" | "instances" | "sessions" | "galgame_turns" | "all">("all");
   const [similarTurnPrompt, setSimilarTurnPrompt] = useState("");
+  const [assetForce, setAssetForce] = useState(false);
+  const [assetIncludeCharacter, setAssetIncludeCharacter] = useState(false);
   const [storyTemplateForm, setStoryTemplateForm] = useState({
     template_id: "",
     name: "雨天后的社团活动室",
@@ -135,6 +144,7 @@ export function AdminClient() {
       aiStatusPayload,
       failurePayload,
       storyTemplatePayload,
+      assetStatusPayload,
     ] =
       await Promise.all([
         listAdminSessions(),
@@ -147,6 +157,7 @@ export function AdminClient() {
         getAIConfigStatus(),
         listVectorSyncFailures(),
         listGalgameStoryTemplates(true),
+        getGalgameAssetStatus(),
       ]);
     return {
       sessionPayload,
@@ -159,6 +170,7 @@ export function AdminClient() {
       aiStatusPayload,
       failurePayload,
       storyTemplatePayload,
+      assetStatusPayload,
     };
   }
 
@@ -174,6 +186,7 @@ export function AdminClient() {
       aiStatusPayload,
       failurePayload,
       storyTemplatePayload,
+      assetStatusPayload,
     } = payload;
     setSessions(sessionPayload.sessions);
     setUsers(userPayload.items);
@@ -182,6 +195,7 @@ export function AdminClient() {
     setTemplates(templatePayload.items);
     setInstances(instancePayload.items);
     setStoryTemplates(storyTemplatePayload.items);
+    setAssetStatus(assetStatusPayload);
     setClusterOverview(clusterPayload);
     setAiStatus(aiStatusPayload);
     setVectorFailures(failurePayload.items);
@@ -297,6 +311,31 @@ export function AdminClient() {
   async function handleDeleteStoryTemplate(templateId: string) {
     await deleteGalgameStoryTemplate(templateId);
     setFeedback(`Deleted story template ${templateId}`);
+    await load();
+  }
+
+  async function handleGenerateAsset(kind: "background" | "character") {
+    const key = kind === "background" ? storyTemplateForm.background_key : storyTemplateForm.character_key;
+    const prompt = kind === "background" ? storyTemplateForm.background_prompt : storyTemplateForm.character_prompt;
+    const response = await generateGalgameAsset({
+      kind,
+      key,
+      prompt,
+      force: assetForce,
+    });
+    setLastGeneratedAssets(response.assets);
+    setFeedback(`Generated ${Object.keys(response.assets).join(", ") || kind} asset`);
+    await load();
+  }
+
+  async function handleGenerateStoryTemplateAssets() {
+    if (!storyTemplateForm.template_id) return;
+    const response = await generateGalgameStoryTemplateAssets(storyTemplateForm.template_id, {
+      include_character: assetIncludeCharacter,
+      force: assetForce,
+    });
+    setLastGeneratedAssets(response.assets);
+    setFeedback(`Generated assets for ${storyTemplateForm.template_id}: ${Object.keys(response.assets).join(", ")}`);
     await load();
   }
 
@@ -496,6 +535,53 @@ export function AdminClient() {
                     Update selected
                   </button>
                 </div>
+              </div>
+              <div className="surface-sunken p-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="label-mini">Asset Pipeline</p>
+                    <p className="mt-1 text-[0.82rem] leading-5 text-[color:var(--ink-muted)]">
+                      真实体验应走 SD WebUI 或兼容图片 API。Fallback SVG 只用于无模型时兜底。
+                    </p>
+                  </div>
+                  <span className="chip">
+                    {assetStatus?.backend ?? "unknown"} / {assetStatus?.sdwebui_available ? "SD online" : "SD offline"}
+                  </span>
+                </div>
+                <p className="num mt-2 text-[0.76rem] text-[color:var(--ink-faint)]">
+                  enabled {String(assetStatus?.generation_enabled ?? false)} · bg {assetStatus?.background_count ?? 0} · char {assetStatus?.character_count ?? 0} · {assetStatus?.base_url ?? "-"}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => void handleGenerateAsset("background")}>
+                    Generate BG from form
+                  </button>
+                  <button className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => void handleGenerateAsset("character")}>
+                    Generate Sprite from form
+                  </button>
+                  <button className="btn btn-primary px-3 py-1.5 text-xs" disabled={!storyTemplateForm.template_id} onClick={() => void handleGenerateStoryTemplateAssets()}>
+                    Pre-generate selected template
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-4 text-xs text-[color:var(--ink-muted)]">
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={assetForce} onChange={(event) => setAssetForce(event.target.checked)} />
+                    force overwrite
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={assetIncludeCharacter} onChange={(event) => setAssetIncludeCharacter(event.target.checked)} />
+                    include character on template batch
+                  </label>
+                </div>
+                {Object.keys(lastGeneratedAssets).length ? (
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                    {Object.entries(lastGeneratedAssets).map(([kind, asset]) => (
+                      <div key={`${kind}-${asset.key}`} className="rounded-[var(--r-md)] bg-[color:var(--bg-paper)] p-2.5">
+                        <p className="num text-[0.72rem] text-[color:var(--ink-muted)]">{kind} / {asset.status} / {asset.source}</p>
+                        <p className="mt-1 truncate text-xs text-[color:var(--ink-body)]">{asset.url ?? "no url"}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="space-y-2">
                 {storyTemplates.map((template) => (

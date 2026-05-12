@@ -27,9 +27,11 @@ from app.api.schemas import (
     SubmitResponseRequest,
     SubmitResponseResponse,
     UserAccessResponse,
+    UserEvolutionResponse,
     UserProfileResponse,
     UserProfileUpdateRequest,
     UserSessionListResponse,
+    UserRecommendationResponse,
     WorkbenchEvidenceResponse,
 )
 from app.api.security import build_owner_key
@@ -121,6 +123,31 @@ def list_user_sessions(
     return UserSessionListResponse(
         user=UserProfileResponse.from_profile(profile),
         sessions=session_service.list_sessions(user_id=profile.user_id),
+    )
+
+
+@router.get("/user/evolution", response_model=UserEvolutionResponse)
+def get_user_evolution(
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserEvolutionResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return UserEvolutionResponse(
+        user=UserProfileResponse.from_profile(profile),
+        items=session_service.build_user_evolution(profile.user_id),
+    )
+
+
+@router.get("/user/recommendations", response_model=UserRecommendationResponse)
+def current_user_recommendations(
+    limit: int = 5,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserRecommendationResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return UserRecommendationResponse(
+        enabled=settings.relationship_recommendations_enabled,
+        items=user_service.recommend_candidates(profile.user_id, limit),
     )
 
 

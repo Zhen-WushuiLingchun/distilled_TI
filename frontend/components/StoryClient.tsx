@@ -149,6 +149,7 @@ export function StoryClient() {
   const [templateStatus, setTemplateStatus] = useState("");
   const [dialogueLog, setDialogueLog] = useState<DialogueLogEntry[]>([]);
   const startedAtRef = useRef<number>(Date.now());
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -223,6 +224,15 @@ export function StoryClient() {
     }, autoReveal ? 18 : 26);
     return () => window.clearInterval(interval);
   }, [scene?.scene_id, scene?.character_text, autoReveal]);
+
+  useEffect(() => {
+    const player = audioRef.current;
+    if (!player || !scene?.audio_asset?.url) return;
+    player.volume = 0.18;
+    void player.play().catch(() => {
+      // Browser autoplay policies can block ambient audio until the user clicks.
+    });
+  }, [scene?.audio_asset?.url]);
 
   async function refreshTemplates(currentUser = user) {
     if (!currentUser) return;
@@ -332,6 +342,8 @@ export function StoryClient() {
   }
 
   const selectedChoice = scene?.choices.find((choice) => choice.option_key === selectedOptionKey);
+  const backgroundUrl = scene?.background_asset?.url ?? "/galgame-assets/backgrounds/campus_courtyard.svg";
+  const characterUrl = scene?.character_asset?.url ?? "/galgame-assets/sprites/desk_mate.svg";
 
   if (busy && !scene) {
     return (
@@ -348,11 +360,14 @@ export function StoryClient() {
   return (
     <main className={`story-shell story-shell-vn ${hideUI ? "is-ui-hidden" : ""}`}>
       <section className="story-vn-frame">
-        <div className="story-vn-bg" data-background-key={scene?.background_key ?? "campus_window"} />
+        <div className="story-vn-bg" data-background-key={scene?.background_key ?? "campus_window"}>
+          <img className="story-vn-bg-image" src={backgroundUrl} alt="" />
+        </div>
         <div className="story-vn-atmosphere" />
         <div className="story-vn-character" data-character-key={scene?.character_key ?? "desk_mate"} aria-hidden>
-          <div className="story-vn-face" />
+          <img className="story-vn-sprite-image" src={characterUrl} alt="" />
         </div>
+        {scene?.audio_asset?.url ? <audio ref={audioRef} src={scene.audio_asset.url} loop /> : null}
 
         <header className="story-vn-hud">
           <div>
@@ -372,6 +387,10 @@ export function StoryClient() {
           <button type="button" onClick={() => setShowLog(true)}>Log</button>
           <button type="button" onClick={() => setHideUI((value) => !value)}>{hideUI ? "Show" : "Hide"}</button>
           <button type="button" onClick={() => setShowTemplates(true)}>Template</button>
+          <button type="button" onClick={() => setShowDebug((value) => !value)}>Debug</button>
+          <button type="button" disabled={!canGenerateReport || busy} onClick={() => void handleReport()}>
+            {canGenerateReport ? "Report" : `Report ${remainingUntilReport}`}
+          </button>
           <button type="button" onClick={() => router.push("/session")}>Workbench</button>
         </div>
 
@@ -427,24 +446,16 @@ export function StoryClient() {
           </>
         ) : null}
 
-        <aside className="story-vn-status">
-          <button type="button" className="story-mini-card" onClick={() => setShowDebug((value) => !value)}>
-            <span>Context</span>
-            <strong>{scene?.story_template_id ?? "default"}</strong>
-          </button>
-          <button type="button" className="story-mini-card" disabled={!canGenerateReport || busy} onClick={() => void handleReport()}>
-            <span>Report</span>
-            <strong>{canGenerateReport ? "生成" : `还差 ${remainingUntilReport}`}</strong>
-          </button>
-        </aside>
-
         {showDebug ? (
           <section className="story-vn-debug">
-            <p className="label-mini">Retrieval / Classifier Evidence</p>
+            <p className="label-mini">Asset / Classifier Debug</p>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               <div>
                 <p className="num text-[0.72rem] text-[color:var(--ink-faint)]">BG / CHAR</p>
                 <p>{scene?.background_key ?? "-"} / {scene?.character_key ?? "-"}</p>
+                <p className="mt-1 text-xs text-[color:var(--ink-muted)]">
+                  {scene?.background_asset?.source ?? "fallback"} / {scene?.character_asset?.source ?? "fallback"}
+                </p>
               </div>
               <div>
                 <p className="num text-[0.72rem] text-[color:var(--ink-faint)]">Template</p>

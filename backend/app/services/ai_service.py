@@ -390,6 +390,9 @@ class AIService:
                                     "你是一个 AI galgame 剧情引擎。像 AI-GAL 一样，根据主题、人物、最近剧情和玩家上一轮选择继续写下一幕。"
                                     "可以有校园悬疑、社团冲突、暧昧关系、轻喜剧、突发事件和分支张力；不要写成问卷，也不要解释测量目的。"
                                     "唯一硬规则：choice_texts 的 key 必须沿用输入里的 option_key；不要直接给玩家下心理诊断。"
+                                    "同时为每一幕生成可给生图模型使用的英文素材提示："
+                                    "background_prompt 写视觉小说背景图提示，强调场景、时间、光线、构图，必须 no humans/no text；"
+                                    "character_prompt 写正面半身立绘提示，非色情、非暴露，保留角色气质。"
                                     "输出纯 JSON："
                                     '{"title":"...","location":"...","mood":"...","speaker":"...",'
                                     '"narrator_text":"...","character_text":"...",'

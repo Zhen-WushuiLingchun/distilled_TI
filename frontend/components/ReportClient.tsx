@@ -9,9 +9,11 @@ import { RadarChart } from "@/components/RadarChart";
 import {
   deleteSession,
   generateSessionReport,
+  getCurrentUser,
   getSessionMap,
   type SessionMap,
   type SessionReport,
+  type UserProfile,
 } from "@/lib/api";
 import {
   clearActiveSessionAccess,
@@ -19,6 +21,7 @@ import {
   getActiveSessionAccess,
   getFinalReportSnapshot,
   getReportViewPreferences,
+  getUserAccess,
   saveReportViewPreferences,
   type NamingStyle,
   type ProjectionMode,
@@ -43,6 +46,8 @@ export function ReportClient({ sessionId }: ReportClientProps) {
   const [warning, setWarning] = useState("");
   const [projectionMode, setProjectionMode] = useState<ProjectionMode>(() => getReportViewPreferences().projectionMode);
   const [namingStyle, setNamingStyle] = useState<NamingStyle>(() => getReportViewPreferences().namingStyle);
+  const [shareProfile, setShareProfile] = useState<UserProfile | null>(null);
+  const [shareStatus, setShareStatus] = useState("");
   const reportRef = useRef(report);
   const mapRef = useRef(map);
   const hasMatchingAccess = activeAccess && (!sessionId || activeAccess.session_id === sessionId);
@@ -62,6 +67,14 @@ export function ReportClient({ sessionId }: ReportClientProps) {
     reportRef.current = report;
     mapRef.current = map;
   }, [report, map]);
+
+  useEffect(() => {
+    const userAccess = getUserAccess();
+    if (!userAccess) return;
+    getCurrentUser(userAccess)
+      .then(setShareProfile)
+      .catch(() => setShareProfile(null));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +143,40 @@ export function ReportClient({ sessionId }: ReportClientProps) {
   function handleCloseFinalReport() {
     clearFinalReportSnapshot();
     router.push("/");
+  }
+
+  function buildShareLink() {
+    if (!shareProfile || typeof window === "undefined") return "";
+    const params = new URLSearchParams({
+      invite: shareProfile.invite_code,
+      from: shareProfile.handle,
+      title: report?.narrative_label ?? "Distilled TI report",
+    });
+    return `${window.location.origin}/share?${params.toString()}`;
+  }
+
+  async function handleCopyShare() {
+    const link = buildShareLink();
+    if (!link) {
+      setShareStatus("需要先通过邀请码进入，才能生成带邀请链的分享链接。");
+      return;
+    }
+    const text = `我完成了一次 Distilled TI 剧情测绘：${report?.narrative_label ?? ""}\n${link}`;
+    await navigator.clipboard.writeText(text);
+    setShareStatus("分享文案已复制，链接里已包含你的邀请链。");
+  }
+
+  function handleExportJSON() {
+    if (!report || typeof window === "undefined") return;
+    const blob = new Blob([JSON.stringify({ report, map, shared_by: shareProfile?.handle ?? null }, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `distilled-ti-report-${report.session_id}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   if (displayError) {
@@ -224,6 +271,33 @@ export function ReportClient({ sessionId }: ReportClientProps) {
                 </div>
               </div>
             ) : null}
+
+            <div className="mt-6 rounded-[var(--r-lg)] border border-[color:var(--accent)]/20 bg-[color:var(--accent-soft)]/45 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="label-mini">Share / Export</p>
+                  <h3 className="mt-1.5 text-lg text-[color:var(--ink-strong)]">分享报告入口</h3>
+                  <p className="mt-2 text-sm leading-6 text-[color:var(--ink-muted)]">
+                    向外分享只生成入口页链接，不暴露你的完整报告数据；链接会自动带上分享者的邀请码。
+                  </p>
+                </div>
+                <span className="chip">{shareProfile ? `invite ${shareProfile.invite_code}` : "no invite"}</span>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" className="btn btn-primary" onClick={() => void handleCopyShare()}>
+                  复制分享链接
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={handleExportJSON}>
+                  导出 JSON
+                </button>
+                {shareProfile ? (
+                  <button type="button" className="btn btn-ghost" onClick={() => router.push(`/share?invite=${encodeURIComponent(shareProfile.invite_code)}&from=${encodeURIComponent(shareProfile.handle)}`)}>
+                    预览分享页
+                  </button>
+                ) : null}
+              </div>
+              {shareStatus ? <p className="mt-3 text-xs leading-5 text-[color:var(--accent-ink)]">{shareStatus}</p> : null}
+            </div>
 
             <div className="mt-7 grid gap-3 md:grid-cols-2">
               <label className="surface-flat block p-3.5">

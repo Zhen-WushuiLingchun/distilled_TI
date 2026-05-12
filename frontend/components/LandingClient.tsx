@@ -27,6 +27,9 @@ export function LandingClient() {
   const [inviteError, setInviteError] = useState("");
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get("invite");
+    if (invite) setInviteCode(invite);
     const stored = getUserAccess();
     if (!stored) return;
     setUserAccess(stored);

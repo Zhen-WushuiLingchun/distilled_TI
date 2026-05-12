@@ -40,6 +40,7 @@
    - 由 `SessionService.build_galgame_scene()` 和 `/story` 前端组成
    - 借鉴 AI-GAL 的“主题、角色、剧情历史、分支选择、玩家自定义输入 -> 下一幕”循环
    - 参考 `paper2galgame` 的单屏视觉小说结构：背景、角色、对白框、Log、Hide、设置/模板抽屉
+   - 背景、立绘和音频通过 `GalgameAssetReference` 返回给前端；默认使用本地 fallback SVG/WAV，启用后可走 SD WebUI 生成
    - 把当前 `ItemInstance` 作为隐藏测量种子，而不是把题面直接写进剧情
    - 用户可以点选剧情选项，也可以写自由台词
    - 自由台词会走 LLM / embedding / pairwise / 规则融合分类，置信度足够时映射回标准 `option_key`
@@ -139,7 +140,41 @@ Public 侧还允许匿名注册用户管理自己的剧情模板：
 - `PUT /api/user/galgame/story-templates/{template_id}`
 - `DELETE /api/user/galgame/story-templates/{template_id}`
 
-隐藏推荐由 `RELATIONSHIP_RECOMMENDATIONS_ENABLED` 控制，默认关闭。即使开启，也要求用户设置 `recommendation_opt_in=true`，并且只在 Admin 实验视图展示候选，不进入公开页面。
+推荐由 `RELATIONSHIP_RECOMMENDATIONS_ENABLED` 控制，默认关闭。公开 `/profile` 只展示匿名 handle、相似理由和分数；即使开启，也要求用户设置 `recommendation_opt_in=true`，并且会排除已有直接邀请关系的人。
+
+### 2.0b Story Mode 资产流水线
+
+Story Mode 的资产解析在 `backend/app/services/galgame_asset_service.py`。
+
+默认行为：
+
+- `GALGAME_ASSET_GENERATION_ENABLED=false`
+- 背景回退到 `frontend/public/galgame-assets/backgrounds/*.svg`
+- 立绘回退到 `frontend/public/galgame-assets/sprites/*.svg`
+- 音频默认只返回 disabled；如果 `GALGAME_AUDIO_ASSET_ENABLED=true`，使用 `frontend/public/galgame-assets/audio/ambient-room.wav`
+- 前端 `/story` 只读 scene 返回的 `background_asset / character_asset / audio_asset`，不自己猜素材路径
+
+可选 SD WebUI 生成：
+
+```powershell
+$env:GALGAME_ASSET_GENERATION_ENABLED="true"
+$env:GALGAME_ASSET_BACKEND="sdwebui"
+$env:GALGAME_ASSET_BASE_URL="http://127.0.0.1:7860"
+$env:GALGAME_ASSET_GENERATE_BACKGROUNDS="true"
+$env:GALGAME_ASSET_GENERATE_CHARACTERS="false"
+```
+
+也可以把 `GALGAME_ASSET_BACKEND` 设为 `openai_images` / `image_api`，此时后端会调用 `{GALGAME_ASSET_BASE_URL}/images/generations`，并保存返回的 `b64_json` 或 `url` 图片。
+
+Admin 操作接口：
+
+- `GET /api/admin/galgame/assets/status`
+- `POST /api/admin/galgame/assets/generate`
+- `POST /api/admin/galgame/story-templates/{template_id}/assets`
+
+生成后的图片写到 `frontend/public/generated/galgame`，该目录被 `.gitignore` 忽略。已生成 PNG 会优先于 fallback 被 `/story` 使用；`GALGAME_ASSET_GENERATION_ENABLED` 只控制缺图时是否自动生成。背景 prompt 强制走视觉小说背景、no humans/no text；角色 prompt 走非色情半身立绘。角色 PNG 会做一次保守的角落背景连通域抠底，让 SD WebUI 产出的纯色背景更接近透明 sprite。生成失败只回退本地素材，不阻塞剧情。
+
+2026-05-12 本地验收记录：Windows 本机 SD WebUI `http://127.0.0.1:7860` 可用，模型为 `anything-v5-PrtRE.safetensors`；Admin 手动生成接口成功产出 4 张背景和 4 张角色图，`/story` 浏览器验收中 Debug 面板显示 `generated / generated`。
 
 ### 2.1 `SessionState`
 

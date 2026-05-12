@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080" role="img" aria-label="club recorder visual novel sprite">
+  <defs>
+    <linearGradient id="coat" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#273c35"/>
+      <stop offset=".55" stop-color="#6e7940"/>
+      <stop offset="1" stop-color="#1d2b25"/>
+    </linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000" flood-opacity=".28"/></filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M206 1044 C204 846 230 704 288 610 H432 C490 704 516 846 514 1044Z" fill="url(#coat)"/>
+    <path d="M292 610 L360 760 L428 610Z" fill="#f5ead5"/>
+    <path d="M322 660 H398 L386 1044 H334Z" fill="#263527" opacity=".72"/>
+    <path d="M194 728 C132 812 112 930 104 1044 H214 C224 910 250 800 304 668Z" fill="#263c35"/>
+    <path d="M526 728 C588 812 608 930 616 1044 H506 C496 910 470 800 416 668Z" fill="#263c35"/>
+    <ellipse cx="360" cy="428" rx="120" ry="148" fill="#f0c4a4"/>
+    <path d="M240 414 C240 294 304 214 390 216 C482 218 532 300 496 446 C468 372 410 324 330 320 C294 340 264 374 240 414Z" fill="#242a24"/>
+    <path d="M308 426 Q330 418 350 426 M370 426 Q392 418 414 426" stroke="#2a231d" stroke-width="8" stroke-linecap="round" fill="none"/>
+    <path d="M334 514 Q360 530 388 514" stroke="#895248" stroke-width="7" stroke-linecap="round" fill="none"/>
+    <rect x="250" y="682" width="220" height="64" rx="12" fill="#ede2be" opacity=".86"/>
+    <path d="M278 710 H442" stroke="#6d6743" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>

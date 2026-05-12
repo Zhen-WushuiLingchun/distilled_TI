@@ -459,6 +459,14 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
     linear-gradient(135deg, #456b73 0%, #84a79b 44%, #d9b979 100%);
   transform: scale(1.03);
 }
+.story-vn-bg-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(1.08) contrast(1.03);
+}
 .story-vn-bg[data-background-key*="library"] {
   background:
     linear-gradient(180deg, rgba(9, 24, 31, 0.18), rgba(8, 15, 18, 0.68)),
@@ -502,53 +510,18 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   position: absolute;
   z-index: -1;
   right: clamp(2rem, 12vw, 13rem);
-  bottom: 10.5rem;
-  width: min(36vw, 390px);
-  height: min(58vh, 620px);
-  border-radius: 48% 48% 0 0;
-  background:
-    radial-gradient(circle at 50% 20%, #f4d5bb 0 16%, transparent 17%),
-    linear-gradient(140deg, #203932 0%, #2f6f5e 45%, #111f1b 100%);
+  bottom: 9rem;
+  width: min(40vw, 470px);
+  height: min(76vh, 760px);
   filter: drop-shadow(0 34px 46px rgba(0, 0, 0, 0.44));
   animation: character-float 6s ease-in-out infinite;
 }
-.story-vn-character[data-character-key*="librarian"] {
-  background:
-    radial-gradient(circle at 50% 20%, #f0d1b8 0 16%, transparent 17%),
-    linear-gradient(140deg, #24323a 0%, #57705f 48%, #192721 100%);
-}
-.story-vn-character[data-character-key*="transfer"] {
-  background:
-    radial-gradient(circle at 50% 20%, #efd0b5 0 16%, transparent 17%),
-    linear-gradient(140deg, #2c293c 0%, #7a4f42 48%, #181622 100%);
-}
-.story-vn-character[data-character-key*="recorder"],
-.story-vn-character[data-character-key*="keeper"] {
-  background:
-    radial-gradient(circle at 50% 20%, #f4d5bb 0 16%, transparent 17%),
-    linear-gradient(140deg, #263431 0%, #6b733d 48%, #19231f 100%);
-}
-.story-vn-character::before,
-.story-vn-character::after {
-  content: "";
-  position: absolute;
-  top: 36%;
-  width: 44%;
-  height: 52%;
-  border-radius: 48% 48% 0 0;
-  background: rgba(24, 44, 39, 0.84);
-}
-.story-vn-character::before { left: -24%; transform: rotate(-16deg); }
-.story-vn-character::after  { right: -24%; transform: rotate(16deg); }
-.story-vn-face {
-  position: absolute;
-  left: 50%;
-  top: 14%;
-  width: 42%;
-  height: 18%;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent 20%, rgba(26, 24, 22, 0.72) 21% 28%, transparent 29% 70%, rgba(26, 24, 22, 0.72) 71% 78%, transparent 79%);
+.story-vn-sprite-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+  transform-origin: bottom center;
 }
 .story-vn-hud {
   position: relative;
@@ -739,40 +712,6 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .story-choice.direct { border-left-color: var(--accent); }
 .story-choice.guarded { border-left-color: var(--warn); }
 .story-choice.ambivalent { border-left-color: var(--line-firm); }
-.story-vn-status {
-  position: absolute;
-  z-index: 6;
-  right: 1.2rem;
-  top: 6.4rem;
-  display: grid;
-  width: min(18rem, 34vw);
-  gap: 0.7rem;
-}
-.story-mini-card {
-  border: 1px solid rgba(255, 246, 220, 0.2);
-  border-radius: 1rem;
-  background: rgba(9, 16, 18, 0.46);
-  color: #fff6dc;
-  padding: 0.85rem 1rem;
-  text-align: left;
-  backdrop-filter: blur(14px);
-}
-.story-mini-card span {
-  display: block;
-  font-family: var(--font-mono), monospace;
-  font-size: 0.68rem;
-  opacity: 0.72;
-}
-.story-mini-card strong {
-  display: block;
-  margin-top: 0.25rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.story-mini-card:disabled {
-  opacity: 0.7;
-}
 .story-vn-debug,
 .story-vn-error,
 .story-vn-busy {
@@ -871,9 +810,68 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   min-height: 5rem;
   resize: vertical;
 }
+
+.share-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 24% 18%, rgba(255, 229, 164, 0.46), transparent 34%),
+    radial-gradient(circle at 80% 76%, rgba(47, 111, 94, 0.24), transparent 36%),
+    linear-gradient(135deg, #efe8d9 0%, #f8f4eb 48%, #d7c4a2 100%);
+}
+.share-card {
+  width: min(48rem, 100%);
+  border: 1px solid rgba(26, 24, 22, 0.1);
+  border-radius: 2rem;
+  background: rgba(255, 252, 244, 0.88);
+  padding: clamp(1.5rem, 5vw, 3rem);
+  box-shadow: 0 30px 110px rgba(55, 43, 31, 0.22);
+  backdrop-filter: blur(20px);
+}
+.share-card h1 {
+  margin-top: 0.75rem;
+  font-size: clamp(2.3rem, 6vw, 5rem);
+  line-height: 0.95;
+}
+
+.evolution-timeline {
+  position: relative;
+  display: grid;
+  gap: 1rem;
+}
+.evolution-timeline::before {
+  content: "";
+  position: absolute;
+  left: 1.15rem;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  width: 1px;
+  background: var(--line-mid);
+}
+.evolution-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.4rem minmax(0, 1fr);
+  gap: 0.85rem;
+}
+.evolution-dot {
+  position: relative;
+  z-index: 1;
+  width: 2.3rem;
+  height: 2.3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(47, 111, 94, 0.28);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.78rem;
+}
 .is-ui-hidden .story-vn-hud,
 .is-ui-hidden .story-vn-controls,
-.is-ui-hidden .story-vn-status,
 .is-ui-hidden .story-vn-debug,
 .is-ui-hidden .story-vn-error {
   opacity: 0;
@@ -885,10 +883,10 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   .story-vn-hud { display: block; }
   .story-vn-pills { justify-content: flex-start; margin-top: 0.8rem; }
   .story-vn-character {
-    right: -1rem;
-    bottom: 20rem;
-    width: 54vw;
-    height: 46vh;
+    right: -1.5rem;
+    bottom: 18.5rem;
+    width: 56vw;
+    height: 50vh;
     opacity: 0.78;
   }
   .story-vn-choice-board {
@@ -905,11 +903,6 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
     padding: 1rem;
   }
   .story-vn-free-line { grid-template-columns: 1fr; }
-  .story-vn-status {
-    top: 8.8rem;
-    right: 0.8rem;
-    width: min(15rem, 48vw);
-  }
   .story-vn-debug {
     top: 12rem;
     right: 0.8rem;
