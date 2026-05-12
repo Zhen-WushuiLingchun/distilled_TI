@@ -69,6 +69,18 @@ class AnswerRecord(BaseModel):
     latency_ms: int | None = None
 
 
+class GalgameTurn(BaseModel):
+    turn_id: str
+    session_id: str
+    item_id: str
+    template_id: str
+    scene_id: str
+    selected_option_key: str
+    custom_text: str | None = None
+    scene_text: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class SessionState(BaseModel):
     core_mu: dict[str, float]
     core_sigma: dict[str, float]
@@ -256,6 +268,31 @@ class WorkbenchEvidence(BaseModel):
     item_evidence: list[WorkbenchEvidenceItem] = Field(default_factory=list)
     session_evidence: list[WorkbenchEvidenceItem] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+
+class GalgameChoice(BaseModel):
+    key: str
+    text: str
+    option_key: str
+    score: float
+    tone: str
+
+
+class GalgameScene(BaseModel):
+    scene_id: str
+    session_id: str
+    item_id: str
+    template_id: str
+    title: str
+    location: str
+    mood: str
+    speaker: str
+    narrator_text: str
+    character_text: str
+    prompt_shadow: str
+    choices: list[GalgameChoice]
+    memory_fragments: list[str] = Field(default_factory=list)
+    custom_input_enabled: bool = True
 
 
 class SessionAccessGrant(BaseModel):

@@ -5,6 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.api.schemas import (
+    GalgameRespondRequest,
+    GalgameSceneResponse,
+    GalgameSceneResultResponse,
     MapResponse,
     NextQuestionRequest,
     QuestionResponse,
@@ -232,6 +235,54 @@ def get_workbench_evidence(
         return session_service.build_workbench_evidence(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/session/{session_id}/galgame/scene", response_model=GalgameSceneResponse)
+def get_galgame_scene(
+    session_id: str,
+    request: Request,
+    x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
+) -> GalgameSceneResponse:
+    _require_session_access(session_id, x_session_secret, request)
+    try:
+        return session_service.build_galgame_scene(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/session/{session_id}/galgame/respond", response_model=GalgameSceneResultResponse)
+def respond_galgame_scene(
+    session_id: str,
+    payload: GalgameRespondRequest,
+    request: Request,
+    x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
+) -> GalgameSceneResultResponse:
+    _require_session_access(session_id, x_session_secret, request)
+    try:
+        session_service.record_galgame_turn(
+            session_id=session_id,
+            item_id=payload.item_id,
+            scene_id=payload.scene_id,
+            option_key=payload.option_key,
+            custom_text=payload.custom_text,
+        )
+        session, next_item = session_service.submit_answer(
+            session_id,
+            payload.item_id,
+            payload.option_key,
+            payload.latency_ms,
+        )
+        next_scene = session_service.build_galgame_scene(session_id) if next_item else None
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return GalgameSceneResultResponse(
+        session_id=session.session_id,
+        state=session.state,
+        can_generate_report=session.state.question_count >= settings.min_questions_for_report,
+        remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
+        scene=next_scene,
+        workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
+    )
 
 
 @router.get("/session/{session_id}/report", response_model=ReportResponse)

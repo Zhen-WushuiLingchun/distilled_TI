@@ -8,6 +8,8 @@ from app.core.config import settings
 from app.domain.models import (
     ClusterOverview,
     EmbeddingScoreBreakdown,
+    GalgameChoice,
+    GalgameScene,
     InviteCode,
     ItemInstance,
     ItemTemplate,
@@ -140,6 +142,31 @@ class SubmitResponseResponse(BaseModel):
     remaining_until_report: int
     next_question: QuestionResponse | None = None
     workbench_checkpoint: WorkbenchCheckpoint | None = None
+
+
+class GalgameChoiceResponse(GalgameChoice):
+    pass
+
+
+class GalgameSceneResponse(GalgameScene):
+    pass
+
+
+class GalgameSceneResultResponse(BaseModel):
+    session_id: str
+    state: SessionState
+    can_generate_report: bool
+    remaining_until_report: int
+    scene: GalgameScene | None = None
+    workbench_checkpoint: WorkbenchCheckpoint | None = None
+
+
+class GalgameRespondRequest(BaseModel):
+    item_id: str
+    scene_id: str
+    option_key: str
+    custom_text: str | None = None
+    latency_ms: int | None = None
 
 
 class MapPoint(BaseModel):

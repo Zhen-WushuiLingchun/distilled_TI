@@ -187,6 +187,51 @@ def test_invite_user_can_keep_long_lived_session_history():
     assert access_response.json()["session_secret"]
 
 
+def test_galgame_scene_wraps_current_question_and_records_custom_text():
+    start_response = public_client.post("/api/session/start", json={"mode": "core"})
+    payload = start_response.json()
+    headers = session_headers(payload["session_secret"])
+
+    scene_response = public_client.get(
+        f"/api/session/{payload['session_id']}/galgame/scene",
+        headers=headers,
+    )
+    assert scene_response.status_code == 200
+    scene = scene_response.json()
+    assert scene["item_id"] == payload["question"]["id"]
+    assert scene["choices"]
+    assert scene["custom_input_enabled"] is True
+    assert scene["prompt_shadow"].startswith("测量影子")
+
+    response = public_client.post(
+        f"/api/session/{payload['session_id']}/galgame/respond",
+        json={
+            "item_id": scene["item_id"],
+            "scene_id": scene["scene_id"],
+            "option_key": scene["choices"][0]["option_key"],
+            "custom_text": "我先观察一下对方真正担心什么，再决定要不要推进。",
+            "latency_ms": 1800,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"]["question_count"] == 1
+    assert body["scene"]["item_id"] != scene["item_id"]
+    assert body["scene"]["memory_fragments"]
+
+    stale_response = public_client.post(
+        f"/api/session/{payload['session_id']}/galgame/respond",
+        json={
+            "item_id": scene["item_id"],
+            "scene_id": scene["scene_id"],
+            "option_key": scene["choices"][0]["option_key"],
+        },
+        headers=headers,
+    )
+    assert stale_response.status_code == 404
+
+
 def test_workbench_evidence_requires_secret_and_hides_raw_scores(monkeypatch):
     start_response = public_client.post("/api/session/start", json={"mode": "core"})
     payload = start_response.json()

@@ -24,6 +24,9 @@ from app.domain.dimensions import (
 from app.domain.item_bank import LIKERT_OPTIONS, build_seed_item_bank
 from app.domain.models import (
     ClusterOverview,
+    GalgameChoice,
+    GalgameScene,
+    GalgameTurn,
     ItemInstance,
     ItemTemplate,
     ItemTemplateCreate,
@@ -745,6 +748,146 @@ class SessionService:
         if not session.current_item_id:
             return None
         return self.get_item(session.current_item_id)
+
+    def build_galgame_scene(self, session_id: str) -> GalgameScene:
+        session = self.get_session(session_id)
+        item = self.get_current_question(session_id)
+        if item is None:
+            raise KeyError("current_item_not_found")
+        turns = local_session_store.list_galgame_turns(session_id, limit=4)
+        dominant_dimension = max(session.state.core_mu.items(), key=lambda entry: abs(entry[1]))[0]
+        uncertain_dimension = max(session.state.core_sigma.items(), key=lambda entry: entry[1])[0]
+        location = self._galgame_location(item)
+        mood = self._galgame_mood(session, item)
+        title = f"Episode {session.state.question_count + 1}: {location}"
+        narrator_text = (
+            f"{location}里，空气像被按下了暂停键。"
+            f"你已经经历了 {session.state.question_count} 个选择，"
+            f"现在最清晰的轮廓是{CORE_DIMENSION_LABELS.get(dominant_dimension, dominant_dimension)}，"
+            f"最模糊的地方仍是{CORE_DIMENSION_LABELS.get(uncertain_dimension, uncertain_dimension)}。"
+        )
+        character_text = self._galgame_character_line(item, session)
+        prompt_shadow = f"测量影子：{item.prompt}"
+        choices = [
+            GalgameChoice(
+                key=f"choice-{index + 1}",
+                text=self._galgame_choice_text(option.text, option.score, item.question_type),
+                option_key=option.key,
+                score=option.score,
+                tone=self._galgame_choice_tone(option.score),
+            )
+            for index, option in enumerate(item.options)
+        ]
+        memory_fragments = [
+            self._galgame_memory_fragment(turn)
+            for turn in turns[-3:]
+        ]
+        return GalgameScene(
+            scene_id=f"{session.session_id}:{item.id}:{session.state.question_count + 1}",
+            session_id=session.session_id,
+            item_id=item.id,
+            template_id=item.template_id,
+            title=title,
+            location=location,
+            mood=mood,
+            speaker=self._galgame_speaker(item),
+            narrator_text=narrator_text,
+            character_text=character_text,
+            prompt_shadow=prompt_shadow,
+            choices=choices,
+            memory_fragments=memory_fragments,
+        )
+
+    def record_galgame_turn(
+        self,
+        session_id: str,
+        item_id: str,
+        scene_id: str,
+        option_key: str,
+        custom_text: str | None = None,
+    ) -> None:
+        session = self.get_session(session_id)
+        if session.current_item_id != item_id:
+            raise KeyError("current_item_mismatch")
+        item = self.get_item(item_id)
+        if option_key not in {option.key for option in item.options}:
+            raise KeyError("option_not_found")
+        expected_scene_id = f"{session_id}:{item_id}:{session.state.question_count + 1}"
+        if scene_id != expected_scene_id:
+            raise KeyError("scene_mismatch")
+        local_session_store.save_galgame_turn(
+            GalgameTurn(
+                turn_id=f"gal-{uuid4()}",
+                session_id=session_id,
+                item_id=item.id,
+                template_id=item.template_id,
+                scene_id=scene_id,
+                selected_option_key=option_key,
+                custom_text=custom_text.strip()[:800] if custom_text else None,
+                scene_text=item.prompt,
+            )
+        )
+
+    def _galgame_location(self, item: ItemInstance) -> str:
+        tags = set(item.scenario_tags)
+        if {"online", "chat_mode"} & tags:
+            return "凌晨的群聊窗口"
+        if {"project", "team_mode"} & tags:
+            return "项目教室的白板前"
+        if {"conflict", "high_stakes"} & tags:
+            return "快要摊牌的走廊"
+        if {"study", "academic"} & tags:
+            return "图书馆靠窗的位置"
+        if {"creative", "aesthetic"} & tags:
+            return "未命名社团活动室"
+        return "校园边缘的自动贩卖机旁"
+
+    def _galgame_mood(self, session: SessionRecord, item: ItemInstance) -> str:
+        if item.generation_mode == "probe":
+            return "追问"
+        if session.state.question_count < 5:
+            return "开场"
+        if session.state.zeta.get("fatigue", 0.0) > 0.35:
+            return "低电量"
+        if session.state.zeta.get("exploration", 0.5) > 0.62:
+            return "分岔"
+        return "校准"
+
+    def _galgame_speaker(self, item: ItemInstance) -> str:
+        if item.layer == "probe":
+            return "临时转学生"
+        if item.layer == "module":
+            return "社团记录员"
+        if item.layer == "sub":
+            return "图书馆管理员"
+        return "同桌"
+
+    def _galgame_character_line(self, item: ItemInstance, session: SessionRecord) -> str:
+        if item.question_type == "contrast_5":
+            return f"如果这件事真的发生在你面前，你会把天平拨向哪一边？{item.prompt}"
+        if item.generation_mode == "llm_rewrite":
+            return f"我换一种问法。别急着给标准答案，只告诉我你在现场会怎么动。{item.prompt}"
+        if session.state.question_count == 0:
+            return f"先从一个轻一点的场景开始。{item.prompt}"
+        return f"上一幕已经留下痕迹了。现在换个角度：{item.prompt}"
+
+    def _galgame_choice_text(self, option_text: str, score: float, question_type: str) -> str:
+        if question_type == "contrast_5":
+            prefix = "偏向右侧" if score > 0 else "偏向左侧" if score < 0 else "暂时停在中间"
+        else:
+            prefix = "主动推进" if score > 0 else "后撤观察" if score < 0 else "保留判断"
+        return f"{prefix}：{option_text}"
+
+    def _galgame_choice_tone(self, score: float) -> str:
+        if score >= 0.5:
+            return "direct"
+        if score <= -0.5:
+            return "guarded"
+        return "ambivalent"
+
+    def _galgame_memory_fragment(self, turn: GalgameTurn) -> str:
+        custom = f" · 自定义台词：{turn.custom_text[:42]}" if turn.custom_text else ""
+        return f"{turn.selected_option_key}{custom}"
 
     def discard_session(self, session_id: str) -> None:
         _session = self.get_session(session_id)
