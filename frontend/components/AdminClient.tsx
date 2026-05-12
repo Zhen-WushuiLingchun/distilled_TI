@@ -5,59 +5,80 @@ import { useEffect, useMemo, useState } from "react";
 import {
   archiveTemplate,
   configureAI,
+  createInvite,
   createTemplate,
   deleteTemplate,
   getAIConfigStatus,
   getClusterOverview,
+  getUserRecommendations,
+  listInvites,
   listAdminSessions,
   listItemInstances,
   listTemplates,
+  listUserRelationships,
+  listUsers,
+  listVectorSyncFailures,
   previewRewrite,
+  reindexVectors,
   saveClusterLabelOverride,
-  type RuntimeAIConfig,
+  searchSimilarSessions,
+  searchSimilarTemplates,
+  type ClusterOverview,
+  type InviteCode,
   type Question,
   type RewritePreviewBundle,
-  type ClusterOverview,
+  type RuntimeAIConfig,
   type SessionHistoryEntry,
+  type UserProfile,
+  type UserRecommendation,
+  type VectorReindexResponse,
+  type VectorSearchHit,
+  type VectorSyncFailure,
   updateTemplate,
 } from "@/lib/api";
 
 const defaultOptions = [
-  { key: "strongly_disagree", text: "非常不同意", score: -1 },
-  { key: "disagree", text: "不同意", score: -0.5 },
-  { key: "neutral", text: "不确定 / 看情况", score: 0 },
-  { key: "agree", text: "同意", score: 0.5 },
-  { key: "strongly_agree", text: "非常同意", score: 1 },
+  { key: "strongly_disagree", text: "Strongly disagree", score: -1 },
+  { key: "disagree", text: "Disagree", score: -0.5 },
+  { key: "neutral", text: "Neutral", score: 0 },
+  { key: "agree", text: "Agree", score: 0.5 },
+  { key: "strongly_agree", text: "Strongly agree", score: 1 },
 ];
 
 export function AdminClient() {
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [invites, setInvites] = useState<InviteCode[]>([]);
+  const [relationships, setRelationships] = useState<Array<{ relationship_id: string; source_user_id: string; target_user_id: string; relationship_type: string; created_at: string }>>([]);
+  const [recommendations, setRecommendations] = useState<UserRecommendation[]>([]);
+  const [recommendationsEnabled, setRecommendationsEnabled] = useState(false);
   const [templates, setTemplates] = useState<Question[]>([]);
   const [instances, setInstances] = useState<Question[]>([]);
   const [clusterOverview, setClusterOverview] = useState<ClusterOverview | null>(null);
+  const [vectorFailures, setVectorFailures] = useState<VectorSyncFailure[]>([]);
+  const [preview, setPreview] = useState<RewritePreviewBundle | null>(null);
+  const [similarHits, setSimilarHits] = useState<VectorSearchHit[]>([]);
+  const [similarSessionHits, setSimilarSessionHits] = useState<VectorSearchHit[]>([]);
+  const [lastReindex, setLastReindex] = useState<VectorReindexResponse | null>(null);
+  const [feedback, setFeedback] = useState("");
+
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [compareLeftId, setCompareLeftId] = useState("");
-  const [compareRightId, setCompareRightId] = useState("");
-  const [preview, setPreview] = useState<RewritePreviewBundle | null>(null);
-  const [feedback, setFeedback] = useState("");
+  const [similarTemplateId, setSimilarTemplateId] = useState("");
+  const [similarSessionId, setSimilarSessionId] = useState("");
+  const [similarPrompt, setSimilarPrompt] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [inviteForm, setInviteForm] = useState({ created_by_user_id: "", label: "Campus batch", max_uses: "10" });
+  const [vectorScope, setVectorScope] = useState<"templates" | "instances" | "sessions" | "all">("all");
+
   const [aiConfig, setAiConfig] = useState<RuntimeAIConfig>({
-    provider: "deepseek",
-    model: "deepseek-chat",
-    base_url: "https://api.deepseek.com",
+    provider: "siliconflow",
+    model: "Qwen/Qwen3-32B",
+    base_url: "https://api.siliconflow.cn/v1",
     api_key: "",
   });
-  const [aiStatus, setAiStatus] = useState<{
-    configured: boolean;
-    provider?: string | null;
-    model?: string | null;
-    base_url?: string | null;
-  }>({ configured: false });
-  const [overrideForm, setOverrideForm] = useState({
-    cluster_index: "0",
-    name: "",
-    narrative_label: "",
-  });
+  const [aiStatus, setAiStatus] = useState<{ configured: boolean; provider?: string | null; model?: string | null; base_url?: string | null }>({ configured: false });
+  const [overrideForm, setOverrideForm] = useState({ cluster_index: "0", name: "", narrative_label: "" });
   const [form, setForm] = useState({
     template_id: "",
     prompt: "",
@@ -70,70 +91,176 @@ export function AdminClient() {
     difficulty: "0",
   });
 
-  async function load() {
-    const [sessionPayload, templatePayload, instancePayload, clusterPayload, aiStatusPayload] = await Promise.all([
-      listAdminSessions(),
-      listTemplates(),
-      listItemInstances(),
-      getClusterOverview(),
-      getAIConfigStatus(),
-    ]);
+  const selectedSession = useMemo(
+    () => sessions.find((item) => item.session_id === selectedSessionId),
+    [sessions, selectedSessionId]
+  );
+  const selectedUser = useMemo(
+    () => users.find((item) => item.user_id === selectedUserId),
+    [users, selectedUserId]
+  );
+
+  async function fetchAdminState() {
+    const [
+      sessionPayload,
+      userPayload,
+      invitePayload,
+      relationshipPayload,
+      templatePayload,
+      instancePayload,
+      clusterPayload,
+      aiStatusPayload,
+      failurePayload,
+    ] =
+      await Promise.all([
+        listAdminSessions(),
+        listUsers(),
+        listInvites(),
+        listUserRelationships(),
+        listTemplates(),
+        listItemInstances(),
+        getClusterOverview(),
+        getAIConfigStatus(),
+        listVectorSyncFailures(),
+      ]);
+    return {
+      sessionPayload,
+      userPayload,
+      invitePayload,
+      relationshipPayload,
+      templatePayload,
+      instancePayload,
+      clusterPayload,
+      aiStatusPayload,
+      failurePayload,
+    };
+  }
+
+  function applyAdminState(payload: Awaited<ReturnType<typeof fetchAdminState>>) {
+    const {
+      sessionPayload,
+      userPayload,
+      invitePayload,
+      relationshipPayload,
+      templatePayload,
+      instancePayload,
+      clusterPayload,
+      aiStatusPayload,
+      failurePayload,
+    } = payload;
     setSessions(sessionPayload.sessions);
+    setUsers(userPayload.items);
+    setInvites(invitePayload.items);
+    setRelationships(relationshipPayload.items);
     setTemplates(templatePayload.items);
     setInstances(instancePayload.items);
     setClusterOverview(clusterPayload);
     setAiStatus(aiStatusPayload);
-    if (!selectedSessionId && sessionPayload.sessions[0]) {
-      setSelectedSessionId(sessionPayload.sessions[0].session_id);
-    }
-    if (!selectedTemplateId && templatePayload.items[0]) {
-      setSelectedTemplateId(templatePayload.items[0].id);
-    }
+    setVectorFailures(failurePayload.items);
+    setSelectedSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
+    setSimilarSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
+    setSelectedUserId((current) => current || userPayload.items[0]?.user_id || "");
+    setSelectedTemplateId((current) => current || templatePayload.items[0]?.id || "");
+    setSimilarTemplateId((current) => current || templatePayload.items[0]?.id || "");
+  }
+
+  async function load() {
+    applyAdminState(await fetchAdminState());
   }
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([listAdminSessions(), listTemplates(), listItemInstances(), getClusterOverview(), getAIConfigStatus()])
-      .then(([sessionPayload, templatePayload, instancePayload, clusterPayload, aiStatusPayload]) => {
-        if (cancelled) return;
-        setSessions(sessionPayload.sessions);
-        setTemplates(templatePayload.items);
-        setInstances(instancePayload.items);
-        setClusterOverview(clusterPayload);
-        setAiStatus(aiStatusPayload);
-        setSelectedSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
-        setSelectedTemplateId((current) => current || templatePayload.items[0]?.id || "");
-        setCompareLeftId((current) => current || instancePayload.items[0]?.id || "");
-        setCompareRightId((current) => current || instancePayload.items[1]?.id || instancePayload.items[0]?.id || "");
-      });
+    void fetchAdminState().then((payload) => {
+      if (cancelled) return;
+      const {
+        sessionPayload,
+        userPayload,
+        invitePayload,
+        relationshipPayload,
+        templatePayload,
+        instancePayload,
+        clusterPayload,
+        aiStatusPayload,
+        failurePayload,
+      } = payload;
+      setSessions(sessionPayload.sessions);
+      setUsers(userPayload.items);
+      setInvites(invitePayload.items);
+      setRelationships(relationshipPayload.items);
+      setTemplates(templatePayload.items);
+      setInstances(instancePayload.items);
+      setClusterOverview(clusterPayload);
+      setAiStatus(aiStatusPayload);
+      setVectorFailures(failurePayload.items);
+      setSelectedSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
+      setSimilarSessionId((current) => current || sessionPayload.sessions[0]?.session_id || "");
+      setSelectedUserId((current) => current || userPayload.items[0]?.user_id || "");
+      setSelectedTemplateId((current) => current || templatePayload.items[0]?.id || "");
+      setSimilarTemplateId((current) => current || templatePayload.items[0]?.id || "");
+    });
     return () => {
       cancelled = true;
     };
   }, []);
-
-  const selectedSession = useMemo(
-    () => sessions.find((session) => session.session_id === selectedSessionId),
-    [selectedSessionId, sessions]
-  );
-  const leftInstance = useMemo(() => instances.find((item) => item.id === compareLeftId), [compareLeftId, instances]);
-  const rightInstance = useMemo(() => instances.find((item) => item.id === compareRightId), [compareRightId, instances]);
-
-  async function handlePreview() {
-    if (!selectedSessionId || !selectedTemplateId) return;
-    const response = await previewRewrite({
-      session_id: selectedSessionId,
-      item_id: selectedTemplateId,
-      style_hint: "更高压、更具体、更能拉开差异的现实场景",
-    });
-    setPreview(response.preview);
-    setFeedback(response.message);
-  }
 
   async function handleConfigureAI() {
     const response = await configureAI(aiConfig);
     setFeedback(response.message);
     setAiConfig((current) => ({ ...current, api_key: "" }));
     await load();
+  }
+
+  async function handleCreateInvite() {
+    const invite = await createInvite({
+      created_by_user_id: inviteForm.created_by_user_id || null,
+      label: inviteForm.label,
+      max_uses: Number(inviteForm.max_uses),
+    });
+    setFeedback(`Created invite ${invite.code}`);
+    await load();
+  }
+
+  async function handleRecommendations() {
+    if (!selectedUserId) return;
+    const response = await getUserRecommendations(selectedUserId, 6);
+    setRecommendationsEnabled(response.enabled);
+    setRecommendations(response.items);
+    setFeedback(response.enabled ? `Loaded ${response.items.length} hidden recommendations` : "Recommendation feature flag is disabled");
+  }
+
+  async function handleVectorReindex() {
+    const response = await reindexVectors(vectorScope);
+    setLastReindex(response);
+    setFeedback(`Reindex finished: ${response.scope} / indexed ${response.indexed_count} / failed ${response.failed_count}`);
+    await load();
+  }
+
+  async function handleSimilarTemplateSearch() {
+    const response = await searchSimilarTemplates({
+      templateId: similarTemplateId || undefined,
+      prompt: similarPrompt.trim() || undefined,
+      topK: 6,
+    });
+    setSimilarHits(response.hits);
+    setFeedback(response.hits.length ? `Found ${response.hits.length} similar template hits` : "No similar templates above threshold");
+  }
+
+  async function handleSimilarSessionSearch() {
+    if (!similarSessionId) return;
+    const response = await searchSimilarSessions({ sessionId: similarSessionId, topK: 5 });
+    setSimilarSessionHits(response.hits);
+    setFeedback(response.hits.length ? `Found ${response.hits.length} similar session hits` : "No similar sessions above threshold");
+  }
+
+  async function handlePreview() {
+    if (!selectedSessionId || !selectedTemplateId) return;
+    const response = await previewRewrite({
+      session_id: selectedSessionId,
+      item_id: selectedTemplateId,
+      style_hint: "more specific, higher pressure, avoid generic phrasing",
+    });
+    setPreview(response.preview);
+    setFeedback(response.message);
   }
 
   async function handleCreateTemplate() {
@@ -151,18 +278,13 @@ export function AdminClient() {
       allow_rewrite: true,
       options: defaultOptions,
     };
-
     const response = await createTemplate(payload);
-    setFeedback(`已创建模板 ${response.item.id}`);
-    setForm((current) => ({ ...current, prompt: "", template_id: response.item.id }));
+    setFeedback(`Created template ${response.item.id}`);
     await load();
   }
 
   async function handleUpdateTemplate() {
-    if (!form.template_id) {
-      setFeedback("请先在模板库中选一个模板再更新。");
-      return;
-    }
+    if (!form.template_id) return;
     const payload = {
       prompt: form.prompt,
       question_type: "likert_5",
@@ -178,19 +300,7 @@ export function AdminClient() {
       options: defaultOptions,
     };
     const response = await updateTemplate(form.template_id, payload);
-    setFeedback(`已更新模板 ${response.item.id}`);
-    await load();
-  }
-
-  async function handleArchiveTemplate(templateId: string) {
-    await archiveTemplate(templateId);
-    setFeedback(`已归档模板 ${templateId}`);
-    await load();
-  }
-
-  async function handleDeleteTemplate(templateId: string) {
-    await deleteTemplate(templateId);
-    setFeedback(`已删除模板 ${templateId}`);
+    setFeedback(`Updated template ${response.item.id}`);
     await load();
   }
 
@@ -202,292 +312,350 @@ export function AdminClient() {
       name: overrideForm.name,
       narrative_label: overrideForm.narrative_label,
     });
-    setFeedback(`已保存 ${clusterOverview.current_version} 的标签修订`);
+    setFeedback("Saved cluster label override");
     await load();
   }
 
-  function loadTemplateIntoEditor(template: Question) {
-    setForm((current) => ({
-      ...current,
-      template_id: template.id,
-      prompt: template.prompt,
-      layer: template.layer,
-      scenario_tags: template.scenario_tags.join(","),
-    }));
+  async function handleArchiveTemplate(templateId: string) {
+    await archiveTemplate(templateId);
+    setFeedback(`Archived ${templateId}`);
+    await load();
+  }
+
+  async function handleDeleteTemplate(templateId: string) {
+    await deleteTemplate(templateId);
+    setFeedback(`Deleted ${templateId}`);
+    await load();
+  }
+
+  function renderHits(hits: VectorSearchHit[]) {
+    if (!hits.length) {
+      return <p className="num mt-2 text-[0.78rem] text-[color:var(--ink-faint)]">No hits</p>;
+    }
+    return (
+      <div className="mt-2 space-y-1.5">
+        {hits.map((hit) => (
+          <div
+            key={`${hit.object_id}-${hit.object_type}`}
+            className="rounded-[var(--r-sm)] border border-[color:var(--line-soft)] bg-[color:var(--bg-sunken)] p-2.5"
+          >
+            <div className="num flex items-center justify-between gap-2 text-[0.7rem] text-[color:var(--ink-muted)]">
+              <span>
+                {hit.object_type} / {hit.score.toFixed(3)}
+                {typeof hit.snapshot_milestone === "number" ? ` / m${hit.snapshot_milestone}` : ""}
+              </span>
+              <span className="truncate">{hit.session_id ?? hit.template_id ?? hit.instance_id ?? hit.object_id}</span>
+            </div>
+            <p className="mt-1.5 text-[0.82rem] leading-5 text-[color:var(--ink-body)]">{hit.prompt_excerpt}</p>
+            {typeof hit.rerank_score === "number" ? (
+              <p className="num mt-1 text-[0.7rem] text-[color:var(--ink-faint)]">rerank {hit.rerank_score.toFixed(3)}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
   }
 
   return (
-    <main className="session-shell">
-      <section className="mx-auto max-w-7xl space-y-8">
-        <div className="rounded-[2.4rem] border border-white/10 bg-white/6 p-8 backdrop-blur-2xl">
+    <main className="cockpit-shell">
+      <section className="relative z-10 mx-auto max-w-7xl space-y-5">
+        <header className="panel fade-rise p-6 md:p-8">
           <p className="label-mini">Admin</p>
-          <h1 className="mt-3 text-5xl text-white">题库与实例管理台</h1>
-          <p className="mt-4 max-w-3xl text-slate-300">
-            这里可以查看短期会话、模板、实例化题目，并直接触发真实模型改写预览。题目区分度和细分纤维都在这里往上推。
-          </p>
-          {feedback ? <p className="mt-5 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-cyan-100">{feedback}</p> : null}
-        </div>
+          <h1 className="mt-2 text-3xl md:text-4xl">Question and Vector Console</h1>
+          {feedback ? (
+            <p className="num mt-3 rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/55 px-3.5 py-2.5 text-sm text-[color:var(--accent-ink)]">
+              {feedback}
+            </p>
+          ) : null}
+        </header>
 
-        <section className="grid gap-8 xl:grid-cols-[0.92fr_1.08fr]">
-          <div className="space-y-8">
-            <div className="glass-card">
-              <p className="label-mini">AI Control</p>
-              <h2 className="mt-3 text-3xl text-white">本地 AI 配置</h2>
-              <p className="mt-4 max-w-3xl text-slate-300">
-                这个面板走独立的 localhost-only 管理 API。配置成功后，普通测试入口会直接消费这里保存的服务端配置，不再在浏览器里存 API Key。
+        <section className="grid gap-5 xl:grid-cols-2">
+          {/* === LEFT COLUMN === */}
+          <div className="space-y-5">
+            {/* AI */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
+              <p className="label-mini">AI</p>
+              <input className="field" value={aiConfig.provider} onChange={(event) => setAiConfig((current) => ({ ...current, provider: event.target.value }))} placeholder="provider" />
+              <input className="field" value={aiConfig.model} onChange={(event) => setAiConfig((current) => ({ ...current, model: event.target.value }))} placeholder="model" />
+              <input className="field" value={aiConfig.base_url} onChange={(event) => setAiConfig((current) => ({ ...current, base_url: event.target.value }))} placeholder="base url" />
+              <input className="field" type="password" value={aiConfig.api_key} onChange={(event) => setAiConfig((current) => ({ ...current, api_key: event.target.value }))} placeholder="api key" />
+              <p className="num text-[0.82rem] text-[color:var(--ink-muted)]">
+                {aiStatus.configured ? `${aiStatus.provider} / ${aiStatus.model} / ${aiStatus.base_url}` : "AI is not configured yet"}
               </p>
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <label className="block">
-                  <span className="mb-2 block text-sm text-slate-300">Provider</span>
-                  <input
-                    className="field"
-                    value={aiConfig.provider}
-                    onChange={(event) => setAiConfig((current) => ({ ...current, provider: event.target.value }))}
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-2 block text-sm text-slate-300">Model</span>
-                  <input
-                    className="field"
-                    value={aiConfig.model}
-                    onChange={(event) => setAiConfig((current) => ({ ...current, model: event.target.value }))}
-                  />
-                </label>
+              <button className="btn btn-primary" onClick={() => void handleConfigureAI()}>
+                Save and test AI config
+              </button>
+            </div>
+
+            {/* Users and invites */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="label-mini">Users / Invites</p>
+                  <h2 className="mt-1.5 text-xl">Anonymous relationship graph</h2>
+                </div>
+                <span className="chip">{users.length} users</span>
               </div>
-              <div className="mt-4 grid gap-4 md:grid-cols-[1.25fr_0.75fr]">
-                <label className="block">
-                  <span className="mb-2 block text-sm text-slate-300">Base URL</span>
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Create Invite</p>
+                <div className="mt-2.5 grid gap-2">
+                  <select
+                    className="field"
+                    value={inviteForm.created_by_user_id}
+                    onChange={(event) => setInviteForm((current) => ({ ...current, created_by_user_id: event.target.value }))}
+                  >
+                    <option value="">root invite</option>
+                    {users.map((user) => (
+                      <option key={user.user_id} value={user.user_id}>
+                        {user.handle}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     className="field"
-                    value={aiConfig.base_url}
-                    onChange={(event) => setAiConfig((current) => ({ ...current, base_url: event.target.value }))}
+                    value={inviteForm.label}
+                    onChange={(event) => setInviteForm((current) => ({ ...current, label: event.target.value }))}
+                    placeholder="label"
                   />
-                </label>
-                <label className="block">
-                  <span className="mb-2 block text-sm text-slate-300">API Key</span>
                   <input
                     className="field"
-                    type="password"
-                    value={aiConfig.api_key}
-                    onChange={(event) => setAiConfig((current) => ({ ...current, api_key: event.target.value }))}
-                    placeholder="仅在当前内存里保存"
+                    value={inviteForm.max_uses}
+                    onChange={(event) => setInviteForm((current) => ({ ...current, max_uses: event.target.value }))}
+                    placeholder="max uses"
                   />
-                </label>
+                  <button className="btn btn-primary" onClick={() => void handleCreateInvite()}>
+                    Create invite
+                  </button>
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {invites.slice(0, 6).map((invite) => (
+                    <p key={invite.code} className="num text-[0.76rem] text-[color:var(--ink-muted)]">
+                      {invite.code} / {invite.use_count}/{invite.max_uses} / {invite.label}
+                    </p>
+                  ))}
+                </div>
               </div>
-              <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                {aiStatus.configured ? (
-                  <span>
-                    当前已配置：{aiStatus.provider ?? "--"} / {aiStatus.model ?? "--"} / {aiStatus.base_url ?? "--"}
-                  </span>
+
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Hidden Recommendations</p>
+                <select className="field mt-2.5" value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}>
+                  <option value="">select user</option>
+                  {users.map((user) => (
+                    <option key={user.user_id} value={user.user_id}>
+                      {user.handle}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn btn-ghost mt-2.5" onClick={() => void handleRecommendations()}>
+                  Load hidden candidates
+                </button>
+                <p className="mt-2 text-[0.78rem] text-[color:var(--ink-faint)]">
+                  Feature flag: {recommendationsEnabled ? "enabled" : "disabled"} · Selected: {selectedUser?.handle ?? "none"}
+                </p>
+                {recommendations.length ? (
+                  <div className="mt-2 space-y-1.5">
+                    {recommendations.map((item) => (
+                      <p key={item.candidate_user_id} className="num text-[0.76rem] text-[color:var(--ink-body)]">
+                        {item.candidate_handle} / {item.score.toFixed(3)} / {item.shared_cluster_name ?? "cross-cluster"}
+                      </p>
+                    ))}
+                  </div>
                 ) : (
-                  <span>当前还没有可用的 AI 服务端配置，公开入口会自动回退到本地摘要。</span>
+                  <p className="mt-2 text-[0.78rem] text-[color:var(--ink-faint)]">
+                    No candidates shown. Public UI remains disabled.
+                  </p>
                 )}
               </div>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <button className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handleConfigureAI()}>
-                  保存并测试 AI 配置
-                </button>
+
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Relationship Edges</p>
+                {relationships.length ? (
+                  relationships.slice(0, 8).map((edge) => (
+                    <p key={edge.relationship_id} className="num mt-1.5 text-[0.72rem] text-[color:var(--ink-muted)]">
+                      {edge.relationship_type}: {edge.source_user_id.slice(0, 12)} → {edge.target_user_id.slice(0, 12)}
+                    </p>
+                  ))
+                ) : (
+                  <p className="mt-1.5 text-[0.82rem] text-[color:var(--ink-faint)]">No relationship edges yet</p>
+                )}
               </div>
             </div>
 
-            <div className="glass-card">
-              <p className="label-mini">Cluster Overview</p>
-              <h2 className="mt-3 text-3xl text-white">聚类概览与版本轨迹</h2>
-              <div className="mt-5 grid gap-4 md:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Current Version</p>
-                  <p className="mt-3 text-2xl text-white">{clusterOverview?.current_version ?? "--"}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Sample Size</p>
-                  <p className="mt-3 text-2xl text-white">{clusterOverview?.sample_size ?? 0}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Labels</p>
-                  <p className="mt-3 text-sm leading-7 text-white">{clusterOverview?.labels.join(" / ") ?? "--"}</p>
-                </div>
-              </div>
-              <div className="mt-5 space-y-3">
-                {clusterOverview?.training_history.map((version) => (
-                  <div key={version.version} className="rounded-2xl border border-cyan-300/10 bg-cyan-300/6 p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="text-sm text-white">{version.version}</p>
-                      <span className="text-xs text-slate-300">{version.sample_size} samples</span>
-                    </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/8">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-indigo-400"
-                        style={{ width: `${Math.min(100, version.sample_size * 4)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Manual Label Override</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  <input className="field" value={overrideForm.cluster_index} onChange={(event) => setOverrideForm((current) => ({ ...current, cluster_index: event.target.value }))} placeholder="cluster index" />
-                  <input className="field" value={overrideForm.name} onChange={(event) => setOverrideForm((current) => ({ ...current, name: event.target.value }))} placeholder="显示名称" />
-                  <input className="field" value={overrideForm.narrative_label} onChange={(event) => setOverrideForm((current) => ({ ...current, narrative_label: event.target.value }))} placeholder="叙事标签" />
-                </div>
-                <button className="mt-4 rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handleSaveOverride()}>
-                  保存标签修订
+            {/* Vectors */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
+              <p className="label-mini">Vectors</p>
+              <div className="flex gap-2.5">
+                <select className="field" value={vectorScope} onChange={(event) => setVectorScope(event.target.value as "templates" | "instances" | "sessions" | "all")}>
+                  <option value="all">all</option>
+                  <option value="templates">templates</option>
+                  <option value="instances">instances</option>
+                  <option value="sessions">sessions</option>
+                </select>
+                <button className="btn btn-primary shrink-0" onClick={() => void handleVectorReindex()}>
+                  Reindex
                 </button>
-                {clusterOverview?.label_overrides.length ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {clusterOverview.label_overrides.map((item) => (
-                      <span key={`${item.version}-${item.cluster_index}`} className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-200">
-                        #{item.cluster_index} {item.name}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
               </div>
-              <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Scatter</p>
-                <div className="mt-4 overflow-hidden rounded-2xl border border-white/8 bg-[#07101c] p-3">
-                  <svg viewBox="0 0 320 240" className="h-[240px] w-full">
-                    <line x1="20" y1="120" x2="300" y2="120" stroke="rgba(255,255,255,0.12)" />
-                    <line x1="160" y1="20" x2="160" y2="220" stroke="rgba(255,255,255,0.12)" />
-                    {clusterOverview?.scatter_points.map((point) => {
-                      const x = 160 + point.x * 34;
-                      const y = 120 - point.y * 34;
-                      const radius = Math.max(4, Math.min(10, point.question_count / 4));
-                      return (
-                        <g key={point.session_id}>
-                          <circle cx={x} cy={y} r={radius} fill="rgba(103,232,249,0.72)" />
-                          <title>{`${point.cluster_name} · ${point.question_count}题 · ${point.confidence}`}</title>
-                        </g>
-                      );
-                    })}
-                  </svg>
-                </div>
-              </div>
-            </div>
+              {lastReindex ? (
+                <p className="num text-[0.82rem] text-[color:var(--ink-muted)]">
+                  {lastReindex.scope} / indexed {lastReindex.indexed_count} / failed {lastReindex.failed_count}
+                </p>
+              ) : null}
 
-            <div className="glass-card">
-              <p className="label-mini">Rewrite Preview</p>
-              <h2 className="mt-3 text-3xl text-white">受限改写预览</h2>
-              <div className="mt-5 space-y-4">
-                <select className="field" value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)}>
-                  <option value="">选择会话</option>
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Similar Templates</p>
+                <select className="field mt-2.5" value={similarTemplateId} onChange={(event) => setSimilarTemplateId(event.target.value)}>
+                  <option value="">search by template id</option>
+                  {templates.slice(0, 80).map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.id}
+                    </option>
+                  ))}
+                </select>
+                <textarea className="field mt-2.5 min-h-24" value={similarPrompt} onChange={(event) => setSimilarPrompt(event.target.value)} placeholder="or type a raw prompt" />
+                <button className="btn btn-ghost mt-2.5" onClick={() => void handleSimilarTemplateSearch()}>
+                  Search similar templates
+                </button>
+                {renderHits(similarHits)}
+              </div>
+
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Similar Sessions</p>
+                <select className="field mt-2.5" value={similarSessionId} onChange={(event) => setSimilarSessionId(event.target.value)}>
+                  <option value="">search by session id</option>
                   {sessions.map((session) => (
                     <option key={session.session_id} value={session.session_id}>
-                      {session.session_id} · {session.question_count} 题
+                      {session.session_id} / {session.question_count} questions
                     </option>
                   ))}
                 </select>
-                <select className="field" value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)}>
-                  <option value="">选择模板</option>
-                  {templates.slice(0, 50).map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.id} · {template.layer}
-                    </option>
-                  ))}
-                </select>
-                <button className="rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handlePreview()}>
-                  生成改写预览
+                <button className="btn btn-ghost mt-2.5" onClick={() => void handleSimilarSessionSearch()}>
+                  Search similar sessions
                 </button>
+                {renderHits(similarSessionHits)}
               </div>
+
+              <div className="surface-sunken p-3.5">
+                <p className="label-mini">Sync Failures</p>
+                {vectorFailures.length ? (
+                  vectorFailures.map((failure) => (
+                    <p key={failure.failure_id} className="num mt-1.5 text-[0.78rem] text-[color:var(--ink-body)]">
+                      {failure.object_type} / {failure.operation} / {failure.error_message}
+                    </p>
+                  ))
+                ) : (
+                  <p className="mt-1.5 text-[0.82rem] text-[color:var(--ink-faint)]">No failure records</p>
+                )}
+              </div>
+            </div>
+
+            {/* Rewrite */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
+              <p className="label-mini">Rewrite</p>
+              <select className="field" value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)}>
+                <option value="">select session</option>
+                {sessions.map((session) => (
+                  <option key={session.session_id} value={session.session_id}>
+                    {session.session_id} / {session.question_count} questions
+                  </option>
+                ))}
+              </select>
+              <select className="field" value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)}>
+                <option value="">select template</option>
+                {templates.slice(0, 80).map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.id}
+                  </option>
+                ))}
+              </select>
+              <button className="btn btn-primary" onClick={() => void handlePreview()}>
+                Generate rewrite preview
+              </button>
               {preview ? (
-                <div className="mt-5 rounded-[1.4rem] border border-cyan-300/15 bg-cyan-300/8 p-4">
-                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/80">
-                    {preview.selected.generation_mode} / {preview.selected.validator_passed ? "validator_passed" : "fallback"}
+                <div className="rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/40 p-3.5">
+                  <p className="text-[0.88rem] leading-6 text-[color:var(--ink-body)]">{preview.selected.rewritten_prompt}</p>
+                  <p className="num mt-2 text-[0.72rem] text-[color:var(--ink-muted)]">
+                    retrieval {preview.retrieval_context?.enabled ? "on" : "off"} / reranker {preview.retrieval_context?.reranker_applied ? "on" : "off"}
                   </p>
-                  <p className="mt-3 text-base leading-7 text-white">{preview.selected.rewritten_prompt}</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {preview.selected.reasons.map((reason) => (
-                      <span key={reason} className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-200">
-                        {reason}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="mt-5 space-y-3">
-                    {preview.candidates.map((candidate, index) => (
-                      <div key={`${candidate.rewritten_prompt}-${index}`} className="rounded-xl border border-white/8 bg-black/20 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs uppercase tracking-[0.25em] text-cyan-200/70">
-                            Candidate {index + 1} · {candidate.score.toFixed(2)}
-                          </p>
-                          <span className="text-xs text-slate-300">{candidate.generation_mode}</span>
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-white">{candidate.rewritten_prompt}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {preview.retrieval_context ? (
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <div>{renderHits(preview.retrieval_context.template_hits)}</div>
+                      <div>{renderHits(preview.retrieval_context.item_instance_hits)}</div>
+                      <div>{renderHits(preview.retrieval_context.rewrite_candidate_hits)}</div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {selectedSession ? (
-                <p className="mt-4 text-xs text-slate-400">
-                  当前会话：{selectedSession.session_id} · {selectedSession.narrative_label ?? "未命名"}
+                <p className="num text-[0.72rem] text-[color:var(--ink-faint)]">
+                  Current session: {selectedSession.session_id} / {selectedSession.narrative_label ?? "unnamed"}
                 </p>
               ) : null}
             </div>
-
-            <div className="glass-card">
-              <p className="label-mini">Template Forge</p>
-              <h2 className="mt-3 text-3xl text-white">新增高区分度模板</h2>
-              <div className="mt-5 space-y-4">
-                <textarea
-                  className="field min-h-32"
-                  placeholder="请输入更高区分度的题面"
-                  value={form.prompt}
-                  onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))}
-                />
-                <input
-                  className="field"
-                  placeholder="模板 ID（更新时使用）"
-                  value={form.template_id}
-                  onChange={(event) => setForm((current) => ({ ...current, template_id: event.target.value }))}
-                />
-                <input className="field" value={form.layer} onChange={(event) => setForm((current) => ({ ...current, layer: event.target.value }))} />
-                <input className="field" value={form.dimension_weights} onChange={(event) => setForm((current) => ({ ...current, dimension_weights: event.target.value }))} />
-                <input className="field" value={form.subdimension_weights} onChange={(event) => setForm((current) => ({ ...current, subdimension_weights: event.target.value }))} />
-                <input className="field" value={form.module_affinities} onChange={(event) => setForm((current) => ({ ...current, module_affinities: event.target.value }))} />
-                <input className="field" value={form.scenario_tags} onChange={(event) => setForm((current) => ({ ...current, scenario_tags: event.target.value }))} />
-                <div className="grid grid-cols-2 gap-4">
-                  <input className="field" value={form.discrimination} onChange={(event) => setForm((current) => ({ ...current, discrimination: event.target.value }))} />
-                  <input className="field" value={form.difficulty} onChange={(event) => setForm((current) => ({ ...current, difficulty: event.target.value }))} />
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950" onClick={() => void handleCreateTemplate()}>
-                    创建模板
-                  </button>
-                  <button className="rounded-full border border-white/15 px-5 py-3 text-sm text-white" onClick={() => void handleUpdateTemplate()}>
-                    更新模板
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
 
-          <div className="space-y-8">
-            <div className="glass-card">
-              <p className="label-mini">Template Library</p>
-              <h2 className="mt-3 text-3xl text-white">模板库</h2>
-              <div className="mt-5 grid gap-3 max-h-[360px] overflow-y-auto">
+          {/* === RIGHT COLUMN === */}
+          <div className="space-y-5">
+            {/* Templates */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
+              <p className="label-mini">Templates</p>
+              <textarea className="field min-h-32" value={form.prompt} onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))} placeholder="prompt" />
+              <input className="field" value={form.template_id} onChange={(event) => setForm((current) => ({ ...current, template_id: event.target.value }))} placeholder="template id for update" />
+              <input className="field" value={form.layer} onChange={(event) => setForm((current) => ({ ...current, layer: event.target.value }))} placeholder="layer" />
+              <input className="field" value={form.dimension_weights} onChange={(event) => setForm((current) => ({ ...current, dimension_weights: event.target.value }))} />
+              <input className="field" value={form.subdimension_weights} onChange={(event) => setForm((current) => ({ ...current, subdimension_weights: event.target.value }))} />
+              <input className="field" value={form.module_affinities} onChange={(event) => setForm((current) => ({ ...current, module_affinities: event.target.value }))} />
+              <input className="field" value={form.scenario_tags} onChange={(event) => setForm((current) => ({ ...current, scenario_tags: event.target.value }))} />
+              <div className="grid grid-cols-2 gap-2.5">
+                <input className="field" value={form.discrimination} onChange={(event) => setForm((current) => ({ ...current, discrimination: event.target.value }))} />
+                <input className="field" value={form.difficulty} onChange={(event) => setForm((current) => ({ ...current, difficulty: event.target.value }))} />
+              </div>
+              <div className="flex gap-2.5">
+                <button className="btn btn-primary" onClick={() => void handleCreateTemplate()}>
+                  Create
+                </button>
+                <button className="btn btn-ghost" onClick={() => void handleUpdateTemplate()}>
+                  Update
+                </button>
+              </div>
+              <div className="space-y-2">
                 {templates.map((template) => (
-                  <div key={template.id} className="rounded-2xl border border-white/8 bg-black/20 p-4 text-left">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">
-                          {template.layer} {template.archived ? " / archived" : ""}
-                        </p>
-                        <p className="mt-2 text-base leading-7 text-white">{template.prompt}</p>
-                      </div>
-                      <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-300">
-                        {template.id}
-                      </span>
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      <button className="rounded-full border border-white/15 px-4 py-2 text-xs text-white" onClick={() => loadTemplateIntoEditor(template)}>
-                        载入编辑器
+                  <div key={template.id} className="surface-sunken p-3">
+                    <p className="num text-[0.72rem] text-[color:var(--ink-muted)]">
+                      {template.id} / {template.layer}
+                      {template.archived ? " / archived" : ""}
+                    </p>
+                    <p className="mt-1.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">{template.prompt}</p>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <button
+                        className="btn btn-ghost px-3 py-1 text-xs"
+                        onClick={() =>
+                          setForm((current) => ({
+                            ...current,
+                            template_id: template.id,
+                            prompt: template.prompt,
+                            layer: template.layer,
+                            scenario_tags: template.scenario_tags.join(","),
+                          }))
+                        }
+                      >
+                        Load
                       </button>
-                      <button className="rounded-full border border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs text-amber-100" onClick={() => void handleArchiveTemplate(template.id)}>
-                        归档
+                      <button
+                        className="btn px-3 py-1 text-xs"
+                        style={{
+                          background: "var(--warn-soft)",
+                          color: "var(--warn-ink)",
+                          borderColor: "rgba(184,128,31,0.25)",
+                        }}
+                        onClick={() => void handleArchiveTemplate(template.id)}
+                      >
+                        Archive
                       </button>
-                      <button className="rounded-full border border-rose-300/20 bg-rose-300/10 px-4 py-2 text-xs text-rose-100" onClick={() => void handleDeleteTemplate(template.id)}>
-                        删除
+                      <button
+                        className="btn btn-danger px-3 py-1 text-xs"
+                        onClick={() => void handleDeleteTemplate(template.id)}
+                      >
+                        Delete
                       </button>
                     </div>
                   </div>
@@ -495,54 +663,43 @@ export function AdminClient() {
               </div>
             </div>
 
-            <div className="glass-card">
-              <p className="label-mini">Generated Instances</p>
-              <h2 className="mt-3 text-3xl text-white">最近实例题</h2>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <select className="field" value={compareLeftId} onChange={(event) => setCompareLeftId(event.target.value)}>
-                  <option value="">左侧实例</option>
-                  {instances.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.id}
-                    </option>
-                  ))}
-                </select>
-                <select className="field" value={compareRightId} onChange={(event) => setCompareRightId(event.target.value)}>
-                  <option value="">右侧实例</option>
-                  {instances.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.id}
-                    </option>
-                  ))}
-                </select>
+            {/* Clusters */}
+            <div className="panel fade-rise space-y-3 p-5 md:p-6">
+              <p className="label-mini">Clusters</p>
+              <p className="num text-[0.85rem] text-[color:var(--ink-body)]">
+                {clusterOverview ? `${clusterOverview.current_version} / samples ${clusterOverview.sample_size}` : "No cluster data"}
+              </p>
+              <div className="grid gap-2.5 md:grid-cols-3">
+                <input className="field" value={overrideForm.cluster_index} onChange={(event) => setOverrideForm((current) => ({ ...current, cluster_index: event.target.value }))} placeholder="cluster index" />
+                <input className="field" value={overrideForm.name} onChange={(event) => setOverrideForm((current) => ({ ...current, name: event.target.value }))} placeholder="display name" />
+                <input className="field" value={overrideForm.narrative_label} onChange={(event) => setOverrideForm((current) => ({ ...current, narrative_label: event.target.value }))} placeholder="narrative label" />
               </div>
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Left</p>
-                  <p className="mt-3 text-sm leading-6 text-white">{leftInstance?.prompt ?? "请选择实例"}</p>
-                </div>
-                <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
-                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">Right</p>
-                  <p className="mt-3 text-sm leading-6 text-white">{rightInstance?.prompt ?? "请选择实例"}</p>
-                </div>
-              </div>
-              <div className="mt-5 grid gap-3 max-h-[360px] overflow-y-auto">
-                {instances.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-cyan-300/10 bg-cyan-300/6 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/80">
-                        {item.generation_mode} / {item.layer}
-                      </p>
-                      <span className="text-xs text-slate-300">{item.template_id}</span>
-                    </div>
-                    <p className="mt-3 text-base leading-7 text-white">{item.prompt}</p>
-                    <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-300">
-                      <span>质量分 {item.quality_score?.toFixed(2) ?? "--"}</span>
-                      <span>相似惩罚 {item.similarity_penalty?.toFixed(2) ?? "--"}</span>
-                    </div>
-                  </div>
+              <button className="btn btn-primary" onClick={() => void handleSaveOverride()}>
+                Save cluster override
+              </button>
+              <div className="space-y-1.5">
+                {clusterOverview?.training_history.map((item) => (
+                  <p key={item.version} className="num text-[0.82rem] text-[color:var(--ink-muted)]">
+                    {item.version} / {item.sample_size} samples
+                  </p>
                 ))}
               </div>
+            </div>
+
+            {/* Instances */}
+            <div className="panel fade-rise space-y-2 p-5 md:p-6">
+              <p className="label-mini">Instances</p>
+              {instances.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/35 p-3"
+                >
+                  <p className="num text-[0.72rem] text-[color:var(--ink-muted)]">
+                    {item.id} / {item.generation_mode} / {item.layer}
+                  </p>
+                  <p className="mt-1.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">{item.prompt}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>

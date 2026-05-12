@@ -8,17 +8,25 @@ from app.api.schemas import (
     MapResponse,
     NextQuestionRequest,
     QuestionResponse,
+    RedeemInviteRequest,
     ReportGenerateRequest,
     ReportResponse,
     SessionSummaryResponse,
     StartSessionRequest,
     StartSessionResponse,
+    SessionAccessIssueResponse,
     SubmitResponseRequest,
     SubmitResponseResponse,
+    UserAccessResponse,
+    UserProfileResponse,
+    UserProfileUpdateRequest,
+    UserSessionListResponse,
+    WorkbenchEvidenceResponse,
 )
 from app.api.security import build_owner_key
 from app.core.config import settings
 from app.services.session_service import session_service
+from app.services.user_service import user_service
 
 router = APIRouter()
 
@@ -45,16 +53,101 @@ def _require_delete_access(session_id: str, delete_token: str | None, request: R
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
+def _require_user(user_id: str | None, user_secret: str | None):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="user_id_required")
+    try:
+        return user_service.authenticate(user_id, user_secret)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.post("/invite/redeem", response_model=UserAccessResponse)
+def redeem_invite(payload: RedeemInviteRequest) -> UserAccessResponse:
+    try:
+        access = user_service.redeem_invite(payload.invite_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return UserAccessResponse(**access.model_dump())
+
+
+@router.get("/user/me", response_model=UserProfileResponse)
+def get_current_user(
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserProfileResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return UserProfileResponse.from_profile(profile)
+
+
+@router.patch("/user/me", response_model=UserProfileResponse)
+def update_current_user(
+    payload: UserProfileUpdateRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserProfileResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    updated = user_service.update_profile_flags(
+        profile,
+        relationship_opt_in=payload.relationship_opt_in,
+        recommendation_opt_in=payload.recommendation_opt_in,
+    )
+    return UserProfileResponse.from_profile(updated)
+
+
+@router.get("/user/sessions", response_model=UserSessionListResponse)
+def list_user_sessions(
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserSessionListResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return UserSessionListResponse(
+        user=UserProfileResponse.from_profile(profile),
+        sessions=session_service.list_sessions(user_id=profile.user_id),
+    )
+
+
+@router.post("/user/session/{session_id}/access", response_model=SessionAccessIssueResponse)
+def issue_user_session_access(
+    session_id: str,
+    request: Request,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> SessionAccessIssueResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    try:
+        record = session_service.get_session(session_id, force_reload=True)
+        if record.user_id != profile.user_id:
+            raise PermissionError("session_user_mismatch")
+        access = session_service.issue_session_access(session_id, build_owner_key(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return SessionAccessIssueResponse(**access.model_dump())
+
+
 @router.post("/session/start", response_model=StartSessionResponse)
-def start_session(payload: StartSessionRequest, request: Request) -> StartSessionResponse:
+def start_session(
+    payload: StartSessionRequest,
+    request: Request,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> StartSessionResponse:
+    profile = None
+    if x_user_id or x_user_secret:
+        profile = _require_user(x_user_id, x_user_secret)
     session, item, access = session_service.start_session(
         mode=payload.mode,
         owner_key=build_owner_key(request),
+        user_id=profile.user_id if profile else None,
     )
     return StartSessionResponse(
         session_id=session.session_id,
@@ -62,6 +155,7 @@ def start_session(payload: StartSessionRequest, request: Request) -> StartSessio
         delete_token=access.delete_token,
         state=session.state,
         question=QuestionResponse.from_item(item),
+        workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
 
 
@@ -104,6 +198,7 @@ def submit_response(
         can_generate_report=session.state.question_count >= settings.min_questions_for_report,
         remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
         next_question=QuestionResponse.from_item(next_item) if next_item else None,
+        workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
 
 
@@ -120,7 +215,21 @@ def get_summary(
         return SessionSummaryResponse(
             **summary.model_dump(),
             current_question=QuestionResponse.from_item(current_question) if current_question else None,
+            workbench_checkpoint=session_service.build_workbench_checkpoint(session_id),
         )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/session/{session_id}/workbench/evidence", response_model=WorkbenchEvidenceResponse)
+def get_workbench_evidence(
+    session_id: str,
+    request: Request,
+    x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
+) -> WorkbenchEvidenceResponse:
+    _require_session_access(session_id, x_session_secret, request)
+    try:
+        return session_service.build_workbench_evidence(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

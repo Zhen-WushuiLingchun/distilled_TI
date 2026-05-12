@@ -1,7 +1,14 @@
-from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseModel):
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
     app_name: str = "Distilled TI Backend"
     api_prefix: str = "/api"
     session_ttl_hours: int = 1
@@ -34,6 +41,28 @@ class Settings(BaseModel):
     ai_probe_first_question: int = 4
     ai_probe_max_count: int = 8
     ai_contrast_target_ratio: float = 0.4
+    vector_enabled: bool = False
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
+    embedding_model: str = ""
+    embedding_timeout_seconds: float = 12.0
+    reranker_base_url: str = ""
+    reranker_api_key: str = ""
+    reranker_model: str = ""
+    reranker_timeout_seconds: float = 12.0
+    qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_local_path: str = ""
+    qdrant_api_key: str = ""
+    qdrant_collection_item_vectors: str = "item_vectors"
+    qdrant_collection_session_vectors: str = "session_vectors"
+    vector_search_top_k: int = 5
+    vector_search_score_threshold: float = 0.58
+    session_vector_milestones: str = "5,10,20,40"
+    session_vector_top_k: int = 5
+    invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
+    invite_default_max_uses: int = 1000
+    registered_session_ttl_days: int = 3650
+    relationship_recommendations_enabled: bool = False
 
 
 settings = Settings()

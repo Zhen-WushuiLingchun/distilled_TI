@@ -36,6 +36,15 @@ frontend/coverage/
 .env
 .env.*
 !.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# Local secrets and vector state
+local-secrets.*
+backend/local-secrets.*
+.qdrant-local/
+backend/.qdrant-local/
 
 # Database / local state
 distilled_ti_local.db
@@ -49,3 +58,4 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+files.zip

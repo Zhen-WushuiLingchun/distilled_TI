@@ -35,6 +35,12 @@ from app.domain.models import (
     SessionReport,
     SessionState,
     SessionSummary,
+    VectorSearchHit,
+    WorkbenchCheckpoint,
+    WorkbenchEvidence,
+    WorkbenchEvidenceItem,
+    WorkbenchMilestone,
+    WorkbenchSignal,
 )
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.clustering import clustering_service
@@ -42,6 +48,7 @@ from app.services.generation import generation_service
 from app.services.scoring import ScoringEngine
 from app.services.storage import local_session_store
 from app.services.validators import validate_item_template
+from app.services.vector_indexer import vector_indexer
 
 
 class SessionService:
@@ -125,10 +132,11 @@ class SessionService:
         mode: str = "core",
         runtime_ai_config: AIProviderConfig | None = None,
         owner_key: str | None = None,
+        user_id: str | None = None,
     ) -> tuple[SessionRecord, ItemInstance, SessionAccessGrant]:
         self.cleanup_expired()
         session_id = str(uuid4())
-        record = SessionRecord(session_id=session_id, mode=mode, state=self._new_state())
+        record = SessionRecord(session_id=session_id, mode=mode, state=self._new_state(), user_id=user_id)
         next_item = self._generate_next_instance(record, runtime_ai_config)
         record.current_item_id = next_item.id
         record.current_template_id = next_item.template_id
@@ -163,8 +171,8 @@ class SessionService:
     def list_item_instances(self, session_id: str | None = None) -> list[ItemInstance]:
         return local_session_store.list_item_instances(session_id)
 
-    def list_sessions(self) -> list[SessionHistoryEntry]:
-        histories = local_session_store.list_sessions()
+    def list_sessions(self, user_id: str | None = None) -> list[SessionHistoryEntry]:
+        histories = local_session_store.list_sessions(user_id=user_id)
         for entry in histories:
             try:
                 record = self.get_session(entry.session_id)
@@ -196,6 +204,7 @@ class SessionService:
         )
         self._items[item.id] = item
         local_session_store.save_template(item)
+        vector_indexer.index_template(item)
         return item
 
     def update_item(self, template_id: str, payload: ItemTemplateCreate) -> ItemTemplate:
@@ -223,6 +232,7 @@ class SessionService:
         )
         self._items[template_id] = updated
         local_session_store.save_template(updated)
+        vector_indexer.index_template(updated)
         return updated
 
     def preview_rewrite(
@@ -325,6 +335,7 @@ class SessionService:
             if probe_instance is not None:
                 self._instances[probe_instance.id] = probe_instance
                 local_session_store.save_item_instance(probe_instance)
+                vector_indexer.index_item_instance(probe_instance)
                 session.current_item_id = probe_instance.id
                 session.current_template_id = probe_instance.template_id
                 session.updated_at = datetime.now(UTC)
@@ -335,6 +346,7 @@ class SessionService:
         instance, _preview = generation_service.materialize_instance(session, template, style_hint, active_ai_config)
         self._instances[instance.id] = instance
         local_session_store.save_item_instance(instance)
+        vector_indexer.index_item_instance(instance)
         session.current_item_id = instance.id
         session.current_template_id = template.id
         session.updated_at = datetime.now(UTC)
@@ -526,6 +538,7 @@ class SessionService:
             session.current_item_id = None
             session.current_template_id = None
         local_session_store.save_session(session)
+        vector_indexer.index_session_snapshot(session)
         return session, next_item
 
     def build_report(
@@ -629,6 +642,7 @@ class SessionService:
         )
         self._items[template_id] = template
         local_session_store.save_template(template)
+        vector_indexer.index_template(template)
         return template
 
     def delete_item(self, template_id: str) -> None:
@@ -638,6 +652,7 @@ class SessionService:
             raise ValueError("seed_template_cannot_be_deleted")
         self._items.pop(template_id, None)
         local_session_store.delete_template(template_id)
+        vector_indexer.delete_template(template_id)
 
     def build_summary(self, session_id: str) -> SessionSummary:
         session = self.get_session(session_id)
@@ -653,6 +668,78 @@ class SessionService:
             state=session.state,
         )
 
+    def build_workbench_checkpoint(self, session_id: str) -> WorkbenchCheckpoint:
+        return self._workbench_checkpoint(self.get_session(session_id))
+
+    def build_workbench_evidence(self, session_id: str) -> WorkbenchEvidence:
+        session = self.get_session(session_id)
+        notes = ["检索证据只用于解释当前选题，不代表最终人格结论。"]
+        try:
+            current_item = self.get_current_question(session_id)
+        except KeyError:
+            current_item = None
+            notes.append("当前题目记录不可用，题目近邻证据暂不可用。")
+
+        base_payload = {
+            "current_question_id": current_item.id if current_item else None,
+            "current_template_id": current_item.template_id if current_item else session.current_template_id,
+        }
+        if not vector_indexer.is_enabled():
+            return WorkbenchEvidence(
+                **base_payload,
+                notes=[*notes, "向量检索当前未启用，因此只展示本地状态解释。"],
+            )
+
+        item_hits: list[VectorSearchHit] = []
+        session_hits: list[VectorSearchHit] = []
+        reranker_applied = False
+
+        if current_item is None:
+            notes.append("当前没有待答题目，题目近邻证据暂不可用。")
+        else:
+            try:
+                source_template = self._items.get(current_item.template_id)
+                retrieval_context = vector_indexer.build_rewrite_retrieval_context(source_template) if source_template else None
+                if retrieval_context is not None:
+                    item_hits = [
+                        *retrieval_context.template_hits,
+                        *retrieval_context.item_instance_hits,
+                        *retrieval_context.rewrite_candidate_hits,
+                    ]
+                    reranker_applied = retrieval_context.reranker_applied or self._any_reranked(item_hits)
+                else:
+                    item_hits = vector_indexer.search_similar_templates(prompt=current_item.prompt, top_k=4)
+                    reranker_applied = self._any_reranked(item_hits)
+            except Exception:
+                notes.append("题目近邻检索暂不可用，已保留主答题流程。")
+
+        try:
+            session_hits = vector_indexer.search_similar_sessions(session, top_k=3)
+            reranker_applied = reranker_applied or self._any_reranked(session_hits)
+        except Exception:
+            notes.append("相似会话检索暂不可用，已保留主答题流程。")
+
+        filtered_item_hits = [
+            hit
+            for hit in item_hits
+            if current_item is None or hit.object_id not in {current_item.id, current_item.template_id}
+        ][:6]
+
+        if not filtered_item_hits:
+            notes.append("没有找到足够稳定的相近题目证据。")
+        if not session_hits:
+            notes.append("没有可展示的相似会话快照；通常需要命中 5 / 10 / 20 / 40 题 milestone 后才会出现。")
+
+        return WorkbenchEvidence(
+            **base_payload,
+            enabled=True,
+            vector_available=True,
+            reranker_applied=reranker_applied,
+            item_evidence=[self._workbench_evidence_item(hit) for hit in filtered_item_hits],
+            session_evidence=[self._workbench_evidence_item(hit) for hit in session_hits[:3]],
+            notes=notes,
+        )
+
     def get_current_question(self, session_id: str) -> ItemInstance | None:
         session = self.get_session(session_id)
         if not session.current_item_id:
@@ -662,6 +749,7 @@ class SessionService:
     def discard_session(self, session_id: str) -> None:
         _session = self.get_session(session_id)
         local_session_store.delete_session(session_id)
+        vector_indexer.delete_session_snapshots(session_id)
         self._sessions.pop(session_id, None)
 
     def _recent_template_ids(self, session: SessionRecord) -> set[str]:
@@ -735,6 +823,209 @@ class SessionService:
         if active_ai_config is None:
             return "statement"
         return "contrast" if self._recent_contrast_ratio(session, 12) < settings.ai_contrast_target_ratio else "statement"
+
+    def _workbench_checkpoint(self, session: SessionRecord) -> WorkbenchCheckpoint:
+        question_count = session.state.question_count
+        milestones = self._session_vector_milestones()
+        previous_milestone = max((milestone for milestone in milestones if milestone <= question_count), default=None)
+        next_milestone = min((milestone for milestone in milestones if milestone > question_count), default=None)
+        previous_floor = previous_milestone or 0
+        milestone_ceiling = next_milestone or previous_milestone or max(milestones or (settings.min_questions_for_report,))
+        if milestone_ceiling == previous_floor:
+            milestone_progress = 100.0
+        else:
+            milestone_progress = self._percent((question_count - previous_floor) / (milestone_ceiling - previous_floor))
+
+        report_ready = question_count >= settings.min_questions_for_report
+        remaining_until_report = max(settings.min_questions_for_report - question_count, 0)
+        report_progress = 100.0 if report_ready else self._percent(question_count / max(settings.min_questions_for_report, 1))
+        snapshot_due_now = question_count in set(milestones)
+
+        return WorkbenchCheckpoint(
+            question_count=question_count,
+            report_ready=report_ready,
+            report_target=settings.min_questions_for_report,
+            remaining_until_report=remaining_until_report,
+            report_progress_percent=round(report_progress, 1),
+            previous_milestone=previous_milestone,
+            next_milestone=next_milestone,
+            milestone_progress_percent=round(milestone_progress, 1),
+            snapshot_due_now=snapshot_due_now,
+            narrative=self._workbench_narrative(session, report_ready, next_milestone),
+            top_core_signals=self._top_core_workbench_signals(session),
+            uncertainty_queue=self._uncertainty_workbench_signals(session),
+            active_modules=self._module_workbench_signals(session),
+            unlocked_subdimensions=self._subdimension_workbench_signals(session),
+            milestones=self._workbench_milestones(question_count, milestones),
+        )
+
+    def _workbench_evidence_item(self, hit: VectorSearchHit) -> WorkbenchEvidenceItem:
+        label_by_type = {
+            "template": "相近模板",
+            "item_instance": "历史实例题",
+            "rewrite_candidate": "历史改写候选",
+            "session_snapshot": "匿名会话快照",
+        }
+        relationship_by_type = {
+            "template": "题库中测量结构接近的模板，可用于解释当前选题方向。",
+            "item_instance": "历史生成题中语义接近的实例，用于检查措辞是否过近。",
+            "rewrite_candidate": "历史改写候选中的相邻表达，用于避免复制近邻表述。",
+            "session_snapshot": "相同 milestone 附近的匿名会话状态，用于观察当前画像是否有近邻。",
+        }
+        prompt_excerpt = hit.prompt_excerpt.strip()
+        if hit.object_type == "session_snapshot":
+            milestone = hit.snapshot_milestone or "unknown"
+            prompt_excerpt = f"匿名会话快照，Q{milestone} 附近的结构状态摘要。"
+        return WorkbenchEvidenceItem(
+            reference_key=f"{hit.object_type}:{hashlib.sha1(hit.object_id.encode('utf-8')).hexdigest()[:10]}",
+            object_type=hit.object_type,
+            label=label_by_type.get(hit.object_type, hit.object_type),
+            relationship=relationship_by_type.get(hit.object_type, "语义检索近邻。"),
+            prompt_excerpt=prompt_excerpt[:180],
+            confidence_tier=self._evidence_confidence_tier(hit),
+            scenario_tags=hit.scenario_tags[:4],
+            snapshot_milestone=hit.snapshot_milestone,
+        )
+
+    def _evidence_confidence_tier(self, hit: VectorSearchHit) -> str:
+        metric = hit.rerank_score if hit.rerank_score is not None else hit.score
+        if hit.rerank_score is not None:
+            if metric >= 0.7:
+                return "high"
+            if metric >= 0.45:
+                return "medium"
+            return "low"
+        if metric >= 0.84:
+            return "high"
+        if metric >= 0.72:
+            return "medium"
+        return "low"
+
+    def _any_reranked(self, hits: list[VectorSearchHit]) -> bool:
+        return any(hit.rerank_score is not None for hit in hits)
+
+    def _top_core_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
+        ordered = sorted(session.state.core_mu.items(), key=lambda item: abs(item[1]), reverse=True)[:5]
+        return [
+            WorkbenchSignal(
+                key=key,
+                label=CORE_DIMENSION_LABELS.get(key, key),
+                value=round(value, 3),
+                confidence_percent=round(self._confidence_from_sigma(session.state.core_sigma.get(key, settings.default_sigma)), 1),
+                sample_count=session.state.dimension_counts.get(key, 0),
+                detail="当前画像中最突出的核心信号",
+            )
+            for key, value in ordered
+        ]
+
+    def _uncertainty_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
+        ordered = sorted(session.state.core_sigma.items(), key=lambda item: item[1], reverse=True)[:4]
+        return [
+            WorkbenchSignal(
+                key=key,
+                label=CORE_DIMENSION_LABELS.get(key, key),
+                value=round(sigma, 3),
+                confidence_percent=round(self._confidence_from_sigma(sigma), 1),
+                sample_count=session.state.dimension_counts.get(key, 0),
+                detail="sigma 越高，越需要后续题目继续压缩误差带",
+            )
+            for key, sigma in ordered
+        ]
+
+    def _module_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
+        active = set(session.state.active_modules)
+        ordered = sorted(
+            (
+                (key, value)
+                for key, value in session.state.module_scores.items()
+                if key in active or abs(value) > 0.01
+            ),
+            key=lambda item: abs(item[1]),
+            reverse=True,
+        )[:4]
+        return [
+            WorkbenchSignal(
+                key=key,
+                label=MODULE_LABELS.get(key, key),
+                value=round(value, 3),
+                confidence_percent=100.0 if key in active else 35.0,
+                sample_count=session.state.module_counts.get(key, 0),
+                detail="已出现足够场景证据" if key in active else "仍在观察",
+            )
+            for key, value in ordered
+        ]
+
+    def _subdimension_workbench_signals(self, session: SessionRecord) -> list[WorkbenchSignal]:
+        ordered = sorted(
+            (
+                (key, session.state.sub_mu.get(key, 0.0))
+                for key in session.state.unlocked_subdimensions
+            ),
+            key=lambda item: abs(item[1]),
+            reverse=True,
+        )[:6]
+        return [
+            WorkbenchSignal(
+                key=key,
+                label=SUBDIMENSION_LABELS.get(key, key),
+                value=round(value, 3),
+                confidence_percent=round(self._confidence_from_sigma(session.state.sub_sigma.get(key, settings.default_sigma)), 1),
+                sample_count=session.state.sub_counts.get(key, 0),
+                detail=f"父维度：{CORE_DIMENSION_LABELS.get(SUBDIMENSION_TO_PARENT.get(key, ''), SUBDIMENSION_TO_PARENT.get(key, 'unknown'))}",
+            )
+            for key, value in ordered
+        ]
+
+    def _workbench_milestones(self, question_count: int, milestones: tuple[int, ...]) -> list[WorkbenchMilestone]:
+        rows: list[WorkbenchMilestone] = []
+        next_milestone = min((milestone for milestone in milestones if milestone > question_count), default=None)
+        for milestone in milestones:
+            if question_count >= milestone:
+                status = "completed"
+                progress = 100.0
+            elif milestone == next_milestone:
+                status = "current"
+                previous = max((value for value in milestones if value < milestone), default=0)
+                progress = self._percent((question_count - previous) / max(milestone - previous, 1))
+            else:
+                status = "upcoming"
+                progress = 0.0
+            rows.append(
+                WorkbenchMilestone(
+                    milestone=milestone,
+                    status=status,  # type: ignore[arg-type]
+                    question_delta=max(milestone - question_count, 0),
+                    progress_percent=round(progress, 1),
+                    snapshot_expected=question_count == milestone,
+                )
+            )
+        return rows
+
+    def _workbench_narrative(self, session: SessionRecord, report_ready: bool, next_milestone: int | None) -> str:
+        if session.state.question_count == 0:
+            return "会话刚开始，系统正在建立第一批核心维度信号。"
+        top_signal = max(session.state.core_mu.items(), key=lambda item: abs(item[1]))
+        uncertain = max(session.state.core_sigma.items(), key=lambda item: item[1])
+        parts = [
+            f"当前最突出的信号是 {CORE_DIMENSION_LABELS.get(top_signal[0], top_signal[0])}。",
+            f"最需要继续压缩误差带的是 {CORE_DIMENSION_LABELS.get(uncertain[0], uncertain[0])}。",
+        ]
+        if report_ready:
+            parts.append("正式报告已经解锁，可以先查看，也可以继续细化画像。")
+        elif next_milestone is not None:
+            parts.append(f"下一次会话快照会在第 {next_milestone} 题写入向量层。")
+        return "".join(parts)
+
+    def _session_vector_milestones(self) -> tuple[int, ...]:
+        raw_values = [value.strip() for value in settings.session_vector_milestones.split(",")]
+        parsed = sorted({int(value) for value in raw_values if value})
+        return tuple(value for value in parsed if value > 0)
+
+    def _confidence_from_sigma(self, sigma: float) -> float:
+        return self._percent(1 - sigma / max(settings.default_sigma, 0.01))
+
+    def _percent(self, ratio: float) -> float:
+        return max(0.0, min(100.0, ratio * 100.0))
 
 
 session_service = SessionService()

@@ -1,4 +1,4 @@
-import type { NamingStyle, ProjectionMode, SessionAccessBundle } from "@/lib/runtime-store";
+import type { NamingStyle, ProjectionMode, SessionAccessBundle, UserAccessBundle } from "@/lib/runtime-store";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api";
 const ADMIN_API_BASE_URL = process.env.NEXT_PUBLIC_ADMIN_API_BASE_URL ?? "http://127.0.0.1:8001/api";
@@ -48,6 +48,63 @@ export type SessionState = {
   question_count: number;
 };
 
+export type WorkbenchSignal = {
+  key: string;
+  label: string;
+  value: number;
+  confidence_percent: number;
+  sample_count: number;
+  detail?: string | null;
+};
+
+export type WorkbenchMilestone = {
+  milestone: number;
+  status: "completed" | "current" | "upcoming";
+  question_delta: number;
+  progress_percent: number;
+  snapshot_expected: boolean;
+};
+
+export type WorkbenchCheckpoint = {
+  question_count: number;
+  report_ready: boolean;
+  report_target: number;
+  remaining_until_report: number;
+  report_progress_percent: number;
+  previous_milestone?: number | null;
+  next_milestone?: number | null;
+  milestone_progress_percent: number;
+  snapshot_due_now: boolean;
+  narrative: string;
+  top_core_signals: WorkbenchSignal[];
+  uncertainty_queue: WorkbenchSignal[];
+  active_modules: WorkbenchSignal[];
+  unlocked_subdimensions: WorkbenchSignal[];
+  milestones: WorkbenchMilestone[];
+};
+
+export type WorkbenchEvidenceItem = {
+  reference_key: string;
+  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot";
+  label: string;
+  relationship: string;
+  prompt_excerpt: string;
+  confidence_tier: "high" | "medium" | "low";
+  scenario_tags: string[];
+  snapshot_milestone?: number | null;
+};
+
+export type WorkbenchEvidence = {
+  enabled: boolean;
+  current_question_id?: string | null;
+  current_template_id?: string | null;
+  vector_available: boolean;
+  reranker_applied: boolean;
+  item_evidence: WorkbenchEvidenceItem[];
+  session_evidence: WorkbenchEvidenceItem[];
+  notes: string[];
+};
+
 export type SessionSummary = {
   session_id: string;
   question_count: number;
@@ -59,6 +116,7 @@ export type SessionSummary = {
   current_template_id?: string | null;
   current_question?: Question | null;
   state: SessionState;
+  workbench_checkpoint?: WorkbenchCheckpoint | null;
 };
 
 export type SessionStartResponse = SessionAccessBundle & {
@@ -66,6 +124,7 @@ export type SessionStartResponse = SessionAccessBundle & {
   question: Question;
   min_questions_for_report: number;
   max_questions_per_session: number;
+  workbench_checkpoint?: WorkbenchCheckpoint | null;
 };
 
 export type SubmitResponse = {
@@ -74,6 +133,7 @@ export type SubmitResponse = {
   can_generate_report: boolean;
   remaining_until_report: number;
   next_question: Question | null;
+  workbench_checkpoint?: WorkbenchCheckpoint | null;
 };
 
 export type SessionReport = {
@@ -189,6 +249,8 @@ export type RuntimeAIConfig = {
 
 export type SessionHistoryEntry = {
   session_id: string;
+  user_id?: string | null;
+  user_handle?: string | null;
   status: string;
   question_count: number;
   can_generate_report: boolean;
@@ -205,12 +267,71 @@ export type RewritePreview = {
   validator_passed: boolean;
   score: number;
   reasons: string[];
+  embedding_score_breakdown?: EmbeddingScoreBreakdown | null;
 };
 
 export type RewritePreviewBundle = {
   template_id: string;
   selected: RewritePreview;
   candidates: RewritePreview[];
+  retrieval_context?: RewriteRetrievalContext | null;
+};
+
+export type EmbeddingScoreBreakdown = {
+  enabled: boolean;
+  source_similarity: number;
+  source_distance_score: number;
+  duplicate_similarity: number;
+  duplicate_penalty: number;
+  alignment_similarity: number;
+  alignment_bonus: number;
+  total: number;
+};
+
+export type VectorSearchHit = {
+  object_id: string;
+  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot";
+  template_id?: string | null;
+  instance_id?: string | null;
+  session_id?: string | null;
+  snapshot_milestone?: number | null;
+  layer: string;
+  generation_mode: string;
+  prompt_excerpt: string;
+  score: number;
+  rerank_score?: number | null;
+  scenario_tags: string[];
+};
+
+export type RewriteRetrievalContext = {
+  enabled: boolean;
+  reranker_applied: boolean;
+  template_hits: VectorSearchHit[];
+  item_instance_hits: VectorSearchHit[];
+  rewrite_candidate_hits: VectorSearchHit[];
+};
+
+export type VectorReindexResponse = {
+  scope: "templates" | "instances" | "sessions" | "all";
+  enabled: boolean;
+  indexed_count: number;
+  failed_count: number;
+  failure_ids: string[];
+};
+
+export type VectorSearchResponse = {
+  enabled: boolean;
+  hits: VectorSearchHit[];
+};
+
+export type VectorSyncFailure = {
+  failure_id: string;
+  object_type: string;
+  object_id: string;
+  operation: string;
+  error_message: string;
+  payload_json: string;
+  created_at: string;
 };
 
 export type ClusterVersionInfo = {
@@ -249,6 +370,7 @@ type JsonBody = Record<string, unknown>;
 type RequestAuth = {
   sessionSecret?: string;
   deleteToken?: string;
+  user?: UserAccessBundle;
 };
 
 async function request<T>(
@@ -266,6 +388,10 @@ async function request<T>(
   }
   if (auth?.deleteToken) {
     headers.set("X-Delete-Token", auth.deleteToken);
+  }
+  if (auth?.user) {
+    headers.set("X-User-Id", auth.user.user_id);
+    headers.set("X-User-Secret", auth.user.user_secret);
   }
 
   const response = await fetch(`${baseUrl}${path}`, {
@@ -295,11 +421,83 @@ function adminRequest<T>(path: string, init?: RequestInit & { json?: JsonBody },
   return request<T>(ADMIN_API_BASE_URL, path, init, auth);
 }
 
-export function startSession() {
+export type UserProfile = {
+  user_id: string;
+  handle: string;
+  invite_code: string;
+  invited_by_user_id?: string | null;
+  relationship_opt_in: boolean;
+  recommendation_opt_in: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InviteCode = {
+  code: string;
+  created_by_user_id?: string | null;
+  label: string;
+  max_uses: number;
+  use_count: number;
+  active: boolean;
+  created_at: string;
+  expires_at?: string | null;
+};
+
+export type UserRecommendation = {
+  subject_user_id: string;
+  candidate_user_id: string;
+  candidate_handle: string;
+  score: number;
+  reason: string;
+  shared_cluster_name?: string | null;
+  via_relationship?: string | null;
+};
+
+export function redeemInvite(inviteCode: string) {
+  return publicRequest<UserAccessBundle>("/invite/redeem", {
+    method: "POST",
+    json: { invite_code: inviteCode },
+  });
+}
+
+export function getCurrentUser(user: UserAccessBundle) {
+  return publicRequest<UserProfile>("/user/me", undefined, { user });
+}
+
+export function updateCurrentUser(user: UserAccessBundle, payload: {
+  relationship_opt_in?: boolean;
+  recommendation_opt_in?: boolean;
+}) {
+  return publicRequest<UserProfile>(
+    "/user/me",
+    {
+      method: "PATCH",
+      json: payload,
+    },
+    { user }
+  );
+}
+
+export function listUserSessions(user: UserAccessBundle) {
+  return publicRequest<{ user: UserProfile; sessions: SessionHistoryEntry[] }>("/user/sessions", undefined, { user });
+}
+
+export function issueUserSessionAccess(user: UserAccessBundle, sessionId: string) {
+  return publicRequest<SessionAccessBundle>(
+    `/user/session/${sessionId}/access`,
+    {
+      method: "POST",
+      json: {},
+    },
+    { user }
+  );
+}
+
+export function startSession(user?: UserAccessBundle | null) {
   return publicRequest<SessionStartResponse>("/session/start", {
     method: "POST",
     json: { mode: "core" },
-  });
+  }, user ? { user } : undefined);
 }
 
 export function submitAnswer(access: SessionAccessBundle, itemId: string, optionKey: string, latencyMs: number) {
@@ -331,6 +529,12 @@ export function getNextQuestion(access: SessionAccessBundle) {
 
 export function getSessionSummary(access: SessionAccessBundle) {
   return publicRequest<SessionSummary>(`/session/${access.session_id}/summary`, undefined, {
+    sessionSecret: access.session_secret,
+  });
+}
+
+export function getWorkbenchEvidence(access: SessionAccessBundle) {
+  return publicRequest<WorkbenchEvidence>(`/session/${access.session_id}/workbench/evidence`, undefined, {
     sessionSecret: access.session_secret,
   });
 }
@@ -393,6 +597,37 @@ export function issueAdminSessionAccess(sessionId: string) {
 
 export function listAdminSessions() {
   return adminRequest<{ sessions: SessionHistoryEntry[] }>("/admin/sessions");
+}
+
+export function createInvite(payload: { created_by_user_id?: string | null; label?: string; max_uses?: number }) {
+  return adminRequest<InviteCode>("/admin/invites", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export function listInvites(limit = 100) {
+  return adminRequest<{ items: InviteCode[] }>(`/admin/invites?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export function listUsers(limit = 100) {
+  return adminRequest<{ items: UserProfile[] }>(`/admin/users?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export function listUserRelationships(payload?: { userId?: string; limit?: number }) {
+  const params = new URLSearchParams();
+  if (payload?.userId) params.set("user_id", payload.userId);
+  if (payload?.limit) params.set("limit", String(payload.limit));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return adminRequest<{ items: Array<{ relationship_id: string; source_user_id: string; target_user_id: string; relationship_type: string; created_at: string }> }>(
+    `/admin/users/relationships${suffix}`
+  );
+}
+
+export function getUserRecommendations(userId: string, limit = 5) {
+  return adminRequest<{ enabled: boolean; items: UserRecommendation[] }>(
+    `/admin/users/${encodeURIComponent(userId)}/recommendations?limit=${encodeURIComponent(String(limit))}`
+  );
 }
 
 export function listTemplates() {
@@ -495,4 +730,31 @@ export function deleteTemplate(templateId: string) {
   return adminRequest<{ deleted: boolean }>(`/admin/item-template/${templateId}`, {
     method: "DELETE",
   });
+}
+
+export function reindexVectors(scope: "templates" | "instances" | "sessions" | "all") {
+  return adminRequest<VectorReindexResponse>("/admin/vector/reindex", {
+    method: "POST",
+    json: { scope },
+  });
+}
+
+export function searchSimilarTemplates(payload: { templateId?: string; prompt?: string; topK?: number }) {
+  const params = new URLSearchParams();
+  if (payload.templateId) params.set("template_id", payload.templateId);
+  if (payload.prompt) params.set("prompt", payload.prompt);
+  if (typeof payload.topK === "number") params.set("top_k", String(payload.topK));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return adminRequest<VectorSearchResponse>(`/admin/vector/templates/similar${suffix}`);
+}
+
+export function searchSimilarSessions(payload: { sessionId: string; topK?: number }) {
+  const params = new URLSearchParams();
+  params.set("session_id", payload.sessionId);
+  if (typeof payload.topK === "number") params.set("top_k", String(payload.topK));
+  return adminRequest<VectorSearchResponse>(`/admin/vector/sessions/similar?${params.toString()}`);
+}
+
+export function listVectorSyncFailures(limit = 25) {
+  return adminRequest<{ items: VectorSyncFailure[] }>(`/admin/vector/sync-failures?limit=${encodeURIComponent(String(limit))}`);
 }

@@ -98,6 +98,7 @@ class SessionRecord(BaseModel):
     mode: str = "core"
     status: Literal["active", "discarded"] = "active"
     state: SessionState
+    user_id: str | None = None
     session_secret_hash: str = ""
     delete_token_hash: str = ""
     owner_key: str | None = None
@@ -200,10 +201,150 @@ class SessionSummary(BaseModel):
     state: SessionState
 
 
+class WorkbenchSignal(BaseModel):
+    key: str
+    label: str
+    value: float
+    confidence_percent: float = 0.0
+    sample_count: int = 0
+    detail: str | None = None
+
+
+class WorkbenchMilestone(BaseModel):
+    milestone: int
+    status: Literal["completed", "current", "upcoming"]
+    question_delta: int
+    progress_percent: float
+    snapshot_expected: bool = False
+
+
+class WorkbenchCheckpoint(BaseModel):
+    question_count: int
+    report_ready: bool
+    report_target: int
+    remaining_until_report: int
+    report_progress_percent: float
+    previous_milestone: int | None = None
+    next_milestone: int | None = None
+    milestone_progress_percent: float
+    snapshot_due_now: bool = False
+    narrative: str
+    top_core_signals: list[WorkbenchSignal] = Field(default_factory=list)
+    uncertainty_queue: list[WorkbenchSignal] = Field(default_factory=list)
+    active_modules: list[WorkbenchSignal] = Field(default_factory=list)
+    unlocked_subdimensions: list[WorkbenchSignal] = Field(default_factory=list)
+    milestones: list[WorkbenchMilestone] = Field(default_factory=list)
+
+
+class WorkbenchEvidenceItem(BaseModel):
+    reference_key: str
+    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot"]
+    label: str
+    relationship: str
+    prompt_excerpt: str
+    confidence_tier: Literal["high", "medium", "low"]
+    scenario_tags: list[str] = Field(default_factory=list)
+    snapshot_milestone: int | None = None
+
+
+class WorkbenchEvidence(BaseModel):
+    enabled: bool = False
+    current_question_id: str | None = None
+    current_template_id: str | None = None
+    vector_available: bool = False
+    reranker_applied: bool = False
+    item_evidence: list[WorkbenchEvidenceItem] = Field(default_factory=list)
+    session_evidence: list[WorkbenchEvidenceItem] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class SessionAccessGrant(BaseModel):
     session_id: str
     session_secret: str
     delete_token: str
+
+
+class UserProfile(BaseModel):
+    user_id: str
+    handle: str
+    invite_code: str
+    invited_by_user_id: str | None = None
+    user_secret_hash: str = ""
+    relationship_opt_in: bool = False
+    recommendation_opt_in: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class UserAccessGrant(BaseModel):
+    user_id: str
+    user_secret: str
+    handle: str
+    relationship_opt_in: bool = False
+    recommendation_opt_in: bool = False
+
+
+class InviteCode(BaseModel):
+    code: str
+    created_by_user_id: str | None = None
+    label: str = ""
+    max_uses: int = 1
+    use_count: int = 0
+    active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime | None = None
+
+
+class UserRelationship(BaseModel):
+    relationship_id: str
+    source_user_id: str
+    target_user_id: str
+    relationship_type: Literal["invited"] = "invited"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class UserRecommendation(BaseModel):
+    subject_user_id: str
+    candidate_user_id: str
+    candidate_handle: str
+    score: float
+    reason: str
+    shared_cluster_name: str | None = None
+    via_relationship: str | None = None
+
+
+class EmbeddingScoreBreakdown(BaseModel):
+    enabled: bool = False
+    source_similarity: float = 0.0
+    source_distance_score: float = 0.0
+    duplicate_similarity: float = 0.0
+    duplicate_penalty: float = 0.0
+    alignment_similarity: float = 0.0
+    alignment_bonus: float = 0.0
+    total: float = 0.0
+
+
+class VectorSearchHit(BaseModel):
+    object_id: str
+    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot"]
+    template_id: str | None = None
+    instance_id: str | None = None
+    session_id: str | None = None
+    snapshot_milestone: int | None = None
+    layer: str
+    generation_mode: str
+    prompt_excerpt: str
+    score: float
+    rerank_score: float | None = None
+    scenario_tags: list[str] = Field(default_factory=list)
+
+
+class RewriteRetrievalContext(BaseModel):
+    enabled: bool = False
+    reranker_applied: bool = False
+    template_hits: list[VectorSearchHit] = Field(default_factory=list)
+    item_instance_hits: list[VectorSearchHit] = Field(default_factory=list)
+    rewrite_candidate_hits: list[VectorSearchHit] = Field(default_factory=list)
 
 
 class TemplateRewritePreview(BaseModel):
@@ -213,6 +354,7 @@ class TemplateRewritePreview(BaseModel):
     validator_passed: bool
     score: float = 0.0
     reasons: list[str] = Field(default_factory=list)
+    embedding_score_breakdown: EmbeddingScoreBreakdown | None = None
 
 
 class RewriteCandidate(BaseModel):
@@ -222,16 +364,38 @@ class RewriteCandidate(BaseModel):
     validator_passed: bool
     score: float
     reasons: list[str] = Field(default_factory=list)
+    embedding_score_breakdown: EmbeddingScoreBreakdown | None = None
 
 
 class RewritePreviewBundle(BaseModel):
     template_id: str
     selected: TemplateRewritePreview
     candidates: list[RewriteCandidate]
+    retrieval_context: RewriteRetrievalContext | None = None
+
+
+class VectorSyncFailure(BaseModel):
+    failure_id: str
+    object_type: str
+    object_id: str
+    operation: str
+    error_message: str
+    payload_json: str
+    created_at: datetime
+
+
+class VectorReindexSummary(BaseModel):
+    scope: Literal["templates", "instances", "sessions", "all"]
+    enabled: bool = False
+    indexed_count: int = 0
+    failed_count: int = 0
+    failure_ids: list[str] = Field(default_factory=list)
 
 
 class SessionHistoryEntry(BaseModel):
     session_id: str
+    user_id: str | None = None
+    user_handle: str | None = None
     status: str
     question_count: int
     can_generate_report: bool

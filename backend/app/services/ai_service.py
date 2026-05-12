@@ -81,9 +81,9 @@ class AIService:
                     },
                     json={
                         "model": config.model,
-                        "messages": [{"role": "user", "content": "只回复ok"}],
+                        "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
                         "temperature": 0,
-                        "max_tokens": 10,
+                        "max_tokens": 128,
                     },
                 )
                 response.raise_for_status()
@@ -110,6 +110,7 @@ class AIService:
         style_hint: str | None = None,
         candidate_count: int | None = None,
         runtime_ai_config: AIProviderConfig | None = None,
+        retrieval_context: dict[str, object] | None = None,
     ) -> list[dict[str, object]]:
         fallback_candidates = [
             {
@@ -139,6 +140,7 @@ class AIService:
                                 "content": (
                                     "你是 Distilled TI 的题目改写器。"
                                     "只重写措辞，不改变测量方向、选项数量和回答结构。"
+                                    "不要复制近邻题目的表述，不要偏移原始维度与场景。"
                                     "输出纯 JSON："
                                     '{"candidates":[{"rewritten_prompt":"..."}]}'
                                 ),
@@ -155,10 +157,12 @@ class AIService:
                                         "dimension_weights": template.dimension_weights,
                                         "subdimension_weights": template.subdimension_weights,
                                         "prompt": template.prompt,
+                                        "retrieval_context": retrieval_context or {},
                                         "constraints": {
                                             "non_moralizing": True,
                                             "no_sensitive_topics": True,
                                             "keep_measurement_direction": True,
+                                            "avoid_copying_near_neighbors": True,
                                             "length_limit": 160,
                                             "candidate_count": desired_count,
                                         },
