@@ -154,7 +154,7 @@ def test_session_secret_is_bound_to_owner_fingerprint():
 def test_invite_user_can_keep_long_lived_session_history():
     redeem_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL"},
+        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "history-user@example.com"},
     )
     assert redeem_response.status_code == 200
     user_access = redeem_response.json()
@@ -169,6 +169,7 @@ def test_invite_user_can_keep_long_lived_session_history():
     profile_response = public_client.get("/api/user/me", headers=user_headers)
     assert profile_response.status_code == 200
     assert profile_response.json()["handle"] == user_access["handle"]
+    assert profile_response.json()["email_registered"] is True
     assert "user_secret_hash" not in profile_response.json()
 
     start_response = public_client.post("/api/session/start", json={"mode": "core"}, headers=user_headers)
@@ -202,7 +203,7 @@ def test_invite_user_can_keep_long_lived_session_history():
 def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
     inviter_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL"},
+        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "inviter@example.com"},
     )
     assert inviter_response.status_code == 200
     inviter = inviter_response.json()
@@ -219,7 +220,7 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
 
     new_user_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": inviter_profile["invite_code"]},
+        json={"invite_code": inviter_profile["invite_code"], "email": "invited-new@example.com"},
     )
     assert new_user_response.status_code == 200
     new_user = new_user_response.json()
@@ -232,7 +233,7 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
 
     existing_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL"},
+        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "existing-claimant@example.com"},
     )
     assert existing_response.status_code == 200
     existing = existing_response.json()
@@ -253,6 +254,28 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
         and relationship.target_user_id == existing["user_id"]
         for relationship in relationships
     )
+
+
+def test_invite_registration_requires_unique_email():
+    first_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "Unique.User@example.com"},
+    )
+    assert first_response.status_code == 200
+
+    duplicate_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "unique.user@example.com"},
+    )
+    assert duplicate_response.status_code == 422
+    assert duplicate_response.json()["detail"] == "email_already_registered"
+
+    invalid_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "not-an-email"},
+    )
+    assert invalid_response.status_code == 422
+    assert invalid_response.json()["detail"] == "invalid_email"
 
 
 def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatch, tmp_path):
@@ -382,7 +405,7 @@ def test_invite_user_can_manage_private_galgame_story_templates(monkeypatch):
     monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
     redeem_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL"},
+        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "story-template-owner@example.com"},
     )
     assert redeem_response.status_code == 200
     user_access = redeem_response.json()

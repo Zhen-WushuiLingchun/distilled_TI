@@ -382,6 +382,7 @@ class UserProfile(BaseModel):
     handle: str
     invite_code: str
     invited_by_user_id: str | None = None
+    email_hash: str | None = None
     user_secret_hash: str = ""
     relationship_opt_in: bool = False
     recommendation_opt_in: bool = False

@@ -9,6 +9,8 @@ import { getUserAccess, saveUserAccess } from "@/lib/runtime-store";
 export function ShareClient() {
   const router = useRouter();
   const [invite, setInvite] = useState("");
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [hasLocalUser, setHasLocalUser] = useState(false);
   const [from, setFrom] = useState("");
   const [title, setTitle] = useState("Distilled TI 剧情测绘");
   const [status, setStatus] = useState("");
@@ -19,6 +21,7 @@ export function ShareClient() {
     setInvite(params.get("invite") ?? "");
     setFrom(params.get("from") ?? "");
     setTitle(params.get("title") ?? "Distilled TI 剧情测绘");
+    setHasLocalUser(Boolean(getUserAccess()));
   }, []);
 
   async function handleEnter() {
@@ -46,14 +49,18 @@ export function ShareClient() {
       router.push("/story");
       return;
     }
+    if (!registerEmail.trim()) {
+      setStatus("请输入注册邮箱；一个邮箱只能注册一个匿名档案。");
+      return;
+    }
     try {
       setBusy(true);
       setStatus("");
-      const access = await redeemInvite(invite.trim());
+      const access = await redeemInvite(invite.trim(), registerEmail.trim());
       saveUserAccess(access);
       router.push("/story");
     } catch (reason) {
-      setStatus(reason instanceof Error ? reason.message : "邀请码验证失败。");
+      setStatus(reason instanceof Error ? reason.message : "注册失败。");
     } finally {
       setBusy(false);
     }
@@ -71,6 +78,18 @@ export function ShareClient() {
         <div className="mt-6 rounded-[var(--r-lg)] bg-[color:var(--bg-sunken)] p-4">
           <p className="label-mini">Invite Code</p>
           <input className="field mt-2" value={invite} onChange={(event) => setInvite(event.target.value)} />
+          {!hasLocalUser ? (
+            <>
+              <p className="label-mini mt-4">Register Email</p>
+              <input
+                className="field mt-2"
+                type="email"
+                value={registerEmail}
+                onChange={(event) => setRegisterEmail(event.target.value)}
+                placeholder="一个邮箱只能注册一个匿名档案"
+              />
+            </>
+          ) : null}
           {status ? <p className="mt-2 text-xs text-[color:var(--danger-ink)]">{status}</p> : null}
         </div>
         <div className="mt-6 flex flex-wrap gap-2.5">

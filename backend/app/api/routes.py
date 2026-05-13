@@ -85,7 +85,7 @@ def health() -> dict[str, str]:
 @router.post("/invite/redeem", response_model=UserAccessResponse)
 def redeem_invite(payload: RedeemInviteRequest) -> UserAccessResponse:
     try:
-        access = user_service.redeem_invite(payload.invite_code)
+        access = user_service.redeem_invite(payload.invite_code, payload.email)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return UserAccessResponse(**access.model_dump())

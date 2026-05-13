@@ -94,6 +94,7 @@ This gives users a game-like loop while still preserving measurement continuity.
 - Added `/evolution` so invite-backed users can see long-term report/session trajectory.
 - Added public `/profile` recommendation UI, still gated by environment flag and opt-in.
 - Existing users who enter through `/share?invite=...` now claim the inviter edge before routing to `/story`, preserving the invite relationship graph.
+- New users who enter through `/share?invite=...` must register with email plus invite code; the email is stored only as a uniqueness hash.
 - Profile, report, and evolution share links all use the current user's personal invite code.
 
 - Added Admin Story Engine panel:

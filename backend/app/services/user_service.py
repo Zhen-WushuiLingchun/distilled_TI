@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 import secrets
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -22,8 +23,19 @@ from app.services.storage import local_session_store
 
 
 class UserService:
+    _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
     def _hash_token(self, token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _normalize_email(self, email: str) -> str:
+        normalized = email.strip().lower()
+        if not normalized or not self._EMAIL_PATTERN.match(normalized):
+            raise ValueError("invalid_email")
+        return normalized
+
+    def _hash_email(self, email: str) -> str:
+        return hashlib.sha256(f"email:{email}".encode("utf-8")).hexdigest()
 
     def _new_handle(self) -> str:
         adjectives = ("ash", "cedar", "mint", "paper", "river", "field", "orbit", "lumen")
@@ -34,8 +46,10 @@ class UserService:
                 return handle
         return f"anon-{secrets.token_hex(5)}"
 
-    def redeem_invite(self, code: str) -> UserAccessGrant:
+    def redeem_invite(self, code: str, email: str) -> UserAccessGrant:
         invite_code = code.strip()
+        normalized_email = self._normalize_email(email)
+        email_hash = self._hash_email(normalized_email)
         invite = local_session_store.load_invite_code(invite_code)
         now = datetime.now(UTC)
         if invite is None:
@@ -46,6 +60,8 @@ class UserService:
             raise ValueError("invite_expired")
         if invite.use_count >= invite.max_uses:
             raise ValueError("invite_exhausted")
+        if local_session_store.load_user_by_email_hash(email_hash):
+            raise ValueError("email_already_registered")
 
         user_secret = secrets.token_urlsafe(32)
         profile = UserProfile(
@@ -53,6 +69,7 @@ class UserService:
             handle=self._new_handle(),
             invite_code=invite.code,
             invited_by_user_id=invite.created_by_user_id,
+            email_hash=email_hash,
             user_secret_hash=self._hash_token(user_secret),
             created_at=now,
             updated_at=now,
@@ -63,17 +80,6 @@ class UserService:
 
         updated_invite = invite.model_copy(update={"use_count": invite.use_count + 1})
         local_session_store.save_invite_code(updated_invite)
-
-        if invite.created_by_user_id:
-            local_session_store.save_user_relationship(
-                UserRelationship(
-                    relationship_id=f"rel-{uuid4()}",
-                    source_user_id=invite.created_by_user_id,
-                    target_user_id=profile.user_id,
-                    relationship_type="invited",
-                    created_at=now,
-                )
-            )
 
         return UserAccessGrant(
             user_id=profile.user_id,

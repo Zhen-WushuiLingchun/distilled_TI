@@ -60,13 +60,14 @@
 
 如果用户先通过邀请码进入：
 
-1. 用户调用 `POST /api/invite/redeem`
-2. `UserService.redeem_invite()` 创建随机 `user_id`、随机 `handle` 和 `user_secret`
-3. 前端把 `user_id / user_secret / handle` 保存到 localStorage
-4. 后续 `POST /api/session/start` 会带上 `X-User-Id` 和 `X-User-Secret`
-5. `SessionRecord.user_id` 被写入 SQLite，session TTL 从短期 TTL 切换为 `REGISTERED_SESSION_TTL_DAYS`
-6. `/api/user/sessions` 可以列出该匿名用户的长期历史
-7. `/api/user/session/{session_id}/access` 可以为用户自己的历史会话重新签发 session secret
+1. 用户调用 `POST /api/invite/redeem`，请求体必须同时包含 `invite_code` 和 `email`
+2. `UserService.redeem_invite()` 标准化邮箱并写入 `email_hash`；若该邮箱已注册，则返回 `email_already_registered`
+3. `UserService.redeem_invite()` 创建随机 `user_id`、随机 `handle` 和 `user_secret`
+4. 前端把 `user_id / user_secret / handle` 保存到 localStorage
+5. 后续 `POST /api/session/start` 会带上 `X-User-Id` 和 `X-User-Secret`
+6. `SessionRecord.user_id` 被写入 SQLite，session TTL 从短期 TTL 切换为 `REGISTERED_SESSION_TTL_DAYS`
+7. `/api/user/sessions` 可以列出该匿名用户的长期历史
+8. `/api/user/session/{session_id}/access` 可以为用户自己的历史会话重新签发 session secret
 
 所有向量写入都是辅助层：
 
@@ -136,6 +137,7 @@ python backend/scripts/galgame_text_calibration.py
 
 - `UserProfile.user_id` 是随机 ID。
 - `UserProfile.handle` 是随机用户名，供 Public/Admin 展示。
+- `UserProfile.email_hash` 是标准化邮箱的哈希，用于保证“一个邮箱只能注册一个匿名档案”；不在 Public/Admin 响应里返回明文邮箱。
 - `user_secret_hash` 只保存哈希，不返回给前端。
 - `InviteCode` 控制入口，支持 `max_uses / use_count / active / expires_at`。
 - `UserRelationship` 当前只记录 `invited` 类型的邀请边。
@@ -1290,7 +1292,7 @@ AI 目前主要用于：
 
 规则如下：
 
-- `POST /api/invite/redeem` 创建匿名用户后，会自动生成一个 `created_by_user_id=<当前用户>` 的个人分享 invite。
+- `POST /api/invite/redeem` 创建匿名用户后，会自动生成一个 `created_by_user_id=<当前用户>` 的个人分享 invite；该接口要求 `email`，并用邮箱哈希做唯一约束。
 - `GET /api/user/me` 和认证路径会懒迁移旧用户，确保旧 profile 也有个人分享 invite。
 - 新用户直接通过 `/share?invite=...` 进入时，仍使用 `POST /api/invite/redeem` 创建匿名 profile，并同步创建分享者到新用户的 `invited` 边。
 - 已有本地匿名用户打开 `/share?invite=...` 时，前端调用 `POST /api/user/invite/claim`。

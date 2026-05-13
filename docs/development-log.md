@@ -1,5 +1,36 @@
 # Development Log
 
+## 2026-05-13: Invite-Gated Email Registration
+
+### Completed
+
+- Converted invite redemption into real invite-gated registration:
+  - `POST /api/invite/redeem` now requires both `invite_code` and `email`
+  - email is normalized and hashed server-side
+  - one normalized email can only create one anonymous user profile
+  - API returns `email_already_registered` for duplicate registration
+  - API returns `invalid_email` for malformed email
+- Added `UserProfile.email_hash` and a SQLite unique index on `user_profiles.email_hash`.
+- Kept public identity pseudonymous:
+  - frontend still stores only `user_id / user_secret / handle`
+  - profile/admin responses expose `email_registered`, not the raw email or email hash
+- Updated landing and share entry UI:
+  - new users must enter email plus invite code
+  - existing local anonymous users can still claim share links without re-registering
+- Removed duplicate invite-relationship creation in `redeem_invite`; invite edges are now written through one helper path.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false GALGAME_AI_SCENE_ENABLED=false LOCAL_DB_PATH=<temp db> python -m compileall app tests; pytest -q` passed with `65 passed`.
+- Frontend: `npm run lint` passed with the existing two dynamic `<img>` warnings in `StoryClient.tsx`; `npm run build` passed.
+- Browser smoke using system Chrome:
+  - landing invite + email registration saved a local anonymous profile.
+  - share-page invite + email registration routed the new user to `/story`.
+  - duplicate normalized email registration returned `email_already_registered`.
+  - screenshots:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-email-registration-smoke\landing-email-registration.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-email-registration-smoke\share-email-registration-to-story.png`
+
 ## 2026-05-13: DeepSeek Story Provider Routing And Public Social Share Acceptance
 
 ### Completed

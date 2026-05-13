@@ -14,16 +14,18 @@ Distilled TI should support two modes:
   - keeps the short TTL behavior
 - Invite-backed anonymous user:
   - user enters an invite code
+  - user enters an email address for uniqueness
   - backend creates a random `user_id` and random public `handle`
-  - no real name, phone, email, or school identity is required
+  - no real name, phone, or school identity is required
   - sessions started after redeeming the invite are attached to that user and kept long-term
 
 This allows behavior and report evolution to be observed over time while keeping the public identity layer pseudonymous.
 
 ## Privacy Boundary
 
-- Public UI never asks for real identity.
+- Public UI asks for email only to enforce one account per person; it does not ask for real name, phone, or school identity.
 - Public UI stores only `user_id`, `user_secret`, and random `handle` locally.
+- Backend stores a normalized email hash for uniqueness; it does not return raw email or email hash in user/profile responses.
 - Backend stores `user_secret_hash`, not the raw user secret.
 - Admin can see anonymous user IDs, handles, invite edges, and aggregate profile/session results.
 - Public recommendation UI now exists as a `/profile` Social Lab shell.
@@ -39,6 +41,7 @@ This allows behavior and report evolution to be observed over time while keeping
   - `user_profiles`
   - `invite_codes`
   - `user_relationships`
+- `user_profiles.email_hash` has a unique index so one normalized email can only register one anonymous profile.
 - Added `sessions.user_id`.
 - Registered sessions now use `REGISTERED_SESSION_TTL_DAYS` instead of the short session TTL.
 - Added a local bootstrap invite via `INVITE_BOOTSTRAP_CODE`.
@@ -90,6 +93,8 @@ This is enough to test the data shape while keeping real recommendations constra
 
 Implemented after the foundation slice:
 
+- `POST /api/invite/redeem` now requires `invite_code + email`; duplicate normalized emails return `email_already_registered`.
+- API profile responses expose `email_registered`, not raw email or email hash.
 - Every invite-backed anonymous user now gets a personal share invite owned by that user.
 - New users who redeem another user's personal share invite now create an anonymous `invited` relationship edge.
 - Existing users who open another person's share link now call `POST /api/user/invite/claim` instead of silently skipping attribution.
@@ -109,7 +114,7 @@ Implemented after the foundation slice:
 
 ## Not Done Yet
 
-- No real login system, email, phone, password, OAuth, or campus SSO.
+- No email verification, password login, OAuth, phone login, or campus SSO.
 - No production-grade invite abuse controls.
 - Public recommendation UI exists as a Social Lab shell, but useful candidates still require both opt-in and report-ready sessions.
 - No user-to-user messaging.

@@ -549,6 +549,7 @@ export type UserProfile = {
   handle: string;
   invite_code: string;
   invited_by_user_id?: string | null;
+  email_registered: boolean;
   relationship_opt_in: boolean;
   recommendation_opt_in: boolean;
   created_at: string;
@@ -576,10 +577,10 @@ export type UserRecommendation = {
   via_relationship?: string | null;
 };
 
-export function redeemInvite(inviteCode: string) {
+export function redeemInvite(inviteCode: string, email: string) {
   return publicRequest<UserAccessBundle>("/invite/redeem", {
     method: "POST",
-    json: { invite_code: inviteCode },
+    json: { invite_code: inviteCode, email },
   });
 }
 

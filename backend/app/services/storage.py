@@ -124,6 +124,7 @@ class LocalSessionStore:
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id TEXT PRIMARY KEY,
                     handle TEXT NOT NULL UNIQUE,
+                    email_hash TEXT,
                     invite_code TEXT NOT NULL,
                     invited_by_user_id TEXT,
                     user_secret_hash TEXT NOT NULL,
@@ -133,6 +134,19 @@ class LocalSessionStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
+                """
+            )
+            user_columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(user_profiles)").fetchall()
+            }
+            if "email_hash" not in user_columns:
+                connection.execute("ALTER TABLE user_profiles ADD COLUMN email_hash TEXT")
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_user_profiles_email_hash
+                ON user_profiles(email_hash)
+                WHERE email_hash IS NOT NULL
                 """
             )
             connection.execute(
@@ -614,6 +628,7 @@ class LocalSessionStore:
                 INSERT INTO user_profiles (
                     user_id,
                     handle,
+                    email_hash,
                     invite_code,
                     invited_by_user_id,
                     user_secret_hash,
@@ -623,9 +638,10 @@ class LocalSessionStore:
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     handle = excluded.handle,
+                    email_hash = excluded.email_hash,
                     invite_code = excluded.invite_code,
                     invited_by_user_id = excluded.invited_by_user_id,
                     user_secret_hash = excluded.user_secret_hash,
@@ -637,6 +653,7 @@ class LocalSessionStore:
                 (
                     profile.user_id,
                     profile.handle,
+                    profile.email_hash,
                     profile.invite_code,
                     profile.invited_by_user_id,
                     profile.user_secret_hash,
@@ -654,6 +671,16 @@ class LocalSessionStore:
             row = connection.execute(
                 "SELECT payload_json FROM user_profiles WHERE user_id = ?",
                 (user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return UserProfile.model_validate_json(row[0])
+
+    def load_user_by_email_hash(self, email_hash: str) -> UserProfile | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM user_profiles WHERE email_hash = ?",
+                (email_hash,),
             ).fetchone()
         if row is None:
             return None

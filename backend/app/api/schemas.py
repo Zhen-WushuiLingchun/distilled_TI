@@ -41,6 +41,7 @@ class StartSessionRequest(BaseModel):
 
 class RedeemInviteRequest(BaseModel):
     invite_code: str
+    email: str
 
 
 class ClaimInviteRequest(BaseModel):
@@ -52,6 +53,7 @@ class UserProfileResponse(BaseModel):
     handle: str
     invite_code: str
     invited_by_user_id: str | None = None
+    email_registered: bool = False
     relationship_opt_in: bool = False
     recommendation_opt_in: bool = False
     created_at: str
@@ -64,6 +66,7 @@ class UserProfileResponse(BaseModel):
             handle=profile.handle,
             invite_code=profile.invite_code,
             invited_by_user_id=profile.invited_by_user_id,
+            email_registered=bool(profile.email_hash),
             relationship_opt_in=profile.relationship_opt_in,
             recommendation_opt_in=profile.recommendation_opt_in,
             created_at=profile.created_at.isoformat(),
