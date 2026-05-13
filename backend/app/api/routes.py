@@ -8,6 +8,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.api.schemas import (
+    ClaimInviteRequest,
     GalgameStoryTemplateListResponse,
     GalgameStoryTemplateRequest,
     GalgameStoryTemplateResponse,
@@ -97,6 +98,20 @@ def get_current_user(
 ) -> UserProfileResponse:
     profile = _require_user(x_user_id, x_user_secret)
     return UserProfileResponse.from_profile(profile)
+
+
+@router.post("/user/invite/claim", response_model=UserProfileResponse)
+def claim_invite_for_current_user(
+    payload: ClaimInviteRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserProfileResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    try:
+        updated = user_service.claim_invite(profile, payload.invite_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return UserProfileResponse.from_profile(updated)
 
 
 @router.patch("/user/me", response_model=UserProfileResponse)

@@ -1,7 +1,7 @@
 # Plan: Invite Users, Long-Term Archives, And Hidden Relationship Recommendations
 
 - Date: 2026-05-12
-- Status: foundation implemented
+- Status: foundation implemented; public share/social/evolution slice added on 2026-05-13
 - Scope: add an invite-only anonymous user layer, keep long-term history per user, prepare relationship graph analysis, and keep recommendation UI hidden behind a backend feature flag.
 
 ## Product Direction
@@ -26,8 +26,8 @@ This allows behavior and report evolution to be observed over time while keeping
 - Public UI stores only `user_id`, `user_secret`, and random `handle` locally.
 - Backend stores `user_secret_hash`, not the raw user secret.
 - Admin can see anonymous user IDs, handles, invite edges, and aggregate profile/session results.
-- Public recommendation UI is not exposed.
-- The hidden recommendation endpoint is disabled unless `RELATIONSHIP_RECOMMENDATIONS_ENABLED=true`.
+- Public recommendation UI now exists as a `/profile` Social Lab shell.
+- Recommendation results are controlled by `RELATIONSHIP_RECOMMENDATIONS_ENABLED`, user opt-in, and report-ready data.
 - User profile contains explicit opt-in flags:
   - `relationship_opt_in`
   - `recommendation_opt_in`
@@ -84,31 +84,48 @@ The first recommendation implementation is intentionally conservative:
 - It uses report-ready sessions only.
 - It scores candidates by core profile distance with a small same-cluster bonus.
 
-This is enough to test the data shape without making a social feature visible to users.
+This is enough to test the data shape while keeping real recommendations constrained by explicit opt-in and available report history.
+
+## 2026-05-13 Update
+
+Implemented after the foundation slice:
+
+- Every invite-backed anonymous user now gets a personal share invite owned by that user.
+- New users who redeem another user's personal share invite now create an anonymous `invited` relationship edge.
+- Existing users who open another person's share link now call `POST /api/user/invite/claim` instead of silently skipping attribution.
+- Claiming a share invite creates an anonymous `invited` relationship edge while preserving the claimant's own personal invite code.
+- `/profile` now exposes:
+  - personal share link copy/preview
+  - public Social Lab shell
+  - long-term session archive resume/report buttons
+- `/evolution` now exposes:
+  - invite-link copy
+  - history row resume/report actions
+- `/report` share/export now includes:
+  - sharer handle
+  - sharer invite code
+  - `/share?...` URL inside exported JSON
+- `RELATIONSHIP_RECOMMENDATIONS_ENABLED` defaults to `true` for this prototype branch, but recommendation results still require user opt-in and report-ready data.
 
 ## Not Done Yet
 
 - No real login system, email, phone, password, OAuth, or campus SSO.
 - No production-grade invite abuse controls.
-- No public friend/recommendation UI.
+- Public recommendation UI exists as a Social Lab shell, but useful candidates still require both opt-in and report-ready sessions.
 - No user-to-user messaging.
-- No share/export implementation beyond the existing report view.
+- No PNG/PDF report export yet; JSON export exists and includes share metadata.
 - No graph visualization for Admin yet.
-- No data deletion/export workflow beyond clearing local credentials and deleting sessions.
+- No production data deletion/export workflow beyond clearing local credentials, deleting sessions, and local JSON export.
 - No policy copy beyond the current entertainment/self-assessment warning.
 
 ## Next Slices
 
-1. Add report export/share:
-   - local JSON export
-   - PNG/PDF style report snapshot
-   - share token only if explicitly enabled
-2. Improve Admin relationship graph:
+1. Improve Admin relationship graph:
    - invite tree
    - per-cluster user distribution
    - opt-in/recommendation readiness counters
-3. Add user-facing archive polish:
+2. Add PNG/PDF style report snapshot export.
+3. Improve user-facing archive polish:
    - per-report cards
-   - evolution timeline across reports
-   - compare latest report vs previous report
-4. Only after privacy review, decide whether the hidden recommendation UI can move from Admin to Public.
+   - compare latest report vs previous report once enough sessions exist
+4. Add invite abuse controls, public opt-in copy review, and share-link throttling before broader public exposure.

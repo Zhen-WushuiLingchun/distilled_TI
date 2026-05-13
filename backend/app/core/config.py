@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     galgame_ai_scene_enabled: bool = True
     galgame_ai_scene_timeout_seconds: float = 90.0
     galgame_ai_scene_max_tokens: int = 4096
+    galgame_ai_scene_thinking_type: str = "disabled"
+    galgame_ai_scene_reasoning_effort: str = ""
+    galgame_ai_scene_output_effort: str = ""
     galgame_asset_generation_enabled: bool = False
     galgame_asset_backend: str = "sdwebui"
     galgame_asset_base_url: str = "http://127.0.0.1:7860"
@@ -78,7 +81,7 @@ class Settings(BaseSettings):
     invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
     invite_default_max_uses: int = 1000
     registered_session_ttl_days: int = 3650
-    relationship_recommendations_enabled: bool = False
+    relationship_recommendations_enabled: bool = True
 
 
 settings = Settings()

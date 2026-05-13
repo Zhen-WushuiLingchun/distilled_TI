@@ -199,6 +199,62 @@ def test_invite_user_can_keep_long_lived_session_history():
     assert access_response.json()["session_secret"]
 
 
+def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
+    inviter_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": "DISTILLED-TI-LOCAL"},
+    )
+    assert inviter_response.status_code == 200
+    inviter = inviter_response.json()
+    inviter_headers = {
+        "X-User-Id": inviter["user_id"],
+        "X-User-Secret": inviter["user_secret"],
+    }
+    inviter_profile_response = public_client.get("/api/user/me", headers=inviter_headers)
+    assert inviter_profile_response.status_code == 200
+    inviter_profile = inviter_profile_response.json()
+    share_invite = local_session_store.load_invite_code(inviter_profile["invite_code"])
+    assert share_invite is not None
+    assert share_invite.created_by_user_id == inviter["user_id"]
+
+    new_user_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": inviter_profile["invite_code"]},
+    )
+    assert new_user_response.status_code == 200
+    new_user = new_user_response.json()
+    new_user_relationships = local_session_store.list_user_relationships(user_id=new_user["user_id"], limit=100)
+    assert any(
+        relationship.source_user_id == inviter["user_id"]
+        and relationship.target_user_id == new_user["user_id"]
+        for relationship in new_user_relationships
+    )
+
+    existing_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": "DISTILLED-TI-LOCAL"},
+    )
+    assert existing_response.status_code == 200
+    existing = existing_response.json()
+    existing_headers = {
+        "X-User-Id": existing["user_id"],
+        "X-User-Secret": existing["user_secret"],
+    }
+
+    claim_response = public_client.post(
+        "/api/user/invite/claim",
+        json={"invite_code": inviter_profile["invite_code"]},
+        headers=existing_headers,
+    )
+    assert claim_response.status_code == 200
+    relationships = local_session_store.list_user_relationships(user_id=existing["user_id"], limit=100)
+    assert any(
+        relationship.source_user_id == inviter["user_id"]
+        and relationship.target_user_id == existing["user_id"]
+        for relationship in relationships
+    )
+
+
 def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path / "generated"))

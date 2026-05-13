@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { redeemInvite } from "@/lib/api";
+import { claimInvite, redeemInvite } from "@/lib/api";
 import { getUserAccess, saveUserAccess } from "@/lib/runtime-store";
 
 export function ShareClient() {
@@ -28,6 +28,21 @@ export function ShareClient() {
     }
     const existing = getUserAccess();
     if (existing) {
+      try {
+        setBusy(true);
+        setStatus("正在把这条分享关系写入你的匿名关系网…");
+        const profile = await claimInvite(existing, invite.trim());
+        saveUserAccess({
+          ...existing,
+          handle: profile.handle,
+          relationship_opt_in: profile.relationship_opt_in,
+          recommendation_opt_in: profile.recommendation_opt_in,
+        });
+      } catch (reason) {
+        setStatus(reason instanceof Error ? reason.message : "邀请关系写入失败。");
+        setBusy(false);
+        return;
+      }
       router.push("/story");
       return;
     }

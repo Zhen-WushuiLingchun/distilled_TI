@@ -1,5 +1,65 @@
 # Development Log
 
+## 2026-05-13: DeepSeek Story Provider Routing And Public Social Share Acceptance
+
+### Completed
+
+- Fixed live Story Scene generation for `deepseek-v4-pro` by adding provider-specific request controls:
+  - default `thinking={"type":"disabled"}` for DeepSeek scene calls
+  - optional `GALGAME_AI_SCENE_REASONING_EFFORT`
+  - optional `GALGAME_AI_SCENE_OUTPUT_EFFORT`
+  - retry variants that drop `response_format` and provider controls when an OpenAI-compatible endpoint rejects them
+- Made Story Scene JSON parsing more tolerant:
+  - empty final content retries the next variant instead of immediately falling back
+  - `choice_texts` can now be returned as either an object or an array of `{option_key,text}`
+  - invalid scene JSON still falls back safely and does not block play
+- Changed invite-backed sharing from "entry code only" to "personal share invite":
+  - every authenticated anonymous user is lazily assigned a personal invite code created by that user
+  - new users who redeem another user's personal invite create an anonymous `invited` edge
+  - existing users who open `/share?invite=...` now call `POST /api/user/invite/claim`
+  - successful claims create an anonymous `invited` relationship edge without replacing the user's own share invite
+- Promoted the hidden recommendation surface into the public `/profile` Social Lab while keeping user opt-in and report-readiness gates.
+- Added visible share affordances:
+  - `/profile` personal invite/share entry
+  - `/evolution` copy invite entry and resume/report buttons for history rows
+  - `/report` export JSON now includes `shared_by`, `invite_code`, and `share_url`
+  - all public outward share links point to `/share` with the sharer's personal invite code
+
+### Validation
+
+- Backend targeted tests for DeepSeek request controls, retry variants, choice text normalization, and existing-user invite claims passed.
+- Backend full regression: `VECTOR_ENABLED=false GALGAME_AI_SCENE_ENABLED=false LOCAL_DB_PATH=<temp db> pytest -q` passed with `64 passed`.
+- Frontend: `npm run lint` passed with the existing two dynamic `<img>` warnings in `StoryClient.tsx`.
+- Frontend: `npm run build` passed.
+- Real DeepSeek/API smoke:
+  - direct `AIService.generate_galgame_scene()` with `deepseek-v4-pro` returned a valid scene JSON.
+  - public `/api/session/{id}/galgame/scene` returned `ai_generated=true`, 5 choices, and generated background asset.
+- Browser smoke using system Chrome:
+  - `/share?invite=...` as an existing user claimed the inviter edge and routed to `/story`.
+  - `/story` loaded a live generated scene; `session/start` and `galgame/scene` both returned 200; no console errors.
+  - `/profile` showed personal invite, Social Lab enabled state, and result archive.
+  - `/evolution` showed history shell and copy invite entry.
+  - `/report` rendered Share / Export controls from a finalized local snapshot and showed the user's invite code.
+  - screenshots:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\share-before-claim.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\story-live-scene.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\profile-social-share.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\evolution-history.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\report-share-export.png`
+
+### Not Completed Yet
+
+- Character sprites can still fall back to local placeholder art when SD/Web image generation does not produce a usable transparent sprite.
+- Public recommendations are visible as a Social Lab shell, but useful candidates still require both users to opt in and have report-ready sessions.
+- There is no production moderation/abuse workflow for public invite sharing yet.
+- ComfyUI generation remains a status probe only; generation still needs a workflow adapter.
+
+### Next Step
+
+- Improve the sprite/background asset quality path before adding more social surfaces.
+- Add production controls for invite abuse, opt-in copy, and share-link throttling.
+- Continue toward richer report history/evolution once there is enough long-lived user data.
+
 ## 2026-05-13: Natural Story Mode Boundary
 
 ### Completed

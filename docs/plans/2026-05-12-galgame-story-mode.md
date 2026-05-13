@@ -1,7 +1,7 @@
 # Plan: Galgame Story Mode
 
 - Date: 2026-05-12
-- Status: AI-GAL style generation, free-text classifier, SD WebUI asset generation, share/evolution/social UI slice implemented; 2026-05-13 natural Story Mode boundary patch in progress
+- Status: AI-GAL style generation, free-text classifier, SD WebUI asset generation, share/evolution/social UI slice implemented; 2026-05-13 DeepSeek scene routing and browser smoke passed
 - Scope: make Distilled TI playable by wrapping measurement questions in a visual-novel style scenario loop.
 
 ## Reference Review
@@ -67,6 +67,8 @@ This gives users a game-like loop while still preserving measurement continuity.
   - generated assets written under ignored `frontend/public/generated/galgame`
 - `respond` records the story turn, resolves free-text tendency when available, then calls the existing scoring path through `submit_answer()`.
 - `respond` accepts `choice_text` so `galgame_turns.scene_text` records the visible player branch or custom line instead of an internal option label.
+- DeepSeek live Story Scene routing now sends `thinking={"type":"disabled"}` by default for `deepseek-v4-pro` and retries without optional provider controls if the endpoint rejects them.
+- Scene JSON parsing now accepts `choice_texts` as either an object or an array of `{option_key,text}`.
 
 ## Implemented Frontend
 
@@ -91,6 +93,8 @@ This gives users a game-like loop while still preserving measurement continuity.
 - Added `/share` so report shares carry the sharer's invite code.
 - Added `/evolution` so invite-backed users can see long-term report/session trajectory.
 - Added public `/profile` recommendation UI, still gated by environment flag and opt-in.
+- Existing users who enter through `/share?invite=...` now claim the inviter edge before routing to `/story`, preserving the invite relationship graph.
+- Profile, report, and evolution share links all use the current user's personal invite code.
 
 - Added Admin Story Engine panel:
   - create/update/delete story templates
@@ -99,10 +103,18 @@ This gives users a game-like loop while still preserving measurement continuity.
 
 ## Local Validation
 
-- Backend: `VECTOR_ENABLED=false pytest` passed with `59 passed`.
+- Backend: `VECTOR_ENABLED=false GALGAME_AI_SCENE_ENABLED=false LOCAL_DB_PATH=<temp db> pytest -q` passed with `64 passed`.
 - Frontend: `npm run lint` passed after the current slice, with only the expected dynamic `<img>` warnings.
 - Frontend: `npm run build` passed after the current slice.
-- Browser acceptance covered `/story` scene load, custom free-line submission, classifier evidence display, Admin Story Engine panel, and `galgame_turns` vector scope.
+- Real DeepSeek scene smoke:
+  - direct `AIService.generate_galgame_scene()` returned valid final scene JSON.
+  - public `/api/session/{id}/galgame/scene` returned `ai_generated=true`.
+- Browser acceptance covered:
+  - `/share` existing-user invite claim to `/story`
+  - `/story` live generated scene with no console errors
+  - `/profile` personal invite and Social Lab shell
+  - `/evolution` history shell and invite copy action
+  - `/report` Share / Export controls from a finalized snapshot
 
 ## Measurement Boundary
 
@@ -133,17 +145,16 @@ References checked:
 - ComfyUI generation adapter is not implemented yet; status probing exists, but generation needs a workflow adapter.
 - Audio generation is not implemented yet; current audio path is fallback/static only.
 - Branching remains item-by-item rather than a persistent Ren'Py-style graph.
-- Real AI acceptance with DeepSeek/SiliconFlow should be rerun after setting local secrets.
-- Full regression and browser smoke need to be rerun after the 2026-05-13 natural Story Mode boundary patch.
-- DeepSeek `deepseek-v4-pro` Admin connection test passes, but live Story Scene generation currently falls back because the model did not return valid final scene JSON in `message.content` during local smoke.
+- Character sprites can still fall back to local placeholder art when local generation is unavailable or not suitable.
+- Public Social Lab can render, but useful candidates still require opt-in and report-ready sessions.
 
 ## Next Slices
 
-1. Browser-smoke the share page, profile recommendation card, and evolution timeline.
-2. Tune SD prompt templates and add a ComfyUI workflow adapter if local SD WebUI quality is not enough.
+1. Improve real sprite/background quality and generation prompts before expanding the social surface further.
+2. Add a ComfyUI workflow adapter if local SD WebUI quality is not enough.
 3. Add a cloud image provider adapter if local generation is too heavy for deployment.
 4. Add deeper branch memory once story quality is stable.
-5. Decide provider routing for live Story Scene text: keep `deepseek-v4-pro` for analysis/reporting, or use a non-reasoning chat model for low-latency playable scenes.
+5. Add public invite abuse controls and clearer opt-in copy before broader social/recommendation exposure.
 
 ## 2026-05-12 SD WebUI Acceptance
 

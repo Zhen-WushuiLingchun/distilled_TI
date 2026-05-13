@@ -175,7 +175,7 @@ def test_admin_template_and_history_endpoints():
     assert delete_response.json()["deleted"] is True
 
 
-def test_admin_invites_users_and_hidden_recommendations():
+def test_admin_invites_users_and_public_opt_in_recommendations():
     invite_response = admin_client.post(
         "/api/admin/invites",
         json={"label": "test batch", "max_uses": 2},
@@ -203,7 +203,7 @@ def test_admin_invites_users_and_hidden_recommendations():
 
     recommendations_response = admin_client.get(f"/api/admin/users/{user['user_id']}/recommendations")
     assert recommendations_response.status_code == 200
-    assert recommendations_response.json()["enabled"] is False
+    assert recommendations_response.json()["enabled"] is True
     assert recommendations_response.json()["items"] == []
 
 

@@ -43,6 +43,10 @@ class RedeemInviteRequest(BaseModel):
     invite_code: str
 
 
+class ClaimInviteRequest(BaseModel):
+    invite_code: str
+
+
 class UserProfileResponse(BaseModel):
     user_id: str
     handle: str

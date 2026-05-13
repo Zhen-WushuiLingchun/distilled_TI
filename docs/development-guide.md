@@ -150,7 +150,7 @@ Public 侧还允许匿名注册用户管理自己的剧情模板：
 - `PUT /api/user/galgame/story-templates/{template_id}`
 - `DELETE /api/user/galgame/story-templates/{template_id}`
 
-推荐由 `RELATIONSHIP_RECOMMENDATIONS_ENABLED` 控制，默认关闭。公开 `/profile` 只展示匿名 handle、相似理由和分数；即使开启，也要求用户设置 `recommendation_opt_in=true`，并且会排除已有直接邀请关系的人。
+推荐由 `RELATIONSHIP_RECOMMENDATIONS_ENABLED` 控制。当前 prototype 分支默认开启公开 `/profile` 的 Social Lab 外壳，但只展示匿名 handle、相似理由和分数；即使开启，也要求用户设置 `recommendation_opt_in=true`，并且会排除已有直接邀请关系的人。
 
 ### 2.0b Story Mode 资产流水线
 
@@ -1264,6 +1264,56 @@ AI 目前主要用于：
 - 一致性检测能直接帮助识别瞎答题与伪装答题
 - 聚类质量提升后，地图和报告解释才更稳
 - AI 放在最后做解释层，会更安全，也更容易评估
+
+## 11.5 2026-05-13 当前运行规则补充
+
+### DeepSeek Story Scene provider
+
+`deepseek-v4-pro` 现在可以继续作为 Story Scene 的实时文本 provider 使用，但 scene 调用有单独的 provider 控制项：
+
+- `GALGAME_AI_SCENE_THINKING_TYPE=disabled`
+- `GALGAME_AI_SCENE_REASONING_EFFORT=`，默认空，不发送
+- `GALGAME_AI_SCENE_OUTPUT_EFFORT=`，默认空，不发送
+
+`AIService.generate_galgame_scene()` 的请求策略是：
+
+1. 先发送完整 JSON 请求，包含 `response_format={"type":"json_object"}` 和 DeepSeek `thinking` 控制。
+2. 如果 provider 断连、返回空 final content、JSON 解析失败，或 400/422 拒绝扩展字段，则降级重试。
+3. 重试顺序依次去掉 `response_format`、去掉 provider 控制、再去掉两者。
+4. 全部失败时返回 `None`，Story Mode 使用自然 fallback，不阻塞游玩。
+
+这条 provider 路由只影响 Story Scene 生成，不改变 report、rewrite、probe 的主 provider 逻辑。
+
+### Public share and invite graph
+
+`UserProfile.invite_code` 现在表示“该匿名用户自己的分享邀请码”，不是它最初用来进入系统的 code。
+
+规则如下：
+
+- `POST /api/invite/redeem` 创建匿名用户后，会自动生成一个 `created_by_user_id=<当前用户>` 的个人分享 invite。
+- `GET /api/user/me` 和认证路径会懒迁移旧用户，确保旧 profile 也有个人分享 invite。
+- 新用户直接通过 `/share?invite=...` 进入时，仍使用 `POST /api/invite/redeem` 创建匿名 profile，并同步创建分享者到新用户的 `invited` 边。
+- 已有本地匿名用户打开 `/share?invite=...` 时，前端调用 `POST /api/user/invite/claim`。
+- `claim` 成功会创建 `UserRelationship(source_user_id=分享者, target_user_id=当前用户, relationship_type="invited")`。
+- claim 不会覆盖当前用户自己的 `invite_code`，因此每个用户都能继续向外分享自己的入口。
+
+因此所有公开向外分享链接必须使用当前用户自己的 `profile.invite_code`：
+
+- `/profile` 的“我的分享入口”
+- `/evolution` 的“复制邀请入口”
+- `/report` 的“复制分享链接”“预览分享页”
+- JSON export 的 `invite_code` 和 `share_url`
+
+### Public Social Lab boundary
+
+`RELATIONSHIP_RECOMMENDATIONS_ENABLED` 当前默认开启，以便公开 `/profile` 能显示 Social Lab 外壳。但推荐结果仍有硬门槛：
+
+- 当前用户必须 `recommendation_opt_in=true`。
+- 候选用户也必须满足推荐服务的隐私和数据要求。
+- 已存在直接邀请关系的用户会被排除。
+- 没有 report-ready 会话时返回空列表。
+
+这意味着公开 UI 可以先上线，但不会在没有足够同意和数据的情况下展示推荐对象。
 
 ## 12. 一句话总结
 

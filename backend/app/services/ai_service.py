@@ -408,19 +408,28 @@ class AIService:
                 "max_tokens": settings.galgame_ai_scene_max_tokens,
                 "response_format": {"type": "json_object"},
             }
+            self._apply_galgame_scene_provider_controls(request_json, active_config)
             with httpx.Client(timeout=settings.galgame_ai_scene_timeout_seconds, follow_redirects=False) as client:
-                try:
-                    response = client.post(f"{active_config.base_url}/chat/completions", headers=headers, json=request_json)
-                except httpx.RemoteProtocolError:
-                    request_json.pop("response_format", None)
-                    response = client.post(f"{active_config.base_url}/chat/completions", headers=headers, json=request_json)
-                if response.status_code in {400, 422} and "response_format" in request_json:
-                    request_json.pop("response_format", None)
-                    response = client.post(f"{active_config.base_url}/chat/completions", headers=headers, json=request_json)
-                response.raise_for_status()
-                data = response.json()
-                content = str(data["choices"][0]["message"]["content"]).strip()
-                parsed = self._parse_json_object(content)
+                parsed = None
+                for candidate_json in self._galgame_scene_request_variants(request_json):
+                    try:
+                        response = client.post(f"{active_config.base_url}/chat/completions", headers=headers, json=candidate_json)
+                    except httpx.RemoteProtocolError:
+                        continue
+                    if response.status_code in {400, 422}:
+                        continue
+                    response.raise_for_status()
+                    data = response.json()
+                    content = str(data["choices"][0]["message"].get("content") or "").strip()
+                    if not content:
+                        continue
+                    try:
+                        parsed = self._parse_json_object(content)
+                    except ValueError:
+                        continue
+                    break
+                if parsed is None:
+                    return None
         except Exception:
             return None
 
@@ -433,15 +442,62 @@ class AIService:
             if isinstance(choice, dict) and choice.get("option_key")
         }
         raw_choice_texts = parsed.get("choice_texts", {})
-        if not isinstance(raw_choice_texts, dict):
-            raw_choice_texts = {}
-        choice_texts = {
-            key: str(value).strip()
-            for key, value in raw_choice_texts.items()
-            if key in option_keys and str(value).strip()
-        }
+        choice_texts = self._normalize_galgame_choice_texts(raw_choice_texts, option_keys)
         parsed["choice_texts"] = choice_texts
         return parsed
+
+    def _normalize_galgame_choice_texts(self, raw_choice_texts: object, option_keys: set[str]) -> dict[str, str]:
+        if isinstance(raw_choice_texts, list):
+            raw_choice_texts = {
+                str(item.get("option_key") or item.get("key")): str(item.get("text") or item.get("value") or "")
+                for item in raw_choice_texts
+                if isinstance(item, dict) and (item.get("option_key") or item.get("key"))
+            }
+        if not isinstance(raw_choice_texts, dict):
+            return {}
+        return {
+            str(key): str(value).strip()
+            for key, value in raw_choice_texts.items()
+            if str(key) in option_keys and str(value).strip()
+        }
+
+    def _apply_galgame_scene_provider_controls(self, request_json: dict[str, object], active_config: AIProviderConfig) -> None:
+        provider_key = f"{active_config.provider} {active_config.model}".lower()
+        thinking_type = settings.galgame_ai_scene_thinking_type.strip().lower()
+        if thinking_type and "deepseek" in provider_key:
+            request_json["thinking"] = {"type": thinking_type}
+
+        reasoning_effort = settings.galgame_ai_scene_reasoning_effort.strip()
+        if reasoning_effort:
+            request_json["reasoning_effort"] = reasoning_effort
+
+        output_effort = settings.galgame_ai_scene_output_effort.strip()
+        if output_effort:
+            request_json["output_config"] = {"effort": output_effort}
+
+    def _galgame_scene_request_variants(self, request_json: dict[str, object]) -> list[dict[str, object]]:
+        variants: list[dict[str, object]] = []
+
+        def add_variant(payload: dict[str, object]) -> None:
+            marker = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+            if all(json.dumps(existing, sort_keys=True, ensure_ascii=False) != marker for existing in variants):
+                variants.append(payload)
+
+        add_variant(dict(request_json))
+
+        no_response_format = dict(request_json)
+        no_response_format.pop("response_format", None)
+        add_variant(no_response_format)
+
+        no_provider_controls = dict(request_json)
+        for key in ("thinking", "reasoning_effort", "output_config"):
+            no_provider_controls.pop(key, None)
+        add_variant(no_provider_controls)
+
+        plain = dict(no_provider_controls)
+        plain.pop("response_format", None)
+        add_variant(plain)
+        return variants
 
     def classify_galgame_free_text(
         self,

@@ -29,6 +29,7 @@ export function ProfileClient() {
   const [recommendations, setRecommendations] = useState<UserRecommendation[]>([]);
   const [recommendationsEnabled, setRecommendationsEnabled] = useState(false);
   const [error, setError] = useState("");
+  const [shareStatus, setShareStatus] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -98,6 +99,23 @@ export function ProfileClient() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function buildProfileShareLink() {
+    if (!profile || typeof window === "undefined") return "";
+    const params = new URLSearchParams({
+      invite: profile.invite_code,
+      from: profile.handle,
+      title: `${profile.handle} 的 Distilled TI 入口`,
+    });
+    return `${window.location.origin}/share?${params.toString()}`;
+  }
+
+  async function handleCopyProfileShare() {
+    const link = buildProfileShareLink();
+    if (!link) return;
+    await navigator.clipboard.writeText(link);
+    setShareStatus("邀请链接已复制；新用户从这个链接进入会被记录到你的匿名关系网。");
   }
 
   if (!access || !profile) {
@@ -178,6 +196,28 @@ export function ProfileClient() {
                 </span>
               </span>
             </label>
+            <div className="surface-sunken p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="label-mini">Invite Link</p>
+                  <h3 className="mt-1 text-lg text-[color:var(--ink-strong)]">我的分享入口</h3>
+                </div>
+                <span className="chip">{profile.invite_code}</span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]">
+                所有公开分享都使用这个个人邀请码。别人从链接进入后，会创建一条匿名邀请边，不暴露真实身份。
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn btn-primary px-3 py-1.5 text-xs" type="button" onClick={() => void handleCopyProfileShare()}>
+                  复制我的邀请链接
+                </button>
+                <button className="btn btn-ghost px-3 py-1.5 text-xs" type="button" onClick={() => router.push(`/share?invite=${encodeURIComponent(profile.invite_code)}&from=${encodeURIComponent(profile.handle)}`)}>
+                  预览分享页
+                </button>
+              </div>
+              {shareStatus ? <p className="mt-2 text-xs text-[color:var(--accent-ink)]">{shareStatus}</p> : null}
+            </div>
+
             <div className="surface-sunken p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>

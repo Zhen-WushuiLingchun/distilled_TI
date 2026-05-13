@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { getUserEvolution, type UserEvolutionEntry } from "@/lib/api";
-import { getUserAccess, type UserAccessBundle } from "@/lib/runtime-store";
+import { getCurrentUser, getUserEvolution, issueUserSessionAccess, type UserEvolutionEntry } from "@/lib/api";
+import { getUserAccess, saveActiveSessionAccess, type UserAccessBundle } from "@/lib/runtime-store";
 
 const CORE_LABELS: Record<string, string> = {
   abstraction_tendency: "抽象",
@@ -26,6 +26,7 @@ export function EvolutionClient() {
   const [user, setUser] = useState<UserAccessBundle | null>(null);
   const [items, setItems] = useState<UserEvolutionEntry[]>([]);
   const [error, setError] = useState("");
+  const [shareStatus, setShareStatus] = useState("");
   const latest = items.at(-1);
   const strongestDelta = useMemo(() => {
     if (!latest) return [];
@@ -46,6 +47,30 @@ export function EvolutionClient() {
       setError(reason instanceof Error ? reason.message : "读取历史演化失败。");
     });
   }, []);
+
+  async function handleOpenSession(sessionId: string, destination: "/session" | "/report") {
+    if (!user) return;
+    try {
+      const access = await issueUserSessionAccess(user, sessionId);
+      saveActiveSessionAccess(access);
+      router.push(destination);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "打开历史会话失败。");
+    }
+  }
+
+  async function handleCopyEvolutionShare() {
+    if (!user || typeof window === "undefined") return;
+    const params = new URLSearchParams({
+      invite: "",
+      from: user.handle,
+      title: `${user.handle} 的 Distilled TI 历史入口`,
+    });
+    const profileInvite = await getCurrentUser(user).then((profile) => profile.invite_code);
+    params.set("invite", profileInvite);
+    await navigator.clipboard.writeText(`${window.location.origin}/share?${params.toString()}`);
+    setShareStatus("历史入口分享链接已复制，链接包含你的个人邀请码。");
+  }
 
   if (!user) {
     return (
@@ -76,9 +101,11 @@ export function EvolutionClient() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="btn btn-ghost" onClick={() => router.push("/profile")}>用户配置</button>
+              <button className="btn btn-ghost" onClick={() => void handleCopyEvolutionShare()}>复制邀请入口</button>
               <button className="btn btn-primary" onClick={() => router.push("/story")}>继续剧情</button>
             </div>
           </div>
+          {shareStatus ? <p className="mt-4 text-xs text-[color:var(--accent-ink)]">{shareStatus}</p> : null}
         </header>
 
         {error ? <div className="panel border-[color:var(--danger)]/30 bg-[color:var(--danger-soft)] p-4 text-sm text-[color:var(--danger-ink)]">{error}</div> : null}
@@ -118,7 +145,18 @@ export function EvolutionClient() {
                           {item.question_count} questions · {item.cluster_name ?? "unclustered"} · {new Date(item.updated_at).toLocaleString()}
                         </p>
                       </div>
-                      <span className="chip">{item.can_generate_report ? "report-ready" : "sampling"}</span>
+                      <div className="flex flex-wrap gap-2">
+                        <button className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => void handleOpenSession(item.session_id, "/session")}>
+                          继续
+                        </button>
+                        <button
+                          className="btn btn-primary px-3 py-1.5 text-xs"
+                          disabled={!item.can_generate_report}
+                          onClick={() => void handleOpenSession(item.session_id, "/report")}
+                        >
+                          报告
+                        </button>
+                      </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {topCore(item).map(([key, value]) => (

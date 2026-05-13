@@ -583,6 +583,17 @@ export function redeemInvite(inviteCode: string) {
   });
 }
 
+export function claimInvite(user: UserAccessBundle, inviteCode: string) {
+  return publicRequest<UserProfile>(
+    "/user/invite/claim",
+    {
+      method: "POST",
+      json: { invite_code: inviteCode },
+    },
+    { user }
+  );
+}
+
 export function getCurrentUser(user: UserAccessBundle) {
   return publicRequest<UserProfile>("/user/me", undefined, { user });
 }

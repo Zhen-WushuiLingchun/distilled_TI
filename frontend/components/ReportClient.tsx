@@ -168,9 +168,25 @@ export function ReportClient({ sessionId }: ReportClientProps) {
 
   function handleExportJSON() {
     if (!report || typeof window === "undefined") return;
-    const blob = new Blob([JSON.stringify({ report, map, shared_by: shareProfile?.handle ?? null }, null, 2)], {
-      type: "application/json",
-    });
+    const shareLink = buildShareLink();
+    const blob = new Blob(
+      [
+        JSON.stringify(
+          {
+            report,
+            map,
+            shared_by: shareProfile?.handle ?? null,
+            invite_code: shareProfile?.invite_code ?? null,
+            share_url: shareLink || null,
+          },
+          null,
+          2
+        ),
+      ],
+      {
+        type: "application/json",
+      }
+    );
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
