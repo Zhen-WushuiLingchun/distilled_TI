@@ -1,5 +1,289 @@
 # Development Log
 
+## 2026-05-13: Invite-Gated Email Registration
+
+### Completed
+
+- Converted invite redemption into real invite-gated registration:
+  - `POST /api/invite/redeem` now requires both `invite_code` and `email`
+  - email is normalized and hashed server-side
+  - one normalized email can only create one anonymous user profile
+  - API returns `email_already_registered` for duplicate registration
+  - API returns `invalid_email` for malformed email
+- Added `UserProfile.email_hash` and a SQLite unique index on `user_profiles.email_hash`.
+- Kept public identity pseudonymous:
+  - frontend still stores only `user_id / user_secret / handle`
+  - profile/admin responses expose `email_registered`, not the raw email or email hash
+- Updated landing and share entry UI:
+  - new users must enter email plus invite code
+  - existing local anonymous users can still claim share links without re-registering
+- Removed duplicate invite-relationship creation in `redeem_invite`; invite edges are now written through one helper path.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false GALGAME_AI_SCENE_ENABLED=false LOCAL_DB_PATH=<temp db> python -m compileall app tests; pytest -q` passed with `65 passed`.
+- Frontend: `npm run lint` passed with the existing two dynamic `<img>` warnings in `StoryClient.tsx`; `npm run build` passed.
+- Browser smoke using system Chrome:
+  - landing invite + email registration saved a local anonymous profile.
+  - share-page invite + email registration routed the new user to `/story`.
+  - duplicate normalized email registration returned `email_already_registered`.
+  - screenshots:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-email-registration-smoke\landing-email-registration.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-email-registration-smoke\share-email-registration-to-story.png`
+
+## 2026-05-13: DeepSeek Story Provider Routing And Public Social Share Acceptance
+
+### Completed
+
+- Fixed live Story Scene generation for `deepseek-v4-pro` by adding provider-specific request controls:
+  - default `thinking={"type":"disabled"}` for DeepSeek scene calls
+  - optional `GALGAME_AI_SCENE_REASONING_EFFORT`
+  - optional `GALGAME_AI_SCENE_OUTPUT_EFFORT`
+  - retry variants that drop `response_format` and provider controls when an OpenAI-compatible endpoint rejects them
+- Made Story Scene JSON parsing more tolerant:
+  - empty final content retries the next variant instead of immediately falling back
+  - `choice_texts` can now be returned as either an object or an array of `{option_key,text}`
+  - invalid scene JSON still falls back safely and does not block play
+- Changed invite-backed sharing from "entry code only" to "personal share invite":
+  - every authenticated anonymous user is lazily assigned a personal invite code created by that user
+  - new users who redeem another user's personal invite create an anonymous `invited` edge
+  - existing users who open `/share?invite=...` now call `POST /api/user/invite/claim`
+  - successful claims create an anonymous `invited` relationship edge without replacing the user's own share invite
+- Promoted the hidden recommendation surface into the public `/profile` Social Lab while keeping user opt-in and report-readiness gates.
+- Added visible share affordances:
+  - `/profile` personal invite/share entry
+  - `/evolution` copy invite entry and resume/report buttons for history rows
+  - `/report` export JSON now includes `shared_by`, `invite_code`, and `share_url`
+  - all public outward share links point to `/share` with the sharer's personal invite code
+
+### Validation
+
+- Backend targeted tests for DeepSeek request controls, retry variants, choice text normalization, and existing-user invite claims passed.
+- Backend full regression: `VECTOR_ENABLED=false GALGAME_AI_SCENE_ENABLED=false LOCAL_DB_PATH=<temp db> pytest -q` passed with `64 passed`.
+- Frontend: `npm run lint` passed with the existing two dynamic `<img>` warnings in `StoryClient.tsx`.
+- Frontend: `npm run build` passed.
+- Real DeepSeek/API smoke:
+  - direct `AIService.generate_galgame_scene()` with `deepseek-v4-pro` returned a valid scene JSON.
+  - public `/api/session/{id}/galgame/scene` returned `ai_generated=true`, 5 choices, and generated background asset.
+- Browser smoke using system Chrome:
+  - `/share?invite=...` as an existing user claimed the inviter edge and routed to `/story`.
+  - `/story` loaded a live generated scene; `session/start` and `galgame/scene` both returned 200; no console errors.
+  - `/profile` showed personal invite, Social Lab enabled state, and result archive.
+  - `/evolution` showed history shell and copy invite entry.
+  - `/report` rendered Share / Export controls from a finalized local snapshot and showed the user's invite code.
+  - screenshots:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\share-before-claim.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\story-live-scene.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\profile-social-share.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\evolution-history.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-public-ui-smoke\report-share-export.png`
+
+### Not Completed Yet
+
+- Character sprites can still fall back to local placeholder art when SD/Web image generation does not produce a usable transparent sprite.
+- Public recommendations are visible as a Social Lab shell, but useful candidates still require both users to opt in and have report-ready sessions.
+- There is no production moderation/abuse workflow for public invite sharing yet.
+- ComfyUI generation remains a status probe only; generation still needs a workflow adapter.
+
+### Next Step
+
+- Improve the sprite/background asset quality path before adding more social surfaces.
+- Add production controls for invite abuse, opt-in copy, and share-link throttling.
+- Continue toward richer report history/evolution once there is enough long-lived user data.
+
+## 2026-05-13: Natural Story Mode Boundary
+
+### Completed
+
+- Removed the last active path that could turn a raw `ItemInstance.prompt` into visible Story Mode dialogue.
+- Changed scene generation payloads so the LLM receives natural branch text plus hidden `option_key`, not option scores or questionnaire labels.
+- Added `choice_text` to the galgame response API so saved `galgame_turns.scene_text` preserves what the player actually saw or wrote.
+- Tightened public scene sanitation:
+  - rejects raw prompts, backend fields, questionnaire labels, and score-like option text
+  - falls back to natural VN-style narration and choices
+  - keeps classifier, embedding, pairwise, and asset evidence behind Debug/Workbench only
+- Updated `/story` copy so the loading state, free-line placeholder, choice buttons, and backlog no longer describe the experience as a converted measurement question.
+- Added a regression test that simulates a bad AI scene containing measurement leakage and verifies the public scene falls back to natural text.
+- Added configurable Story Scene LLM budget:
+  - `GALGAME_AI_SCENE_TIMEOUT_SECONDS`
+  - `GALGAME_AI_SCENE_MAX_TOKENS`
+  - JSON response format is attempted first, then retried without it for provider compatibility.
+
+### Validation
+
+- Backend targeted: `VECTOR_ENABLED=false pytest tests/test_session_api.py::test_galgame_scene_wraps_current_question_and_records_custom_text tests/test_session_api.py::test_galgame_scene_filters_ai_measurement_leaks -q` passed with `2 passed`.
+- Backend compile: `python -m compileall app tests` passed.
+- Backend full: `VECTOR_ENABLED=false GALGAME_AI_SCENE_ENABLED=false LOCAL_DB_PATH=<temp db> pytest -q` passed with `60 passed`.
+- Frontend: `npm run lint` passed with the existing two dynamic `<img>` warnings in `StoryClient.tsx`.
+- Frontend: `npm run build` passed.
+- Browser `/story` smoke:
+  - 5 natural branch choices rendered.
+  - generated background and character assets rendered.
+  - no console errors.
+  - no visible `非常同意 / 非常不同意 / 当前映射 / option_key / prompt_shadow / score-like` leakage.
+  - screenshot: `C:\Users\hydro\AppData\Local\Temp\distilled-ti-story-naturalized\story-naturalized-final.png`
+- DeepSeek local config was switched to `deepseek-v4-pro` and Admin connection test passed. Real scene generation still fell back to natural local fallback because the model did not return valid final scene JSON in `message.content` during the browser/API smoke.
+
+### Not Completed Yet
+
+- Story quality still depends on the configured LLM and SD model; this patch prevents measurement leakage but does not guarantee high literary quality.
+- `deepseek-v4-pro` scene generation needs provider-specific follow-up if it keeps returning reasoning-only or invalid final JSON. Current runtime remains safe because it falls back to natural VN text.
+
+### Next Step
+
+- If the rendered scene is still weak, tune only the story prompt/template/asset prompts, not the measurement scaffolding.
+- Decide whether Story Mode should use a non-reasoning chat model for live scene text while reserving `deepseek-v4-pro` for slower analysis/report tasks.
+
+## 2026-05-12: VN Asset Pipeline, Share Links, Evolution, Public Social UI
+
+### Completed
+
+- Added a real Story Mode asset pipeline:
+  - backend `galgame_asset_service.py`
+  - `GalgameAssetReference` fields on `GalgameScene`
+  - local fallback background SVGs, character sprite SVGs, and ambient WAV
+  - optional SD WebUI or OpenAI-compatible image generation through env config
+  - Admin asset status, manual generate, and story-template pre-generation APIs
+  - conservative connected-background alpha post-processing for generated character sprites
+  - generated assets ignored under `frontend/public/generated/`
+- Updated AI scene generation to return image-model-friendly English prompts for background and character assets.
+- Reworked `/story` away from the analysis-heavy side panel:
+  - full-screen visual novel background image
+  - character sprite image
+  - bottom dialogue box
+  - Log / Hide / Template / Debug / Report controls
+  - classifier/asset evidence hidden behind Debug
+- Added public user evolution API and `/evolution` page for long-term report/history trajectory.
+- Added public opt-in recommendation UI on `/profile`, still gated by `RELATIONSHIP_RECOMMENDATIONS_ENABLED` and user opt-in.
+- Added `/share` landing page and report share/export controls.
+- Share links generated from reports include the sharer's invite code, so incoming users preserve invite graph attribution.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false pytest` passed with `59 passed`.
+- Frontend: `npm run lint` passed with two existing `<img>` optimization warnings for dynamic local asset URLs.
+- Frontend: `npm run build` passed.
+- Real SD WebUI acceptance:
+  - local SD WebUI at `http://127.0.0.1:7860` responded through `/sdapi/v1/sd-models`.
+  - model detected: `anything-v5-PrtRE.safetensors`.
+  - Admin asset API generated 4 backgrounds and 4 character sprites under `frontend/public/generated/galgame`.
+  - Public `/api/session/{id}/galgame/scene` returned `background_asset.source=generated` and `character_asset.source=generated`.
+  - Browser smoke on `/story` rendered generated background/sprite, 5 choices, no console errors, and Debug showed `generated / generated`.
+  - Screenshot evidence:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-vn-browser\story-vn-generated-v2.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-vn-browser\story-vn-debug-v2.png`
+
+### Not Completed Yet
+
+- Browser acceptance for share/evolution/profile is still pending; `/story` asset UI is smoke-tested.
+- ComfyUI is only probed in status; generation still needs a workflow adapter file before it can run.
+- Audio generation is not implemented yet; Story Mode has fallback/static ambient audio only.
+- Recommendation remains disabled by default until the operator explicitly enables `RELATIONSHIP_RECOMMENDATIONS_ENABLED`.
+
+### Next Step
+
+- Run local browser smoke against `/`, `/share`, `/profile`, and `/evolution`.
+- Tune SD prompt templates and add a ComfyUI workflow adapter or cloud image backend only if SD WebUI quality is insufficient.
+
+## 2026-05-12: Galgame UI, Pairwise Calibration, User Story Templates
+
+### Completed
+
+- Reviewed `Nova42x/paper2galgame` locally and borrowed the Web VN interaction pattern without copying code, assets, or API keys.
+- Rebuilt `/story` into a fuller galgame-style window:
+  - full-screen background stage
+  - character silhouette
+  - typewriter dialogue
+  - choice overlay
+  - free-line input inside the dialogue area
+  - Log / Hide / Template / Workbench controls
+  - classifier evidence drawer
+- Added public invite-user story template APIs:
+  - `GET /api/user/galgame/story-templates`
+  - `POST /api/user/galgame/story-templates`
+  - `PUT /api/user/galgame/story-templates/{template_id}`
+  - `DELETE /api/user/galgame/story-templates/{template_id}`
+- Added `owner_user_id` handling for `GalgameStoryTemplate`.
+- Let user-owned templates participate in scene-template selection alongside system templates.
+- Added pairwise free-text comparison scoring:
+  - deterministic no-network pairwise classifier
+  - fused with LLM and embedding distributions when available
+  - persisted `pairwise_scores` into `GalgameTurn`
+- Added offline calibration fixture set and script:
+  - `backend/app/domain/galgame_calibration.py`
+  - `backend/scripts/galgame_text_calibration.py`
+- Added non-diagnostic `support_risk_flags` to `SessionReport`.
+- Added report UI for support signals, explicitly marked as non-diagnostic and suitable only for support/triage workflows.
+- Documented how the backend analysis layer can be reused in AI assistant/chat contexts for safer support escalation without making medical or psychological diagnoses.
+
+### Validation
+
+- Backend: `python -m compileall backend/app backend/tests` passed.
+- Backend: `python backend/scripts/galgame_text_calibration.py` passed with `9/9`.
+- Backend: `VECTOR_ENABLED=false pytest` passed with `56 passed`.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+- Browser acceptance:
+  - `/story` loaded the VN frame with dialogue and 5 choices.
+  - Template drawer created/listed a private `Mine` template for an invite-backed anonymous user.
+  - Free-line submission advanced to Q2 and displayed classifier evidence with LLM / embedding / pairwise fields.
+  - Console error capture was empty.
+  - Screenshots:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-galgame-vn-acceptance\story-template-drawer.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-galgame-vn-acceptance\story-after-free-line.png`
+
+### Not Completed Yet
+
+- No generated image/sprite/audio asset pipeline yet.
+- No public friend/recommendation UI; recommendation remains hidden/admin-side.
+- No production crisis-support workflow, consent copy, audit trail, or human review queue.
+- No true multi-character sprite asset library yet; current UI uses CSS silhouettes and provider-generated text.
+
+### Next Step
+
+- Continue toward share/export, report archive evolution, and optional hidden social graph visualization.
+- If the story experience becomes the primary public mode, add real sprite/background asset generation or curated asset packs next.
+
+## 2026-05-12: AI-GAL Story Generation And Free-Text Classifier
+
+### Completed
+
+- Reviewed AI-GAL and HOILAI references; chose to borrow AI-GAL's generative loop rather than vendoring Ren'Py/Unity runtimes.
+- Relaxed Story Mode generation so the LLM writes playable galgame scenes from theme, characters, history, branch choice, and hidden measurement seed.
+- Added Admin-managed story templates for theme, outline, location, speaker, character/background keys, and asset prompts.
+- Added AI scene generation via OpenAI-compatible chat provider.
+- Added free-text tendency classification:
+  - LLM option distribution when configured
+  - embedding similarity between player line and current choices when configured
+  - rule fallback when AI/vector services are unavailable
+  - fused `text_inference` with option-level scores and reason
+- Let confident free-text inference map back to scoring option keys while preserving fallback to explicit selection.
+- Added `galgame_turns` vector documents, indexing, reindex scope, and Admin similar story-turn search.
+- Updated `/story` to show AI/fallback status, background/character keys, and free-text classification evidence.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false pytest` passed with `53 passed`.
+- Backend: `python -m compileall backend/app backend/tests` passed.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+- Browser acceptance:
+  - `/story` loaded a playable scene with choices, custom free-line input, asset keys, and classifier panel after submission.
+  - `/admin` loaded the Story Engine template panel and vector scope support for `galgame_turns`.
+  - Screenshots:
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-galgame-acceptance\story-galgame-classifier.png`
+    - `C:\Users\hydro\AppData\Local\Temp\distilled-ti-galgame-acceptance\admin-story-engine.png`
+
+### Not Completed Yet
+
+- No generated image/sprite/audio asset pipeline yet.
+- No offline calibration dataset or pairwise-comparison scorer for ambiguous free text yet.
+
+### Next Step
+
+- Add a small free-text calibration fixture set before changing classifier weights.
+- Then consider pairwise comparison for ambiguous free-text turns.
+
 ## 2026-05-06: Session Workbench Slice 4
 
 ### Completed

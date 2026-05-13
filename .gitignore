@@ -45,6 +45,7 @@ local-secrets.*
 backend/local-secrets.*
 .qdrant-local/
 backend/.qdrant-local/
+frontend/public/generated/
 
 # Database / local state
 distilled_ti_local.db

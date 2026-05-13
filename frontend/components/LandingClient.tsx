@@ -23,10 +23,14 @@ export function LandingClient() {
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [userAccess, setUserAccess] = useState<UserAccessBundle | null>(null);
   const [inviteCode, setInviteCode] = useState("");
+  const [registerEmail, setRegisterEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState("");
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get("invite");
+    if (invite) setInviteCode(invite);
     const stored = getUserAccess();
     if (!stored) return;
     setUserAccess(stored);
@@ -52,15 +56,20 @@ export function LandingClient() {
       setInviteError("请输入邀请码。");
       return;
     }
+    if (!registerEmail.trim()) {
+      setInviteError("请输入注册邮箱。");
+      return;
+    }
     try {
       setInviteBusy(true);
       setInviteError("");
-      const access = await redeemInvite(inviteCode.trim());
+      const access = await redeemInvite(inviteCode.trim(), registerEmail.trim());
       saveUserAccess(access);
       setUserAccess(access);
       setInviteCode("");
+      setRegisterEmail("");
     } catch (reason) {
-      setInviteError(reason instanceof Error ? reason.message : "邀请码验证失败。");
+      setInviteError(reason instanceof Error ? reason.message : "注册失败。");
     } finally {
       setInviteBusy(false);
     }
@@ -109,7 +118,7 @@ export function LandingClient() {
             {[
               ["长期画像", "通过邀请码创建匿名 ID 后，历史报告会长期归属到同一用户档案。"],
               ["隐私关系网", "后台只看随机 handle 和邀请关系，不要求真实姓名、手机号或校园身份。"],
-              ["隐藏推荐", "关系/相似画像推荐默认关闭，先作为管理员实验视图，不进入公开页面。"],
+              ["Social Lab", "公开推荐入口只显示匿名 handle；结果仍要求双方 opt-in 且有足够历史样本。"],
             ].map(([title, description]) => (
               <div key={title} className="surface-sunken p-4">
                 <p className="label-mini">{title}</p>
@@ -166,25 +175,32 @@ export function LandingClient() {
                 <div>
                   <p className="label-mini">Invite Identity</p>
                   <h3 className="mt-1.5 text-lg text-[color:var(--ink-strong)]">
-                    {userAccess ? `已进入：${userAccess.handle}` : "输入邀请码，启用长期历史"}
+                    {userAccess ? `已进入：${userAccess.handle}` : "邀请码 + 邮箱注册，启用长期历史"}
                   </h3>
                 </div>
-                {userAccess ? <span className="chip chip-accent">匿名档案</span> : <span className="chip">可短期体验</span>}
+                {userAccess ? <span className="chip chip-accent">匿名档案</span> : <span className="chip">Invite only</span>}
               </div>
               {userAccess ? (
                 <p className="mt-3 text-[0.85rem] leading-6 text-[color:var(--ink-muted)]">
                   后续会话会绑定到这个随机 handle。你可以在历史页继续会话、查看报告档案，也可以清除本机凭证重新输入邀请码。
                 </p>
               ) : (
-                <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+                <div className="mt-4 grid gap-2">
                   <input
                     className="field"
                     value={inviteCode}
                     onChange={(event) => setInviteCode(event.target.value)}
                     placeholder="邀请码，例如 DISTILLED-TI-LOCAL"
                   />
+                  <input
+                    className="field"
+                    type="email"
+                    value={registerEmail}
+                    onChange={(event) => setRegisterEmail(event.target.value)}
+                    placeholder="注册邮箱；一个邮箱只能注册一个匿名档案"
+                  />
                   <button className="btn btn-primary" type="button" disabled={inviteBusy} onClick={() => void handleRedeemInvite()}>
-                    {inviteBusy ? "验证中…" : "进入"}
+                    {inviteBusy ? "注册中…" : "注册并进入"}
                   </button>
                 </div>
               )}
@@ -207,7 +223,7 @@ export function LandingClient() {
               如果没有启用就回退到后端本地摘要。
             </p>
             <p className="rounded-[var(--r-md)] border border-[color:var(--accent-soft)] bg-[color:var(--accent-soft)]/55 p-3.5 text-[0.85rem] leading-6 text-[color:var(--ink-body)]">
-              已登录匿名档案时，会话会长期保留；未输入邀请码时仍按短期匿名会话处理，适合临时体验。
+              注册必须同时提供邀请码和邮箱；后端只保存标准化邮箱哈希用于去重，不在公开页面展示明文邮箱。
             </p>
             <p className="rounded-[var(--r-md)] border border-[color:var(--warn-soft)] bg-[color:var(--warn-soft)]/55 p-3.5 text-[0.85rem] leading-6 text-[color:var(--warn-ink)]">
               提示：此项目仍属于娱乐与结构化自测，不构成专业诊断、人格定论或现实决策建议。

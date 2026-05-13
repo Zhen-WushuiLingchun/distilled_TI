@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1080" role="img" aria-label="librarian visual novel sprite">
+  <defs>
+    <linearGradient id="dress" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#253742"/>
+      <stop offset=".56" stop-color="#5d765e"/>
+      <stop offset="1" stop-color="#1d2922"/>
+    </linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000" flood-opacity=".28"/></filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M204 1044 C206 838 238 702 292 614 H428 C482 702 514 838 516 1044Z" fill="url(#dress)"/>
+    <path d="M302 614 H418 L360 760Z" fill="#ede8d8"/>
+    <path d="M310 650 H410 L390 1044 H330Z" fill="#263d37" opacity=".7"/>
+    <path d="M196 730 C134 820 118 912 104 1044 H212 C226 910 250 792 306 668Z" fill="#20333a"/>
+    <path d="M524 730 C586 820 602 912 616 1044 H508 C494 910 470 792 414 668Z" fill="#20333a"/>
+    <ellipse cx="360" cy="430" rx="118" ry="150" fill="#efc4a7"/>
+    <path d="M250 428 C226 318 260 234 342 204 C452 164 540 258 488 470 C456 374 416 330 354 312 C310 332 278 372 250 428Z" fill="#2a2a2e"/>
+    <path d="M306 420 H348 M372 420 H414" stroke="#242428" stroke-width="8" stroke-linecap="round"/>
+    <path d="M304 438 H350 M370 438 H416" stroke="#d7e5d2" stroke-width="5" stroke-linecap="round" opacity=".65"/>
+    <path d="M334 514 Q360 526 388 514" stroke="#8a5047" stroke-width="7" stroke-linecap="round" fill="none"/>
+    <path d="M274 576 C314 630 404 630 446 576 C424 656 296 656 274 576Z" fill="#141d1e" opacity=".25"/>
+    <rect x="250" y="678" width="220" height="54" rx="16" fill="#d9cf9c" opacity=".9"/>
+  </g>
+</svg>

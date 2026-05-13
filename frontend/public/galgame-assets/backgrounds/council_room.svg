@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="student council room visual novel background">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d7c89f"/>
+      <stop offset=".62" stop-color="#a98c68"/>
+      <stop offset="1" stop-color="#554132"/>
+    </linearGradient>
+    <linearGradient id="window" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff4b7"/>
+      <stop offset=".45" stop-color="#d9ecdf"/>
+      <stop offset="1" stop-color="#6b918a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#wall)"/>
+  <path d="M0 505 H1280 V720 H0Z" fill="#372b25"/>
+  <path d="M92 86 H518 V432 H92Z" fill="#4b655f"/>
+  <path d="M120 116 H490 V404 H120Z" fill="url(#window)"/>
+  <path d="M306 116 V404 M120 250 H490" stroke="#3d514f" stroke-width="10" opacity=".65"/>
+  <path d="M724 84 H1150 V432 H724Z" fill="#4b655f"/>
+  <path d="M752 116 H1122 V404 H752Z" fill="url(#window)"/>
+  <path d="M938 116 V404 M752 250 H1122" stroke="#3d514f" stroke-width="10" opacity=".65"/>
+  <path d="M0 468 H1280" stroke="#7e6144" stroke-width="18"/>
+  <path d="M130 524 H1135 L1204 720 H56Z" fill="#6a4b34"/>
+  <path d="M210 548 H1045 L1090 676 H160Z" fill="#8a6542"/>
+  <g fill="#ead8a8" opacity=".92">
+    <rect x="234" y="556" width="112" height="74" rx="4"/>
+    <rect x="382" y="570" width="130" height="68" rx="4"/>
+    <rect x="794" y="560" width="152" height="70" rx="4"/>
+    <rect x="974" y="574" width="92" height="58" rx="4"/>
+  </g>
+  <g fill="#384f46">
+    <rect x="596" y="246" width="96" height="220" rx="8"/>
+    <rect x="574" y="214" width="140" height="42" rx="8"/>
+    <rect x="590" y="178" width="108" height="34" rx="6"/>
+  </g>
+  <path d="M0 0 H1280 V720 H0Z" fill="#1b1714" opacity=".12"/>
+</svg>

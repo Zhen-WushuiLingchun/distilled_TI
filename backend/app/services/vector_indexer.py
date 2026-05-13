@@ -21,6 +21,7 @@ from app.domain.dimensions import (
 from app.domain.item_bank import build_seed_item_bank
 from app.domain.models import (
     EmbeddingScoreBreakdown,
+    GalgameTurn,
     ItemInstance,
     ItemTemplate,
     RewriteCandidate,
@@ -38,7 +39,7 @@ from app.services.storage import local_session_store
 from app.services.vector_store import VectorStoreError, vector_store
 
 
-ReindexScope = Literal["templates", "instances", "sessions", "all"]
+ReindexScope = Literal["templates", "instances", "sessions", "galgame_turns", "all"]
 
 
 class VectorIndexer:
@@ -99,6 +100,21 @@ class VectorIndexer:
                 candidate.validator_passed,
                 candidate_status,
             ),
+            collection_name=self._item_collection_name(),
+        )
+
+    def index_galgame_turn(self, turn: GalgameTurn) -> str | None:
+        return self._upsert_document(
+            operation="index_galgame_turn",
+            object_type="galgame_turn",
+            object_id=turn.turn_id,
+            payload={
+                "turn_id": turn.turn_id,
+                "session_id": turn.session_id,
+                "item_id": turn.item_id,
+                "scene_id": turn.scene_id,
+            },
+            document_builder=lambda: embedding_service.build_galgame_turn_document(turn),
             collection_name=self._item_collection_name(),
         )
 
@@ -184,6 +200,39 @@ class VectorIndexer:
             exclude_object_id=document.point_id,
             snapshot_milestone=snapshot_milestone,
             collection_name=self._session_collection_name(),
+        )
+
+    def search_similar_galgame_turns(
+        self,
+        *,
+        prompt: str | None = None,
+        turn: GalgameTurn | None = None,
+        top_k: int | None = None,
+    ) -> list[VectorSearchHit]:
+        if turn is None and not prompt:
+            return []
+        if turn is not None:
+            document = embedding_service.build_galgame_turn_document(turn)
+            query_text = document.text
+            natural_query = document.prompt
+            exclude_object_id = turn.turn_id
+        else:
+            natural_query = str(prompt or "")
+            query_text = embedding_service.build_search_text(
+                natural_query,
+                layer="story",
+                scenario_tags=["galgame", "story_turn"],
+                generation_mode="galgame_turn_query",
+                object_type="galgame_turn_query",
+            )
+            exclude_object_id = None
+        return self._search_hits(
+            query_text=query_text,
+            natural_query=natural_query,
+            top_k=top_k or settings.galgame_turn_vector_top_k,
+            object_types=["galgame_turn"],
+            exclude_object_id=exclude_object_id,
+            collection_name=self._item_collection_name(),
         )
 
     def build_rewrite_retrieval_context(self, template: ItemTemplate) -> RewriteRetrievalContext | None:
@@ -331,6 +380,15 @@ class VectorIndexer:
                         summary.failure_ids.append(failure_id)
                     else:
                         summary.indexed_count += 1
+        if scope in {"galgame_turns", "all"}:
+            self._clear_scope("galgame_turn", collection_name=self._item_collection_name())
+            for turn in local_session_store.list_all_galgame_turns(limit=None):
+                failure_id = self.index_galgame_turn(turn)
+                if failure_id:
+                    summary.failed_count += 1
+                    summary.failure_ids.append(failure_id)
+                else:
+                    summary.indexed_count += 1
         return summary
 
     def _clear_scope(self, object_type: str, *, collection_name: str) -> None:

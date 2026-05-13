@@ -78,6 +78,15 @@ class GalgameTurn(BaseModel):
     selected_option_key: str
     custom_text: str | None = None
     scene_text: str = ""
+    inferred_option_key: str | None = None
+    inference_confidence: float | None = None
+    inference_reason: str | None = None
+    classifier_source: Literal["none", "rule", "embedding", "pairwise", "llm", "hybrid"] = "none"
+    inference_distribution: dict[str, float] = Field(default_factory=dict)
+    embedding_similarity: dict[str, float] = Field(default_factory=dict)
+    pairwise_scores: dict[str, float] = Field(default_factory=dict)
+    story_template_id: str | None = None
+    ai_generated: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -164,6 +173,15 @@ class ModuleInsight(BaseModel):
     metaphor: str
 
 
+class SupportRiskFlag(BaseModel):
+    key: str
+    severity: Literal["low", "medium", "high"]
+    label: str
+    evidence: list[str] = Field(default_factory=list)
+    suggested_action: str
+    diagnostic: bool = False
+
+
 class SessionReport(BaseModel):
     session_id: str
     question_count: int
@@ -183,6 +201,7 @@ class SessionReport(BaseModel):
     active_module_labels: list[str]
     sub_insights: list[SubdimensionInsight]
     module_insights: list[ModuleInsight]
+    support_risk_flags: list[SupportRiskFlag] = Field(default_factory=list)
     current_state: SessionState
 
 
@@ -250,7 +269,7 @@ class WorkbenchCheckpoint(BaseModel):
 
 class WorkbenchEvidenceItem(BaseModel):
     reference_key: str
-    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot"]
+    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot", "galgame_turn"]
     label: str
     relationship: str
     prompt_excerpt: str
@@ -278,6 +297,15 @@ class GalgameChoice(BaseModel):
     tone: str
 
 
+class GalgameAssetReference(BaseModel):
+    kind: Literal["background", "character", "audio"]
+    key: str
+    prompt: str = ""
+    url: str | None = None
+    source: Literal["generated", "fallback", "external", "none"] = "fallback"
+    status: Literal["ready", "disabled", "failed", "missing"] = "ready"
+
+
 class GalgameScene(BaseModel):
     scene_id: str
     session_id: str
@@ -292,7 +320,55 @@ class GalgameScene(BaseModel):
     prompt_shadow: str
     choices: list[GalgameChoice]
     memory_fragments: list[str] = Field(default_factory=list)
+    background_key: str = "campus_window"
+    background_prompt: str = ""
+    character_key: str = "desk_mate"
+    character_prompt: str = ""
+    background_asset: GalgameAssetReference | None = None
+    character_asset: GalgameAssetReference | None = None
+    audio_asset: GalgameAssetReference | None = None
+    story_template_id: str | None = None
+    ai_generated: bool = False
     custom_input_enabled: bool = True
+
+
+class GalgameOptionTendency(BaseModel):
+    option_key: str
+    llm_score: float | None = None
+    embedding_score: float | None = None
+    pairwise_score: float | None = None
+    fused_score: float = 0.0
+    reason: str = ""
+
+
+class GalgameTextInference(BaseModel):
+    inferred_option_key: str | None = None
+    confidence: float = 0.0
+    reason: str = ""
+    source: Literal["none", "rule", "embedding", "pairwise", "llm", "hybrid"] = "none"
+    option_scores: list[GalgameOptionTendency] = Field(default_factory=list)
+    embedding_available: bool = False
+    pairwise_available: bool = False
+    llm_available: bool = False
+    method_version: str = "free_text_pairwise_fusion_v2"
+
+
+class GalgameStoryTemplate(BaseModel):
+    template_id: str
+    owner_user_id: str | None = None
+    name: str
+    description: str = ""
+    location: str
+    speaker: str
+    character_key: str = "desk_mate"
+    background_key: str = "campus_window"
+    background_prompt: str = ""
+    character_prompt: str = ""
+    style_prompt: str = ""
+    scenario_tags: list[str] = Field(default_factory=list)
+    active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SessionAccessGrant(BaseModel):
@@ -306,6 +382,7 @@ class UserProfile(BaseModel):
     handle: str
     invite_code: str
     invited_by_user_id: str | None = None
+    email_hash: str | None = None
     user_secret_hash: str = ""
     relationship_opt_in: bool = False
     recommendation_opt_in: bool = False
@@ -363,7 +440,7 @@ class EmbeddingScoreBreakdown(BaseModel):
 
 class VectorSearchHit(BaseModel):
     object_id: str
-    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot"]
+    object_type: Literal["template", "rewrite_candidate", "item_instance", "session_snapshot", "galgame_turn"]
     template_id: str | None = None
     instance_id: str | None = None
     session_id: str | None = None
@@ -422,7 +499,7 @@ class VectorSyncFailure(BaseModel):
 
 
 class VectorReindexSummary(BaseModel):
-    scope: Literal["templates", "instances", "sessions", "all"]
+    scope: Literal["templates", "instances", "sessions", "galgame_turns", "all"]
     enabled: bool = False
     indexed_count: int = 0
     failed_count: int = 0
@@ -440,6 +517,19 @@ class SessionHistoryEntry(BaseModel):
     updated_at: datetime
     cluster_name: str | None = None
     narrative_label: str | None = None
+
+
+class UserEvolutionEntry(BaseModel):
+    session_id: str
+    question_count: int
+    can_generate_report: bool
+    cluster_name: str | None = None
+    narrative_label: str | None = None
+    core_mu: dict[str, float] = Field(default_factory=dict)
+    zeta: dict[str, float] = Field(default_factory=dict)
+    active_modules: list[str] = Field(default_factory=list)
+    updated_at: datetime
+    core_delta_from_previous: dict[str, float] = Field(default_factory=dict)
 
 
 class ClusterLabelOverride(BaseModel):

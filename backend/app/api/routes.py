@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.api.schemas import (
+    ClaimInviteRequest,
+    GalgameStoryTemplateListResponse,
+    GalgameStoryTemplateRequest,
+    GalgameStoryTemplateResponse,
     GalgameRespondRequest,
     GalgameSceneResponse,
     GalgameSceneResultResponse,
@@ -21,13 +28,16 @@ from app.api.schemas import (
     SubmitResponseRequest,
     SubmitResponseResponse,
     UserAccessResponse,
+    UserEvolutionResponse,
     UserProfileResponse,
     UserProfileUpdateRequest,
     UserSessionListResponse,
+    UserRecommendationResponse,
     WorkbenchEvidenceResponse,
 )
 from app.api.security import build_owner_key
 from app.core.config import settings
+from app.domain.models import GalgameStoryTemplate
 from app.services.session_service import session_service
 from app.services.user_service import user_service
 
@@ -75,7 +85,7 @@ def health() -> dict[str, str]:
 @router.post("/invite/redeem", response_model=UserAccessResponse)
 def redeem_invite(payload: RedeemInviteRequest) -> UserAccessResponse:
     try:
-        access = user_service.redeem_invite(payload.invite_code)
+        access = user_service.redeem_invite(payload.invite_code, payload.email)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return UserAccessResponse(**access.model_dump())
@@ -88,6 +98,20 @@ def get_current_user(
 ) -> UserProfileResponse:
     profile = _require_user(x_user_id, x_user_secret)
     return UserProfileResponse.from_profile(profile)
+
+
+@router.post("/user/invite/claim", response_model=UserProfileResponse)
+def claim_invite_for_current_user(
+    payload: ClaimInviteRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserProfileResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    try:
+        updated = user_service.claim_invite(profile, payload.invite_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return UserProfileResponse.from_profile(updated)
 
 
 @router.patch("/user/me", response_model=UserProfileResponse)
@@ -117,6 +141,31 @@ def list_user_sessions(
     )
 
 
+@router.get("/user/evolution", response_model=UserEvolutionResponse)
+def get_user_evolution(
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserEvolutionResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return UserEvolutionResponse(
+        user=UserProfileResponse.from_profile(profile),
+        items=session_service.build_user_evolution(profile.user_id),
+    )
+
+
+@router.get("/user/recommendations", response_model=UserRecommendationResponse)
+def current_user_recommendations(
+    limit: int = 5,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserRecommendationResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return UserRecommendationResponse(
+        enabled=settings.relationship_recommendations_enabled,
+        items=user_service.recommend_candidates(profile.user_id, limit),
+    )
+
+
 @router.post("/user/session/{session_id}/access", response_model=SessionAccessIssueResponse)
 def issue_user_session_access(
     session_id: str,
@@ -135,6 +184,88 @@ def issue_user_session_access(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     return SessionAccessIssueResponse(**access.model_dump())
+
+
+@router.get("/user/galgame/story-templates", response_model=GalgameStoryTemplateListResponse)
+def list_user_galgame_story_templates(
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> GalgameStoryTemplateListResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return GalgameStoryTemplateListResponse(
+        items=[
+            GalgameStoryTemplateResponse(**template.model_dump())
+            for template in session_service.list_galgame_story_templates(
+                include_inactive=False,
+                owner_user_id=profile.user_id,
+                include_system=True,
+            )
+        ]
+    )
+
+
+@router.post("/user/galgame/story-templates", response_model=GalgameStoryTemplateResponse)
+def create_user_galgame_story_template(
+    payload: GalgameStoryTemplateRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> GalgameStoryTemplateResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    now = datetime.now(UTC)
+    template = session_service.save_user_galgame_story_template(
+        profile.user_id,
+        GalgameStoryTemplate(
+            template_id=f"user-story-{profile.user_id[:8]}-{uuid4().hex[:10]}",
+            created_at=now,
+            updated_at=now,
+            **payload.model_dump(),
+        ),
+    )
+    return GalgameStoryTemplateResponse(**template.model_dump())
+
+
+@router.put("/user/galgame/story-templates/{template_id}", response_model=GalgameStoryTemplateResponse)
+def update_user_galgame_story_template(
+    template_id: str,
+    payload: GalgameStoryTemplateRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> GalgameStoryTemplateResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    try:
+        existing = session_service.get_galgame_story_template(template_id)
+        if existing.owner_user_id != profile.user_id:
+            raise PermissionError("galgame_story_template_owner_mismatch")
+        template = session_service.save_user_galgame_story_template(
+            profile.user_id,
+            GalgameStoryTemplate(
+                template_id=template_id,
+                created_at=existing.created_at,
+                updated_at=datetime.now(UTC),
+                **payload.model_dump(),
+            ),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return GalgameStoryTemplateResponse(**template.model_dump())
+
+
+@router.delete("/user/galgame/story-templates/{template_id}")
+def delete_user_galgame_story_template(
+    template_id: str,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> dict[str, bool]:
+    profile = _require_user(x_user_id, x_user_secret)
+    try:
+        session_service.delete_user_galgame_story_template(profile.user_id, template_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {"deleted": True}
 
 
 @router.post("/session/start", response_model=StartSessionResponse)
@@ -259,17 +390,25 @@ def respond_galgame_scene(
 ) -> GalgameSceneResultResponse:
     _require_session_access(session_id, x_session_secret, request)
     try:
-        session_service.record_galgame_turn(
+        text_inference = session_service.record_galgame_turn(
             session_id=session_id,
             item_id=payload.item_id,
             scene_id=payload.scene_id,
             option_key=payload.option_key,
+            choice_text=payload.choice_text,
             custom_text=payload.custom_text,
         )
+        resolved_option_key = payload.option_key
+        if (
+            payload.custom_text
+            and text_inference.inferred_option_key
+            and text_inference.confidence >= settings.galgame_free_text_inference_min_confidence
+        ):
+            resolved_option_key = text_inference.inferred_option_key
         session, next_item = session_service.submit_answer(
             session_id,
             payload.item_id,
-            payload.option_key,
+            resolved_option_key,
             payload.latency_ms,
         )
         next_scene = session_service.build_galgame_scene(session_id) if next_item else None
@@ -281,6 +420,7 @@ def respond_galgame_scene(
         can_generate_report=session.state.question_count >= settings.min_questions_for_report,
         remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
         scene=next_scene,
+        text_inference=text_inference,
         workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
 

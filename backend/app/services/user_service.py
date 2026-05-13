@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 import secrets
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -22,8 +23,19 @@ from app.services.storage import local_session_store
 
 
 class UserService:
+    _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
     def _hash_token(self, token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def _normalize_email(self, email: str) -> str:
+        normalized = email.strip().lower()
+        if not normalized or not self._EMAIL_PATTERN.match(normalized):
+            raise ValueError("invalid_email")
+        return normalized
+
+    def _hash_email(self, email: str) -> str:
+        return hashlib.sha256(f"email:{email}".encode("utf-8")).hexdigest()
 
     def _new_handle(self) -> str:
         adjectives = ("ash", "cedar", "mint", "paper", "river", "field", "orbit", "lumen")
@@ -34,8 +46,10 @@ class UserService:
                 return handle
         return f"anon-{secrets.token_hex(5)}"
 
-    def redeem_invite(self, code: str) -> UserAccessGrant:
+    def redeem_invite(self, code: str, email: str) -> UserAccessGrant:
         invite_code = code.strip()
+        normalized_email = self._normalize_email(email)
+        email_hash = self._hash_email(normalized_email)
         invite = local_session_store.load_invite_code(invite_code)
         now = datetime.now(UTC)
         if invite is None:
@@ -46,6 +60,8 @@ class UserService:
             raise ValueError("invite_expired")
         if invite.use_count >= invite.max_uses:
             raise ValueError("invite_exhausted")
+        if local_session_store.load_user_by_email_hash(email_hash):
+            raise ValueError("email_already_registered")
 
         user_secret = secrets.token_urlsafe(32)
         profile = UserProfile(
@@ -53,25 +69,17 @@ class UserService:
             handle=self._new_handle(),
             invite_code=invite.code,
             invited_by_user_id=invite.created_by_user_id,
+            email_hash=email_hash,
             user_secret_hash=self._hash_token(user_secret),
             created_at=now,
             updated_at=now,
         )
         local_session_store.save_user_profile(profile)
+        self._create_invite_relationship(invite.created_by_user_id, profile.user_id, now)
+        profile = self._ensure_share_invite(profile)
 
         updated_invite = invite.model_copy(update={"use_count": invite.use_count + 1})
         local_session_store.save_invite_code(updated_invite)
-
-        if invite.created_by_user_id:
-            local_session_store.save_user_relationship(
-                UserRelationship(
-                    relationship_id=f"rel-{uuid4()}",
-                    source_user_id=invite.created_by_user_id,
-                    target_user_id=profile.user_id,
-                    relationship_type="invited",
-                    created_at=now,
-                )
-            )
 
         return UserAccessGrant(
             user_id=profile.user_id,
@@ -89,7 +97,7 @@ class UserService:
             raise KeyError("user_not_found")
         if not secrets.compare_digest(profile.user_secret_hash, self._hash_token(user_secret)):
             raise PermissionError("invalid_user_secret")
-        return profile
+        return self._ensure_share_invite(profile)
 
     def create_invite(
         self,
@@ -125,6 +133,37 @@ class UserService:
         )
         local_session_store.save_user_profile(updated)
         return updated
+
+    def claim_invite(self, profile: UserProfile, code: str) -> UserProfile:
+        invite_code = code.strip()
+        invite = local_session_store.load_invite_code(invite_code)
+        now = datetime.now(UTC)
+        if invite is None:
+            raise ValueError("invite_not_found")
+        if not invite.active:
+            raise ValueError("invite_inactive")
+        if invite.expires_at and invite.expires_at <= now:
+            raise ValueError("invite_expired")
+
+        source_user_id = invite.created_by_user_id
+        if not source_user_id or source_user_id == profile.user_id:
+            return self._ensure_share_invite(profile)
+
+        existing = local_session_store.list_user_relationships(user_id=profile.user_id, limit=1000)
+        if any(
+            item.source_user_id == source_user_id
+            and item.target_user_id == profile.user_id
+            and item.relationship_type == "invited"
+            for item in existing
+        ):
+            return self._ensure_share_invite(profile)
+
+        if invite.use_count >= invite.max_uses:
+            raise ValueError("invite_exhausted")
+
+        self._create_invite_relationship(source_user_id, profile.user_id, now)
+        local_session_store.save_invite_code(invite.model_copy(update={"use_count": invite.use_count + 1}))
+        return self._ensure_share_invite(profile)
 
     def list_users(self, limit: int = 100) -> list[UserProfile]:
         return local_session_store.list_user_profiles(limit)
@@ -196,6 +235,38 @@ class UserService:
             connected.add(relationship.source_user_id)
             connected.add(relationship.target_user_id)
         return connected
+
+    def _ensure_share_invite(self, profile: UserProfile) -> UserProfile:
+        existing_invite = local_session_store.load_invite_code(profile.invite_code)
+        if existing_invite and existing_invite.created_by_user_id == profile.user_id:
+            return profile
+
+        invite = self.create_invite(
+            created_by_user_id=profile.user_id,
+            label=f"Share invite for {profile.handle}",
+            max_uses=settings.invite_default_max_uses,
+        )
+        updated = profile.model_copy(update={"invite_code": invite.code, "updated_at": datetime.now(UTC)})
+        local_session_store.save_user_profile(updated)
+        return updated
+
+    def _create_invite_relationship(
+        self,
+        source_user_id: str | None,
+        target_user_id: str,
+        created_at: datetime,
+    ) -> None:
+        if not source_user_id or source_user_id == target_user_id:
+            return
+        local_session_store.save_user_relationship(
+            UserRelationship(
+                relationship_id=f"rel-{uuid4()}",
+                source_user_id=source_user_id,
+                target_user_id=target_user_id,
+                relationship_type="invited",
+                created_at=created_at,
+            )
+        )
 
     def _core_similarity(self, left: SessionRecord, right: SessionRecord) -> float:
         keys = sorted(set(left.state.core_mu) | set(right.state.core_mu))

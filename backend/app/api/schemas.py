@@ -9,7 +9,10 @@ from app.domain.models import (
     ClusterOverview,
     EmbeddingScoreBreakdown,
     GalgameChoice,
+    GalgameAssetReference,
     GalgameScene,
+    GalgameStoryTemplate,
+    GalgameTextInference,
     InviteCode,
     ItemInstance,
     ItemTemplate,
@@ -20,6 +23,7 @@ from app.domain.models import (
     SessionReport,
     SessionState,
     SessionSummary,
+    UserEvolutionEntry,
     UserProfile,
     UserRecommendation,
     UserRelationship,
@@ -37,6 +41,11 @@ class StartSessionRequest(BaseModel):
 
 class RedeemInviteRequest(BaseModel):
     invite_code: str
+    email: str
+
+
+class ClaimInviteRequest(BaseModel):
+    invite_code: str
 
 
 class UserProfileResponse(BaseModel):
@@ -44,6 +53,7 @@ class UserProfileResponse(BaseModel):
     handle: str
     invite_code: str
     invited_by_user_id: str | None = None
+    email_registered: bool = False
     relationship_opt_in: bool = False
     recommendation_opt_in: bool = False
     created_at: str
@@ -56,6 +66,7 @@ class UserProfileResponse(BaseModel):
             handle=profile.handle,
             invite_code=profile.invite_code,
             invited_by_user_id=profile.invited_by_user_id,
+            email_registered=bool(profile.email_hash),
             relationship_opt_in=profile.relationship_opt_in,
             recommendation_opt_in=profile.recommendation_opt_in,
             created_at=profile.created_at.isoformat(),
@@ -79,6 +90,11 @@ class UserProfileUpdateRequest(BaseModel):
 class UserSessionListResponse(BaseModel):
     user: UserProfileResponse
     sessions: list[SessionHistoryEntry]
+
+
+class UserEvolutionResponse(BaseModel):
+    user: UserProfileResponse
+    items: list[UserEvolutionEntry] = Field(default_factory=list)
 
 
 class QuestionResponse(BaseModel):
@@ -158,6 +174,7 @@ class GalgameSceneResultResponse(BaseModel):
     can_generate_report: bool
     remaining_until_report: int
     scene: GalgameScene | None = None
+    text_inference: GalgameTextInference | None = None
     workbench_checkpoint: WorkbenchCheckpoint | None = None
 
 
@@ -165,8 +182,59 @@ class GalgameRespondRequest(BaseModel):
     item_id: str
     scene_id: str
     option_key: str
+    choice_text: str | None = None
     custom_text: str | None = None
     latency_ms: int | None = None
+
+
+class GalgameStoryTemplateRequest(BaseModel):
+    name: str
+    description: str = ""
+    location: str
+    speaker: str
+    character_key: str = "desk_mate"
+    background_key: str = "campus_window"
+    background_prompt: str = ""
+    character_prompt: str = ""
+    style_prompt: str = ""
+    scenario_tags: list[str] = Field(default_factory=list)
+    active: bool = True
+
+
+class GalgameStoryTemplateResponse(GalgameStoryTemplate):
+    pass
+
+
+class GalgameStoryTemplateListResponse(BaseModel):
+    items: list[GalgameStoryTemplateResponse] = Field(default_factory=list)
+
+
+class GalgameAssetStatusResponse(BaseModel):
+    generation_enabled: bool
+    backend: str
+    base_url: str
+    model: str = ""
+    public_url_prefix: str
+    background_count: int = 0
+    character_count: int = 0
+    sdwebui_available: bool = False
+    comfyui_available: bool = False
+
+
+class GalgameAssetGenerateRequest(BaseModel):
+    kind: str = "background"
+    key: str
+    prompt: str
+    force: bool = False
+
+
+class GalgameStoryTemplateAssetGenerateRequest(BaseModel):
+    include_character: bool = False
+    force: bool = False
+
+
+class GalgameAssetGenerateResponse(BaseModel):
+    assets: dict[str, GalgameAssetReference] = Field(default_factory=dict)
 
 
 class MapPoint(BaseModel):

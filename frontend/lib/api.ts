@@ -85,7 +85,7 @@ export type WorkbenchCheckpoint = {
 
 export type WorkbenchEvidenceItem = {
   reference_key: string;
-  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot";
+  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot" | "galgame_turn";
   label: string;
   relationship: string;
   prompt_excerpt: string;
@@ -127,7 +127,56 @@ export type GalgameScene = {
   prompt_shadow: string;
   choices: GalgameChoice[];
   memory_fragments: string[];
+  background_key: string;
+  background_prompt: string;
+  character_key: string;
+  character_prompt: string;
+  background_asset?: GalgameAssetReference | null;
+  character_asset?: GalgameAssetReference | null;
+  audio_asset?: GalgameAssetReference | null;
+  story_template_id?: string | null;
+  ai_generated: boolean;
   custom_input_enabled: boolean;
+};
+
+export type GalgameAssetReference = {
+  kind: "background" | "character" | "audio";
+  key: string;
+  prompt: string;
+  url?: string | null;
+  source: "generated" | "fallback" | "external" | "none";
+  status: "ready" | "disabled" | "failed" | "missing";
+};
+
+export type GalgameAssetStatus = {
+  generation_enabled: boolean;
+  backend: string;
+  base_url: string;
+  model: string;
+  public_url_prefix: string;
+  background_count: number;
+  character_count: number;
+  sdwebui_available: boolean;
+  comfyui_available: boolean;
+};
+
+export type GalgameTextInference = {
+  inferred_option_key?: string | null;
+  confidence: number;
+  reason: string;
+  source: "none" | "rule" | "embedding" | "pairwise" | "llm" | "hybrid";
+  option_scores: Array<{
+    option_key: string;
+    llm_score?: number | null;
+    embedding_score?: number | null;
+    pairwise_score?: number | null;
+    fused_score: number;
+    reason: string;
+  }>;
+  embedding_available: boolean;
+  pairwise_available: boolean;
+  llm_available: boolean;
+  method_version: string;
 };
 
 export type GalgameSceneResult = {
@@ -136,7 +185,26 @@ export type GalgameSceneResult = {
   can_generate_report: boolean;
   remaining_until_report: number;
   scene: GalgameScene | null;
+  text_inference?: GalgameTextInference | null;
   workbench_checkpoint?: WorkbenchCheckpoint | null;
+};
+
+export type GalgameStoryTemplate = {
+  template_id: string;
+  owner_user_id?: string | null;
+  name: string;
+  description: string;
+  location: string;
+  speaker: string;
+  character_key: string;
+  background_key: string;
+  background_prompt: string;
+  character_prompt: string;
+  style_prompt: string;
+  scenario_tags: string[];
+  active: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type SessionSummary = {
@@ -225,6 +293,14 @@ export type SessionReport = {
     evaluation: string;
     metaphor: string;
   }>;
+  support_risk_flags: Array<{
+    key: string;
+    severity: "low" | "medium" | "high";
+    label: string;
+    evidence: string[];
+    suggested_action: string;
+    diagnostic: boolean;
+  }>;
   current_state: SessionState;
 };
 
@@ -294,6 +370,19 @@ export type SessionHistoryEntry = {
   narrative_label: string | null;
 };
 
+export type UserEvolutionEntry = {
+  session_id: string;
+  question_count: number;
+  can_generate_report: boolean;
+  cluster_name: string | null;
+  narrative_label: string | null;
+  core_mu: Record<string, number>;
+  zeta: Record<string, number>;
+  active_modules: string[];
+  updated_at: string;
+  core_delta_from_previous: Record<string, number>;
+};
+
 export type RewritePreview = {
   template_id: string;
   rewritten_prompt: string;
@@ -324,7 +413,7 @@ export type EmbeddingScoreBreakdown = {
 
 export type VectorSearchHit = {
   object_id: string;
-  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot";
+  object_type: "template" | "rewrite_candidate" | "item_instance" | "session_snapshot" | "galgame_turn";
   template_id?: string | null;
   instance_id?: string | null;
   session_id?: string | null;
@@ -346,7 +435,7 @@ export type RewriteRetrievalContext = {
 };
 
 export type VectorReindexResponse = {
-  scope: "templates" | "instances" | "sessions" | "all";
+  scope: "templates" | "instances" | "sessions" | "galgame_turns" | "all";
   enabled: boolean;
   indexed_count: number;
   failed_count: number;
@@ -460,6 +549,7 @@ export type UserProfile = {
   handle: string;
   invite_code: string;
   invited_by_user_id?: string | null;
+  email_registered: boolean;
   relationship_opt_in: boolean;
   recommendation_opt_in: boolean;
   created_at: string;
@@ -487,11 +577,22 @@ export type UserRecommendation = {
   via_relationship?: string | null;
 };
 
-export function redeemInvite(inviteCode: string) {
+export function redeemInvite(inviteCode: string, email: string) {
   return publicRequest<UserAccessBundle>("/invite/redeem", {
     method: "POST",
-    json: { invite_code: inviteCode },
+    json: { invite_code: inviteCode, email },
   });
+}
+
+export function claimInvite(user: UserAccessBundle, inviteCode: string) {
+  return publicRequest<UserProfile>(
+    "/user/invite/claim",
+    {
+      method: "POST",
+      json: { invite_code: inviteCode },
+    },
+    { user }
+  );
 }
 
 export function getCurrentUser(user: UserAccessBundle) {
@@ -516,12 +617,74 @@ export function listUserSessions(user: UserAccessBundle) {
   return publicRequest<{ user: UserProfile; sessions: SessionHistoryEntry[] }>("/user/sessions", undefined, { user });
 }
 
+export function getUserEvolution(user: UserAccessBundle) {
+  return publicRequest<{ user: UserProfile; items: UserEvolutionEntry[] }>("/user/evolution", undefined, { user });
+}
+
+export function listCurrentUserRecommendations(user: UserAccessBundle, limit = 5) {
+  return publicRequest<{ enabled: boolean; items: UserRecommendation[] }>(
+    `/user/recommendations?limit=${encodeURIComponent(String(limit))}`,
+    undefined,
+    { user }
+  );
+}
+
 export function issueUserSessionAccess(user: UserAccessBundle, sessionId: string) {
   return publicRequest<SessionAccessBundle>(
     `/user/session/${sessionId}/access`,
     {
       method: "POST",
       json: {},
+    },
+    { user }
+  );
+}
+
+export function listUserGalgameStoryTemplates(user: UserAccessBundle) {
+  return publicRequest<{ items: GalgameStoryTemplate[] }>("/user/galgame/story-templates", undefined, { user });
+}
+
+export type GalgameStoryTemplatePayload = {
+  name: string;
+  description: string;
+  location: string;
+  speaker: string;
+  character_key: string;
+  background_key: string;
+  background_prompt: string;
+  character_prompt: string;
+  style_prompt: string;
+  scenario_tags: string[];
+  active: boolean;
+};
+
+export function createUserGalgameStoryTemplate(user: UserAccessBundle, payload: GalgameStoryTemplatePayload) {
+  return publicRequest<GalgameStoryTemplate>(
+    "/user/galgame/story-templates",
+    {
+      method: "POST",
+      json: payload,
+    },
+    { user }
+  );
+}
+
+export function updateUserGalgameStoryTemplate(user: UserAccessBundle, templateId: string, payload: GalgameStoryTemplatePayload) {
+  return publicRequest<GalgameStoryTemplate>(
+    `/user/galgame/story-templates/${templateId}`,
+    {
+      method: "PUT",
+      json: payload,
+    },
+    { user }
+  );
+}
+
+export function deleteUserGalgameStoryTemplate(user: UserAccessBundle, templateId: string) {
+  return publicRequest<{ deleted: boolean }>(
+    `/user/galgame/story-templates/${templateId}`,
+    {
+      method: "DELETE",
     },
     { user }
   );
@@ -585,6 +748,7 @@ export function respondGalgameScene(
     item_id: string;
     scene_id: string;
     option_key: string;
+    choice_text?: string;
     custom_text?: string;
     latency_ms?: number;
   }
@@ -664,6 +828,64 @@ export function createInvite(payload: { created_by_user_id?: string | null; labe
     method: "POST",
     json: payload,
   });
+}
+
+export function listGalgameStoryTemplates(includeInactive = true) {
+  return adminRequest<{ items: GalgameStoryTemplate[] }>(
+    `/admin/galgame/story-templates?include_inactive=${encodeURIComponent(String(includeInactive))}`
+  );
+}
+
+export function createGalgameStoryTemplate(payload: Omit<GalgameStoryTemplate, "template_id" | "created_at" | "updated_at">) {
+  return adminRequest<GalgameStoryTemplate>("/admin/galgame/story-templates", {
+    method: "POST",
+    json: payload as JsonBody,
+  });
+}
+
+export function updateGalgameStoryTemplate(
+  templateId: string,
+  payload: Omit<GalgameStoryTemplate, "template_id" | "created_at" | "updated_at">
+) {
+  return adminRequest<GalgameStoryTemplate>(`/admin/galgame/story-templates/${encodeURIComponent(templateId)}`, {
+    method: "PUT",
+    json: payload as JsonBody,
+  });
+}
+
+export function deleteGalgameStoryTemplate(templateId: string) {
+  return adminRequest<{ deleted: boolean }>(`/admin/galgame/story-templates/${encodeURIComponent(templateId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function getGalgameAssetStatus() {
+  return adminRequest<GalgameAssetStatus>("/admin/galgame/assets/status");
+}
+
+export function generateGalgameAsset(payload: {
+  kind: "background" | "character";
+  key: string;
+  prompt: string;
+  force?: boolean;
+}) {
+  return adminRequest<{ assets: Record<string, GalgameAssetReference> }>("/admin/galgame/assets/generate", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export function generateGalgameStoryTemplateAssets(
+  templateId: string,
+  payload: { include_character?: boolean; force?: boolean } = {}
+) {
+  return adminRequest<{ assets: Record<string, GalgameAssetReference> }>(
+    `/admin/galgame/story-templates/${encodeURIComponent(templateId)}/assets`,
+    {
+      method: "POST",
+      json: payload,
+    }
+  );
 }
 
 export function listInvites(limit = 100) {
@@ -792,11 +1014,18 @@ export function deleteTemplate(templateId: string) {
   });
 }
 
-export function reindexVectors(scope: "templates" | "instances" | "sessions" | "all") {
+export function reindexVectors(scope: "templates" | "instances" | "sessions" | "galgame_turns" | "all") {
   return adminRequest<VectorReindexResponse>("/admin/vector/reindex", {
     method: "POST",
     json: { scope },
   });
+}
+
+export function searchSimilarGalgameTurns(payload: { prompt: string; topK?: number }) {
+  const params = new URLSearchParams();
+  params.set("prompt", payload.prompt);
+  if (typeof payload.topK === "number") params.set("top_k", String(payload.topK));
+  return adminRequest<VectorSearchResponse>(`/admin/vector/galgame-turns/similar?${params.toString()}`);
 }
 
 export function searchSimilarTemplates(payload: { templateId?: string; prompt?: string; topK?: number }) {

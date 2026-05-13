@@ -187,6 +187,58 @@ def test_parse_json_object_accepts_fenced_json():
     assert parsed["ai_aliases"] == ["过热规划器"]
 
 
+def test_galgame_scene_request_adds_deepseek_thinking_control(monkeypatch):
+    monkeypatch.setattr(settings, "galgame_ai_scene_thinking_type", "disabled")
+    monkeypatch.setattr(settings, "galgame_ai_scene_reasoning_effort", "")
+    monkeypatch.setattr(settings, "galgame_ai_scene_output_effort", "")
+
+    request_json = {"model": "deepseek-v4-pro", "messages": []}
+    ai_service._apply_galgame_scene_provider_controls(
+        request_json,
+        AIProviderConfig(provider="deepseek", model="deepseek-v4-pro", base_url="https://api.deepseek.com", api_key="x"),
+    )
+
+    assert request_json["thinking"] == {"type": "disabled"}
+
+
+def test_galgame_scene_request_variants_drop_optional_provider_controls():
+    request_json = {
+        "model": "deepseek-v4-pro",
+        "messages": [],
+        "response_format": {"type": "json_object"},
+        "thinking": {"type": "disabled"},
+        "reasoning_effort": "high",
+        "output_config": {"effort": "high"},
+    }
+
+    variants = ai_service._galgame_scene_request_variants(request_json)
+
+    assert variants[0]["thinking"] == {"type": "disabled"}
+    assert any("response_format" not in variant and "thinking" in variant for variant in variants)
+    assert any("thinking" not in variant and "response_format" in variant for variant in variants)
+    assert any("thinking" not in variant and "response_format" not in variant for variant in variants)
+
+
+def test_galgame_choice_texts_accept_dict_or_list_shapes():
+    option_keys = {"agree", "neutral"}
+
+    from_dict = ai_service._normalize_galgame_choice_texts(
+        {"agree": "接过钥匙。", "other": "忽略。"},
+        option_keys,
+    )
+    from_list = ai_service._normalize_galgame_choice_texts(
+        [
+            {"option_key": "agree", "text": "接过钥匙。"},
+            {"key": "neutral", "value": "先等一等。"},
+            {"option_key": "other", "text": "忽略。"},
+        ],
+        option_keys,
+    )
+
+    assert from_dict == {"agree": "接过钥匙。"}
+    assert from_list == {"agree": "接过钥匙。", "neutral": "先等一等。"}
+
+
 def test_preview_rewrite_without_ai_returns_original_template_prompt():
     template = build_seed_item_bank()[0]
     session = SessionRecord(

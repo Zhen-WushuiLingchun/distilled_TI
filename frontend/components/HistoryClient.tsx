@@ -75,6 +75,11 @@ export function HistoryClient() {
               <button className="btn btn-ghost" onClick={() => router.push("/")}>
                 返回首页
               </button>
+              {userAccess ? (
+                <button className="btn btn-ghost" onClick={() => router.push("/evolution")}>
+                  历史演化
+                </button>
+              ) : null}
               <button className="btn btn-primary" onClick={() => void handleCleanup()}>
                 清理过期会话
               </button>

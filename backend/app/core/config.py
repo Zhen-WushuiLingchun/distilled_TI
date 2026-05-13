@@ -59,10 +59,29 @@ class Settings(BaseSettings):
     vector_search_score_threshold: float = 0.58
     session_vector_milestones: str = "5,10,20,40"
     session_vector_top_k: int = 5
+    galgame_ai_scene_enabled: bool = True
+    galgame_ai_scene_timeout_seconds: float = 90.0
+    galgame_ai_scene_max_tokens: int = 4096
+    galgame_ai_scene_thinking_type: str = "disabled"
+    galgame_ai_scene_reasoning_effort: str = ""
+    galgame_ai_scene_output_effort: str = ""
+    galgame_asset_generation_enabled: bool = False
+    galgame_asset_backend: str = "sdwebui"
+    galgame_asset_base_url: str = "http://127.0.0.1:7860"
+    galgame_asset_api_key: str = ""
+    galgame_asset_model: str = ""
+    galgame_asset_public_dir: str = "frontend/public/generated/galgame"
+    galgame_asset_public_url_prefix: str = "/generated/galgame"
+    galgame_asset_timeout_seconds: float = 45.0
+    galgame_asset_generate_backgrounds: bool = True
+    galgame_asset_generate_characters: bool = False
+    galgame_audio_asset_enabled: bool = False
+    galgame_turn_vector_top_k: int = 5
+    galgame_free_text_inference_min_confidence: float = 0.42
     invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
     invite_default_max_uses: int = 1000
     registered_session_ttl_days: int = 3650
-    relationship_recommendations_enabled: bool = False
+    relationship_recommendations_enabled: bool = True
 
 
 settings = Settings()

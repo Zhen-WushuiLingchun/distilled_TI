@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import {
   getCurrentUser,
   issueUserSessionAccess,
+  listCurrentUserRecommendations,
   listUserSessions,
   updateCurrentUser,
   type SessionHistoryEntry,
   type UserProfile,
+  type UserRecommendation,
 } from "@/lib/api";
 import {
   clearUserAccess,
@@ -24,7 +26,10 @@ export function ProfileClient() {
   const [access, setAccess] = useState<UserAccessBundle | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
+  const [recommendations, setRecommendations] = useState<UserRecommendation[]>([]);
+  const [recommendationsEnabled, setRecommendationsEnabled] = useState(false);
   const [error, setError] = useState("");
+  const [shareStatus, setShareStatus] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -33,11 +38,14 @@ export function ProfileClient() {
       setAccess(null);
       setProfile(null);
       setSessions([]);
+      setRecommendations([]);
+      setRecommendationsEnabled(false);
       return;
     }
-    const [profilePayload, sessionPayload] = await Promise.all([
+    const [profilePayload, sessionPayload, recommendationPayload] = await Promise.all([
       getCurrentUser(stored),
       listUserSessions(stored),
+      listCurrentUserRecommendations(stored).catch(() => ({ enabled: false, items: [] })),
     ]);
     const refreshed = {
       ...stored,
@@ -49,6 +57,8 @@ export function ProfileClient() {
     setAccess(refreshed);
     setProfile(profilePayload);
     setSessions(sessionPayload.sessions);
+    setRecommendations(recommendationPayload.items);
+    setRecommendationsEnabled(recommendationPayload.enabled);
   }
 
   useEffect(() => {
@@ -91,6 +101,23 @@ export function ProfileClient() {
     }
   }
 
+  function buildProfileShareLink() {
+    if (!profile || typeof window === "undefined") return "";
+    const params = new URLSearchParams({
+      invite: profile.invite_code,
+      from: profile.handle,
+      title: `${profile.handle} 的 Distilled TI 入口`,
+    });
+    return `${window.location.origin}/share?${params.toString()}`;
+  }
+
+  async function handleCopyProfileShare() {
+    const link = buildProfileShareLink();
+    if (!link) return;
+    await navigator.clipboard.writeText(link);
+    setShareStatus("邀请链接已复制；新用户从这个链接进入会被记录到你的匿名关系网。");
+  }
+
   if (!access || !profile) {
     return (
       <main className="cockpit-shell">
@@ -123,6 +150,7 @@ export function ProfileClient() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="btn btn-ghost" onClick={() => router.push("/")}>首页</button>
+              <button className="btn btn-ghost" onClick={() => router.push("/evolution")}>历史演化</button>
               <button className="btn btn-primary" onClick={() => router.push("/session")}>继续测量</button>
             </div>
           </div>
@@ -164,10 +192,63 @@ export function ProfileClient() {
               <span>
                 <span className="block text-sm text-[color:var(--ink-strong)]">允许进入隐藏推荐实验池</span>
                 <span className="mt-1 block text-xs leading-5 text-[color:var(--ink-muted)]">
-                  Public 不显示推荐结果；管理员实验视图也会排除已经存在直接邀请关系的人。
+                  公开页只显示匿名 handle、相似理由和分数；已经存在直接邀请关系的人会被排除。
                 </span>
               </span>
             </label>
+            <div className="surface-sunken p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="label-mini">Invite Link</p>
+                  <h3 className="mt-1 text-lg text-[color:var(--ink-strong)]">我的分享入口</h3>
+                </div>
+                <span className="chip">{profile.invite_code}</span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]">
+                所有公开分享都使用这个个人邀请码。别人从链接进入后，会创建一条匿名邀请边，不暴露真实身份。
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn btn-primary px-3 py-1.5 text-xs" type="button" onClick={() => void handleCopyProfileShare()}>
+                  复制我的邀请链接
+                </button>
+                <button className="btn btn-ghost px-3 py-1.5 text-xs" type="button" onClick={() => router.push(`/share?invite=${encodeURIComponent(profile.invite_code)}&from=${encodeURIComponent(profile.handle)}`)}>
+                  预览分享页
+                </button>
+              </div>
+              {shareStatus ? <p className="mt-2 text-xs text-[color:var(--accent-ink)]">{shareStatus}</p> : null}
+            </div>
+
+            <div className="surface-sunken p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="label-mini">Social Lab</p>
+                  <h3 className="mt-1 text-lg text-[color:var(--ink-strong)]">匿名推荐</h3>
+                </div>
+                <span className="chip">{recommendationsEnabled ? "enabled" : "disabled"}</span>
+              </div>
+              {!recommendationsEnabled ? (
+                <p className="mt-3 text-xs leading-5 text-[color:var(--ink-muted)]">
+                  后端推荐开关尚未开启。开启后，只有双方都 opt-in 且已有报告样本时才会展示。
+                </p>
+              ) : recommendations.length ? (
+                <div className="mt-3 space-y-2">
+                  {recommendations.map((item) => (
+                    <article key={item.candidate_user_id} className="rounded-[var(--r-md)] bg-[color:var(--bg-paper)] p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <strong className="text-sm">{item.candidate_handle}</strong>
+                        <span className="num text-xs">{(item.score * 100).toFixed(1)}%</span>
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-[color:var(--ink-muted)]">{item.reason}</p>
+                      {item.shared_cluster_name ? <p className="mt-1 text-xs text-[color:var(--accent-ink)]">{item.shared_cluster_name}</p> : null}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-xs leading-5 text-[color:var(--ink-muted)]">
+                  暂无可推荐对象。通常需要双方都开启推荐，并完成至少一次可出报告的会话。
+                </p>
+              )}
+            </div>
             <button
               className="text-xs text-[color:var(--ink-faint)] underline underline-offset-4"
               onClick={() => {

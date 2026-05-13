@@ -1,7 +1,7 @@
 from app.core.config import settings
 from app.domain.dimensions import MODULE_KEYS, SUBDIMENSION_TO_PARENT, make_zero_module_vector, make_zero_subdimension_vector, make_zero_vector
 from app.domain.item_bank import build_seed_item_bank
-from app.domain.models import SessionState
+from app.domain.models import AnswerRecord, SessionState
 from app.services.scoring import ScoringEngine
 
 
@@ -73,3 +73,39 @@ def test_report_contains_sub_and_module_insights():
     assert report.module_insights[0].confidence_percent > 0
     assert report.cluster_mix
     assert report.cluster_mix[0].weight > 0
+
+
+def test_support_risk_flags_are_non_diagnostic_operational_signals():
+    state = SessionState(
+        core_mu=make_zero_vector(0.0),
+        core_sigma=make_zero_vector(settings.default_sigma),
+        sub_mu=make_zero_subdimension_vector(0.0),
+        sub_sigma=make_zero_subdimension_vector(settings.default_sigma),
+        sub_counts={key: 0 for key in SUBDIMENSION_TO_PARENT},
+        module_scores=make_zero_module_vector(0.0),
+        module_counts={key: 0 for key in MODULE_KEYS},
+        dimension_counts=make_zero_vector(0),
+        zeta={"consistency": 0.2, "performative": 0.0, "exploration": 0.5, "fatigue": 0.62},
+        question_count=6,
+        answers=[
+            AnswerRecord(
+                item_id=f"item-{index}",
+                template_id=f"template-{index}",
+                option_key="strongly_agree",
+                mapped_score=1.0,
+                predicted_score=-0.6,
+                residual=1.6,
+                latency_ms=650,
+            )
+            for index in range(6)
+        ],
+    )
+    flags = ScoringEngine().build_support_risk_flags(state)
+
+    assert {flag.key for flag in flags} >= {
+        "interaction_fatigue_or_rushing",
+        "low_response_consistency",
+        "high_extreme_choice_ratio",
+    }
+    assert all(flag.diagnostic is False for flag in flags)
+    assert all(flag.suggested_action for flag in flags)

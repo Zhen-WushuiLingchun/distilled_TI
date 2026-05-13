@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="night library visual novel background">
+  <defs>
+    <linearGradient id="room" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#18282e"/>
+      <stop offset=".58" stop-color="#263d35"/>
+      <stop offset="1" stop-color="#161716"/>
+    </linearGradient>
+    <radialGradient id="lamp" cx=".52" cy=".45" r=".38">
+      <stop offset="0" stop-color="#d6ffb6" stop-opacity=".72"/>
+      <stop offset=".5" stop-color="#7fa66c" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#room)"/>
+  <rect x="72" y="94" width="292" height="480" fill="#392c24"/>
+  <rect x="916" y="84" width="286" height="500" fill="#3a2e26"/>
+  <g fill="#ad8d5f">
+    <rect x="96" y="126" width="38" height="150"/><rect x="144" y="126" width="24" height="150"/><rect x="180" y="126" width="52" height="150"/><rect x="244" y="126" width="30" height="150"/><rect x="286" y="126" width="50" height="150"/>
+    <rect x="96" y="320" width="52" height="152"/><rect x="160" y="320" width="32" height="152"/><rect x="204" y="320" width="44" height="152"/><rect x="260" y="320" width="70" height="152"/>
+    <rect x="944" y="124" width="44" height="166"/><rect x="1000" y="124" width="28" height="166"/><rect x="1040" y="124" width="58" height="166"/><rect x="1110" y="124" width="48" height="166"/>
+    <rect x="944" y="336" width="36" height="160"/><rect x="992" y="336" width="68" height="160"/><rect x="1072" y="336" width="34" height="160"/><rect x="1118" y="336" width="52" height="160"/>
+  </g>
+  <rect x="432" y="96" width="398" height="288" rx="8" fill="#0f1c24"/>
+  <path d="M462 126 H800 V354 H462Z" fill="#233949"/>
+  <path d="M632 126 V354 M462 240 H800" stroke="#88a4ad" stroke-width="5" opacity=".42"/>
+  <path d="M462 330 C520 300 574 330 632 304 C704 272 742 312 800 284 V354 H462Z" fill="#101921" opacity=".75"/>
+  <rect x="240" y="540" width="800" height="58" rx="12" fill="#141212"/>
+  <path d="M190 598 H1090 L1186 720 H96Z" fill="#2d2019"/>
+  <rect width="1280" height="720" fill="url(#lamp)"/>
+  <g>
+    <path d="M602 440 H694 L722 532 H574Z" fill="#172323"/>
+    <ellipse cx="648" cy="438" rx="88" ry="24" fill="#b8d882" opacity=".72"/>
+    <path d="M612 434 C622 376 676 376 688 434Z" fill="#8fb46d"/>
+  </g>
+</svg>

@@ -10,10 +10,11 @@ from app.core.config import settings
 from app.domain.models import (
     ClusterLabelOverride,
     ClusterVersionInfo,
+    GalgameStoryTemplate,
+    GalgameTurn,
     InviteCode,
     ItemInstance,
     ItemTemplate,
-    GalgameTurn,
     SessionHistoryEntry,
     SessionRecord,
     UserProfile,
@@ -123,6 +124,7 @@ class LocalSessionStore:
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id TEXT PRIMARY KEY,
                     handle TEXT NOT NULL UNIQUE,
+                    email_hash TEXT,
                     invite_code TEXT NOT NULL,
                     invited_by_user_id TEXT,
                     user_secret_hash TEXT NOT NULL,
@@ -132,6 +134,19 @@ class LocalSessionStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
+                """
+            )
+            user_columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(user_profiles)").fetchall()
+            }
+            if "email_hash" not in user_columns:
+                connection.execute("ALTER TABLE user_profiles ADD COLUMN email_hash TEXT")
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_user_profiles_email_hash
+                ON user_profiles(email_hash)
+                WHERE email_hash IS NOT NULL
                 """
             )
             connection.execute(
@@ -176,7 +191,27 @@ class LocalSessionStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS galgame_story_templates (
+                    template_id TEXT PRIMARY KEY,
+                    owner_user_id TEXT,
+                    name TEXT NOT NULL,
+                    active INTEGER NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            story_columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(galgame_story_templates)").fetchall()
+            }
+            if "owner_user_id" not in story_columns:
+                connection.execute("ALTER TABLE galgame_story_templates ADD COLUMN owner_user_id TEXT")
             self._ensure_bootstrap_invite(connection)
+            self._ensure_default_story_templates(connection)
             connection.commit()
 
     def _ensure_bootstrap_invite(self, connection: sqlite3.Connection) -> None:
@@ -222,6 +257,83 @@ class LocalSessionStore:
                 invite.expires_at.isoformat() if invite.expires_at else None,
             ),
         )
+
+    def _ensure_default_story_templates(self, connection: sqlite3.Connection) -> None:
+        row = connection.execute("SELECT template_id FROM galgame_story_templates LIMIT 1").fetchone()
+        if row is not None:
+            return
+        now = datetime.now(UTC)
+        defaults = [
+            GalgameStoryTemplate(
+                template_id="campus-council-window",
+                name="校园委员会窗口",
+                description="偏校园群像、关系压力和协作分歧，适合多数测量题包装。",
+                location="旧教学楼二层的学生会室",
+                speaker="同桌",
+                character_key="desk_mate",
+                background_key="council_room",
+                background_prompt="warm student council room, late afternoon, paper notes, campus visual novel background",
+                character_prompt="androgynous classmate, calm but curious, warm uniform-inspired outfit, visual novel portrait",
+                style_prompt="慢节奏校园群像，台词短，现场感强，不鸡汤，不替用户下结论。",
+                scenario_tags=["campus", "team_mode", "relationship"],
+                created_at=now,
+                updated_at=now,
+            ),
+            GalgameStoryTemplate(
+                template_id="library-night-probe",
+                name="图书馆夜间追问",
+                description="偏安静、内省、边界感，适合 probe/sub 题。",
+                location="闭馆前十五分钟的图书馆靠窗座位",
+                speaker="图书馆管理员",
+                character_key="librarian",
+                background_key="night_library",
+                background_prompt="quiet library near closing time, window reflections, green desk lamp, visual novel background",
+                character_prompt="young librarian, reserved expression, precise gestures, visual novel portrait",
+                style_prompt="克制、细腻、追问边界和动机，不把测量题说成诊断。",
+                scenario_tags=["campus", "study", "probe"],
+                created_at=now,
+                updated_at=now,
+            ),
+            GalgameStoryTemplate(
+                template_id="rooftop-conflict-branch",
+                name="天台分歧节点",
+                description="偏高压、冲突、临场选择，适合 high_stakes/conflict 题。",
+                location="风很大的社团楼天台",
+                speaker="临时转学生",
+                character_key="transfer_student",
+                background_key="campus_rooftop",
+                background_prompt="school rooftop at dusk, strong wind, city lights, dramatic visual novel background",
+                character_prompt="transfer student, sharp eyes, wind-blown hair, ambiguous smile, visual novel portrait",
+                style_prompt="张力更强，像分支节点，但仍只呈现选择情境，不诱导答案。",
+                scenario_tags=["campus", "conflict", "high_stakes"],
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+        for template in defaults:
+            connection.execute(
+                """
+                INSERT INTO galgame_story_templates (
+                    template_id,
+                    owner_user_id,
+                    name,
+                    active,
+                    payload_json,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    template.template_id,
+                    template.owner_user_id,
+                    template.name,
+                    int(template.active),
+                    template.model_dump_json(),
+                    template.created_at.isoformat(),
+                    template.updated_at.isoformat(),
+                ),
+            )
 
     def save_session(self, record: SessionRecord) -> None:
         now = datetime.now(UTC)
@@ -504,6 +616,11 @@ class LocalSessionStore:
             return None
         return str(row[0])
 
+    def delete_ai_provider_config(self) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM ai_provider_config WHERE config_key = 'default'")
+            connection.commit()
+
     def save_user_profile(self, profile: UserProfile) -> None:
         with self._connect() as connection:
             connection.execute(
@@ -511,6 +628,7 @@ class LocalSessionStore:
                 INSERT INTO user_profiles (
                     user_id,
                     handle,
+                    email_hash,
                     invite_code,
                     invited_by_user_id,
                     user_secret_hash,
@@ -520,9 +638,10 @@ class LocalSessionStore:
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     handle = excluded.handle,
+                    email_hash = excluded.email_hash,
                     invite_code = excluded.invite_code,
                     invited_by_user_id = excluded.invited_by_user_id,
                     user_secret_hash = excluded.user_secret_hash,
@@ -534,6 +653,7 @@ class LocalSessionStore:
                 (
                     profile.user_id,
                     profile.handle,
+                    profile.email_hash,
                     profile.invite_code,
                     profile.invited_by_user_id,
                     profile.user_secret_hash,
@@ -551,6 +671,16 @@ class LocalSessionStore:
             row = connection.execute(
                 "SELECT payload_json FROM user_profiles WHERE user_id = ?",
                 (user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return UserProfile.model_validate_json(row[0])
+
+    def load_user_by_email_hash(self, email_hash: str) -> UserProfile | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM user_profiles WHERE email_hash = ?",
+                (email_hash,),
             ).fetchone()
         if row is None:
             return None
@@ -705,6 +835,11 @@ class LocalSessionStore:
                     created_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(turn_id) DO UPDATE SET
+                    selected_option_key = excluded.selected_option_key,
+                    custom_text = excluded.custom_text,
+                    payload_json = excluded.payload_json,
+                    created_at = excluded.created_at
                 """,
                 (
                     turn.turn_id,
@@ -733,6 +868,103 @@ class LocalSessionStore:
             ).fetchall()
         turns = [GalgameTurn.model_validate_json(row[0]) for row in rows]
         return list(reversed(turns))
+
+    def list_all_galgame_turns(self, limit: int | None = 500) -> list[GalgameTurn]:
+        with self._connect() as connection:
+            if limit is None:
+                rows = connection.execute(
+                    """
+                    SELECT payload_json FROM galgame_turns
+                    ORDER BY created_at ASC
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT payload_json FROM galgame_turns
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+                rows = list(reversed(rows))
+        return [GalgameTurn.model_validate_json(row[0]) for row in rows]
+
+    def save_galgame_story_template(self, template: GalgameStoryTemplate) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO galgame_story_templates (
+                    template_id,
+                    owner_user_id,
+                    name,
+                    active,
+                    payload_json,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(template_id) DO UPDATE SET
+                    owner_user_id = excluded.owner_user_id,
+                    name = excluded.name,
+                    active = excluded.active,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    template.template_id,
+                    template.owner_user_id,
+                    template.name,
+                    int(template.active),
+                    template.model_dump_json(),
+                    template.created_at.isoformat(),
+                    template.updated_at.isoformat(),
+                ),
+            )
+            connection.commit()
+
+    def list_galgame_story_templates(
+        self,
+        include_inactive: bool = False,
+        owner_user_id: str | None = None,
+        include_system: bool = True,
+    ) -> list[GalgameStoryTemplate]:
+        with self._connect() as connection:
+            conditions: list[str] = []
+            params: list[object] = []
+            if not include_inactive:
+                conditions.append("active = 1")
+            if owner_user_id is not None:
+                if include_system:
+                    conditions.append("(owner_user_id IS NULL OR owner_user_id = ?)")
+                else:
+                    conditions.append("owner_user_id = ?")
+                params.append(owner_user_id)
+            elif not include_system:
+                conditions.append("owner_user_id IS NOT NULL")
+            where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            rows = connection.execute(
+                f"""
+                SELECT payload_json FROM galgame_story_templates
+                {where_clause}
+                ORDER BY created_at ASC
+                """,
+                tuple(params),
+            ).fetchall()
+        return [GalgameStoryTemplate.model_validate_json(row[0]) for row in rows]
+
+    def load_galgame_story_template(self, template_id: str) -> GalgameStoryTemplate | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM galgame_story_templates WHERE template_id = ?",
+                (template_id,),
+            ).fetchone()
+        return GalgameStoryTemplate.model_validate_json(row[0]) if row else None
+
+    def delete_galgame_story_template(self, template_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM galgame_story_templates WHERE template_id = ?", (template_id,))
+            connection.commit()
 
     def save_vector_sync_failure(self, failure: VectorSyncFailure) -> None:
         with self._connect() as connection:

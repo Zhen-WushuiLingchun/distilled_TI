@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="digital chat room visual novel background">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#112730"/>
+      <stop offset=".5" stop-color="#315b5b"/>
+      <stop offset="1" stop-color="#ceb37b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <g opacity=".18" stroke="#fff7d9">
+    <path d="M0 120 H1280 M0 240 H1280 M0 360 H1280 M0 480 H1280 M0 600 H1280"/>
+    <path d="M120 0 V720 M300 0 V720 M480 0 V720 M660 0 V720 M840 0 V720 M1020 0 V720 M1200 0 V720"/>
+  </g>
+  <rect x="222" y="80" width="836" height="560" rx="34" fill="#0d171d" opacity=".7"/>
+  <rect x="260" y="130" width="374" height="76" rx="22" fill="#e7f0db" opacity=".92"/>
+  <rect x="682" y="232" width="338" height="82" rx="22" fill="#4b8477" opacity=".94"/>
+  <rect x="302" y="344" width="462" height="74" rx="22" fill="#e7f0db" opacity=".9"/>
+  <rect x="616" y="454" width="404" height="88" rx="22" fill="#d39a58" opacity=".92"/>
+  <g fill="#24303a" opacity=".72">
+    <circle cx="214" cy="168" r="34"/><circle cx="1070" cy="272" r="34"/><circle cx="254" cy="382" r="34"/><circle cx="1070" cy="498" r="34"/>
+  </g>
+  <g fill="#fff8de" opacity=".44">
+    <rect x="300" y="160" width="230" height="10" rx="5"/>
+    <rect x="722" y="266" width="210" height="10" rx="5"/>
+    <rect x="344" y="374" width="314" height="10" rx="5"/>
+    <rect x="660" y="488" width="256" height="10" rx="5"/>
+  </g>
+  <path d="M0 0 H1280 V720 H0Z" fill="#061014" opacity=".2"/>
+</svg>
