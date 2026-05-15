@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     invite_default_max_uses: int = 1000
     registered_session_ttl_days: int = 3650
     relationship_recommendations_enabled: bool = True
+    # 千恋万花 人格监视器
+    senren_monitor_enabled: bool = True
+    senren_min_choices_for_report: int = 8
 
 
 settings = Settings()
