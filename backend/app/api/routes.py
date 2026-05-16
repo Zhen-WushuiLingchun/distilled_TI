@@ -9,6 +9,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.api.schemas import (
     ClaimInviteRequest,
+    GenerateUserInviteRequest,
     GalgameStoryTemplateListResponse,
     GalgameStoryTemplateRequest,
     GalgameStoryTemplateResponse,
@@ -111,6 +112,17 @@ def claim_invite_for_current_user(
         updated = user_service.claim_invite(profile, payload.invite_code)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return UserProfileResponse.from_profile(updated)
+
+
+@router.post("/user/invite/generate", response_model=UserProfileResponse)
+def generate_invite_for_current_user(
+    payload: GenerateUserInviteRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> UserProfileResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    updated = user_service.issue_share_invite(profile)
     return UserProfileResponse.from_profile(updated)
 
 

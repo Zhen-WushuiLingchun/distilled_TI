@@ -227,7 +227,7 @@ class LocalSessionStore:
         invite = InviteCode(
             code=settings.invite_bootstrap_code,
             label="Local bootstrap invite",
-            max_uses=settings.invite_default_max_uses,
+            max_uses=max(1, settings.invite_bootstrap_max_uses),
             created_at=now,
         )
         connection.execute(

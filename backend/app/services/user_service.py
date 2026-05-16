@@ -78,7 +78,13 @@ class UserService:
         self._create_invite_relationship(invite.created_by_user_id, profile.user_id, now)
         profile = self._ensure_share_invite(profile)
 
-        updated_invite = invite.model_copy(update={"use_count": invite.use_count + 1})
+        updated_use_count = invite.use_count + 1
+        updated_invite = invite.model_copy(
+            update={
+                "use_count": updated_use_count,
+                "active": invite.active and updated_use_count < invite.max_uses,
+            }
+        )
         local_session_store.save_invite_code(updated_invite)
 
         return UserAccessGrant(
@@ -162,8 +168,22 @@ class UserService:
             raise ValueError("invite_exhausted")
 
         self._create_invite_relationship(source_user_id, profile.user_id, now)
-        local_session_store.save_invite_code(invite.model_copy(update={"use_count": invite.use_count + 1}))
+        updated_use_count = invite.use_count + 1
+        local_session_store.save_invite_code(
+            invite.model_copy(
+                update={
+                    "use_count": updated_use_count,
+                    "active": invite.active and updated_use_count < invite.max_uses,
+                }
+            )
+        )
         return self._ensure_share_invite(profile)
+
+    def issue_share_invite(self, profile: UserProfile) -> UserProfile:
+        existing_invite = local_session_store.load_invite_code(profile.invite_code)
+        if existing_invite and existing_invite.created_by_user_id == profile.user_id and existing_invite.active:
+            local_session_store.save_invite_code(existing_invite.model_copy(update={"active": False}))
+        return self._create_share_invite(profile)
 
     def list_users(self, limit: int = 100) -> list[UserProfile]:
         return local_session_store.list_user_profiles(limit)
@@ -238,13 +258,23 @@ class UserService:
 
     def _ensure_share_invite(self, profile: UserProfile) -> UserProfile:
         existing_invite = local_session_store.load_invite_code(profile.invite_code)
+        if (
+            existing_invite
+            and existing_invite.created_by_user_id == profile.user_id
+            and existing_invite.active
+            and existing_invite.use_count < existing_invite.max_uses
+        ):
+            return profile
         if existing_invite and existing_invite.created_by_user_id == profile.user_id:
             return profile
 
+        return self._create_share_invite(profile)
+
+    def _create_share_invite(self, profile: UserProfile) -> UserProfile:
         invite = self.create_invite(
             created_by_user_id=profile.user_id,
             label=f"Share invite for {profile.handle}",
-            max_uses=settings.invite_default_max_uses,
+            max_uses=settings.user_invite_max_uses,
         )
         updated = profile.model_copy(update={"invite_code": invite.code, "updated_at": datetime.now(UTC)})
         local_session_store.save_user_profile(updated)

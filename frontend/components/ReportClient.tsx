@@ -146,7 +146,7 @@ export function ReportClient({ sessionId }: ReportClientProps) {
   }
 
   function buildShareLink() {
-    if (!shareProfile || typeof window === "undefined") return "";
+    if (!shareProfile?.invite_code || typeof window === "undefined") return "";
     const params = new URLSearchParams({
       invite: shareProfile.invite_code,
       from: shareProfile.handle,
@@ -297,7 +297,7 @@ export function ReportClient({ sessionId }: ReportClientProps) {
                     向外分享只生成入口页链接，不暴露你的完整报告数据；链接会自动带上分享者的邀请码。
                   </p>
                 </div>
-                <span className="chip">{shareProfile ? `invite ${shareProfile.invite_code}` : "no invite"}</span>
+                <span className="chip">{shareProfile?.invite_code ? `invite ${shareProfile.invite_code}` : "no active invite"}</span>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <button type="button" className="btn btn-primary" onClick={() => void handleCopyShare()}>
@@ -306,8 +306,16 @@ export function ReportClient({ sessionId }: ReportClientProps) {
                 <button type="button" className="btn btn-ghost" onClick={handleExportJSON}>
                   导出 JSON
                 </button>
-                {shareProfile ? (
-                  <button type="button" className="btn btn-ghost" onClick={() => router.push(`/share?invite=${encodeURIComponent(shareProfile.invite_code)}&from=${encodeURIComponent(shareProfile.handle)}`)}>
+                {shareProfile?.invite_code ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      const inviteCode = shareProfile.invite_code;
+                      if (!inviteCode) return;
+                      router.push(`/share?invite=${encodeURIComponent(inviteCode)}&from=${encodeURIComponent(shareProfile.handle)}`);
+                    }}
+                  >
                     预览分享页
                   </button>
                 ) : null}

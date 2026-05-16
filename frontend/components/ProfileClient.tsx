@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import {
   getCurrentUser,
+  generateUserInvite,
   issueUserSessionAccess,
   listCurrentUserRecommendations,
   listUserSessions,
@@ -102,7 +103,7 @@ export function ProfileClient() {
   }
 
   function buildProfileShareLink() {
-    if (!profile || typeof window === "undefined") return "";
+    if (!profile?.invite_code || typeof window === "undefined") return "";
     const params = new URLSearchParams({
       invite: profile.invite_code,
       from: profile.handle,
@@ -115,7 +116,21 @@ export function ProfileClient() {
     const link = buildProfileShareLink();
     if (!link) return;
     await navigator.clipboard.writeText(link);
-    setShareStatus("邀请链接已复制；新用户从这个链接进入会被记录到你的匿名关系网。");
+    setShareStatus("一次性邀请链接已复制；被使用后会自动失效，需要你再生成新的邀请码。");
+  }
+
+  async function handleGenerateInvite() {
+    if (!access) return;
+    try {
+      setBusy(true);
+      const updated = await generateUserInvite(access);
+      setProfile(updated);
+      setShareStatus("已生成一个新的一次性邀请码。旧的未使用邀请码已作废。");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "生成邀请码失败。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!access || !profile) {
@@ -145,7 +160,7 @@ export function ProfileClient() {
             <div>
               <h1 className="text-3xl md:text-4xl">{profile.handle}</h1>
               <p className="num mt-2 text-sm text-[color:var(--ink-muted)]">
-                {profile.user_id} · invite {profile.invite_code}
+                {profile.user_id} · invite {profile.invite_code ?? "none"}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -202,17 +217,20 @@ export function ProfileClient() {
                   <p className="label-mini">Invite Link</p>
                   <h3 className="mt-1 text-lg text-[color:var(--ink-strong)]">我的分享入口</h3>
                 </div>
-                <span className="chip">{profile.invite_code}</span>
+                <span className="chip">{profile.invite_code ?? "no active invite"}</span>
               </div>
               <p className="mt-2 text-xs leading-5 text-[color:var(--ink-muted)]">
-                所有公开分享都使用这个个人邀请码。别人从链接进入后，会创建一条匿名邀请边，不暴露真实身份。
+                每个邀请码只能邀请一个新用户或建立一次关系；用完后会自动失效。需要继续邀请时，在这里手动生成新的邀请码。
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button className="btn btn-primary px-3 py-1.5 text-xs" type="button" onClick={() => void handleCopyProfileShare()}>
+                <button className="btn btn-primary px-3 py-1.5 text-xs" type="button" disabled={!profile.invite_code || busy} onClick={() => void handleCopyProfileShare()}>
                   复制我的邀请链接
                 </button>
-                <button className="btn btn-ghost px-3 py-1.5 text-xs" type="button" onClick={() => router.push(`/share?invite=${encodeURIComponent(profile.invite_code)}&from=${encodeURIComponent(profile.handle)}`)}>
+                <button className="btn btn-ghost px-3 py-1.5 text-xs" type="button" disabled={!profile.invite_code || busy} onClick={() => profile.invite_code && router.push(`/share?invite=${encodeURIComponent(profile.invite_code)}&from=${encodeURIComponent(profile.handle)}`)}>
                   预览分享页
+                </button>
+                <button className="btn btn-ghost px-3 py-1.5 text-xs" type="button" disabled={busy} onClick={() => void handleGenerateInvite()}>
+                  生成新邀请码
                 </button>
               </div>
               {shareStatus ? <p className="mt-2 text-xs text-[color:var(--accent-ink)]">{shareStatus}</p> : null}

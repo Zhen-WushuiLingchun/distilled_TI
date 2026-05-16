@@ -135,7 +135,7 @@ def test_galgame_asset_service_manual_generation_is_reused_when_auto_disabled(mo
     monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path))
     monkeypatch.setattr(settings, "galgame_asset_public_url_prefix", "/generated/galgame")
 
-    def _write_asset(_kind, _prompt, output_path):
+    def _write_asset(_kind, _prompt, output_path, _cache_key):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"fake-png")
 
@@ -157,6 +157,19 @@ def test_galgame_asset_service_manual_generation_is_reused_when_auto_disabled(mo
     assert generated.url == "/generated/galgame/background/night_library.png"
     assert background.source == "generated"
     assert background.url == generated.url
+
+
+def test_galgame_asset_cleanup_removes_oldest_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path))
+    for index in range(3):
+        path = tmp_path / "background" / f"asset-{index}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-png")
+
+    summary = galgame_asset_service.cleanup_generated_assets(max_files=2, max_age_days=0)
+
+    assert summary["deleted_count"] == 1
+    assert summary["remaining_count"] == 2
 
 
 def test_galgame_character_postprocess_removes_flat_background(tmp_path):

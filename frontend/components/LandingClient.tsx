@@ -190,7 +190,7 @@ export function LandingClient() {
                     className="field"
                     value={inviteCode}
                     onChange={(event) => setInviteCode(event.target.value)}
-                    placeholder="邀请码，例如 DISTILLED-TI-LOCAL"
+                    placeholder="请输入邀请者发给你的一次性邀请码"
                   />
                   <input
                     className="field"

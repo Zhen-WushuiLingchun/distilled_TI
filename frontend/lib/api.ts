@@ -156,6 +156,11 @@ export type GalgameAssetStatus = {
   public_url_prefix: string;
   background_count: number;
   character_count: number;
+  cache_total_count: number;
+  cache_total_bytes: number;
+  cache_max_files: number;
+  cache_max_age_days: number;
+  cleanup_enabled: boolean;
   sdwebui_available: boolean;
   comfyui_available: boolean;
 };
@@ -547,7 +552,9 @@ function adminRequest<T>(path: string, init?: RequestInit & { json?: JsonBody },
 export type UserProfile = {
   user_id: string;
   handle: string;
-  invite_code: string;
+  invite_code?: string | null;
+  invite_available: boolean;
+  invite_remaining_uses: number;
   invited_by_user_id?: string | null;
   email_registered: boolean;
   relationship_opt_in: boolean;
@@ -590,6 +597,17 @@ export function claimInvite(user: UserAccessBundle, inviteCode: string) {
     {
       method: "POST",
       json: { invite_code: inviteCode },
+    },
+    { user }
+  );
+}
+
+export function generateUserInvite(user: UserAccessBundle) {
+  return publicRequest<UserProfile>(
+    "/user/invite/generate",
+    {
+      method: "POST",
+      json: {},
     },
     { user }
   );
@@ -870,6 +888,13 @@ export function generateGalgameAsset(payload: {
   force?: boolean;
 }) {
   return adminRequest<{ assets: Record<string, GalgameAssetReference> }>("/admin/galgame/assets/generate", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export function cleanupGalgameAssets(payload: { max_files?: number; max_age_days?: number } = {}) {
+  return adminRequest<{ deleted_count: number; remaining_count: number; remaining_bytes: number }>("/admin/galgame/assets/cleanup", {
     method: "POST",
     json: payload,
   });

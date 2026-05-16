@@ -33,6 +33,7 @@ from app.domain.models import (
     WorkbenchCheckpoint,
     WorkbenchEvidence,
 )
+from app.services.storage import local_session_store
 
 
 class StartSessionRequest(BaseModel):
@@ -48,10 +49,16 @@ class ClaimInviteRequest(BaseModel):
     invite_code: str
 
 
+class GenerateUserInviteRequest(BaseModel):
+    label: str | None = None
+
+
 class UserProfileResponse(BaseModel):
     user_id: str
     handle: str
-    invite_code: str
+    invite_code: str | None = None
+    invite_available: bool = False
+    invite_remaining_uses: int = 0
     invited_by_user_id: str | None = None
     email_registered: bool = False
     relationship_opt_in: bool = False
@@ -61,10 +68,20 @@ class UserProfileResponse(BaseModel):
 
     @classmethod
     def from_profile(cls, profile: UserProfile) -> "UserProfileResponse":
+        invite = local_session_store.load_invite_code(profile.invite_code)
+        invite_available = bool(
+            invite
+            and invite.created_by_user_id == profile.user_id
+            and invite.active
+            and invite.use_count < invite.max_uses
+        )
+        remaining_uses = max(0, (invite.max_uses - invite.use_count) if invite_available and invite else 0)
         return cls(
             user_id=profile.user_id,
             handle=profile.handle,
-            invite_code=profile.invite_code,
+            invite_code=profile.invite_code if invite_available else None,
+            invite_available=invite_available,
+            invite_remaining_uses=remaining_uses,
             invited_by_user_id=profile.invited_by_user_id,
             email_registered=bool(profile.email_hash),
             relationship_opt_in=profile.relationship_opt_in,
@@ -217,6 +234,11 @@ class GalgameAssetStatusResponse(BaseModel):
     public_url_prefix: str
     background_count: int = 0
     character_count: int = 0
+    cache_total_count: int = 0
+    cache_total_bytes: int = 0
+    cache_max_files: int = 0
+    cache_max_age_days: int = 0
+    cleanup_enabled: bool = False
     sdwebui_available: bool = False
     comfyui_available: bool = False
 
@@ -235,6 +257,17 @@ class GalgameStoryTemplateAssetGenerateRequest(BaseModel):
 
 class GalgameAssetGenerateResponse(BaseModel):
     assets: dict[str, GalgameAssetReference] = Field(default_factory=dict)
+
+
+class GalgameAssetCleanupRequest(BaseModel):
+    max_files: int | None = None
+    max_age_days: int | None = None
+
+
+class GalgameAssetCleanupResponse(BaseModel):
+    deleted_count: int = 0
+    remaining_count: int = 0
+    remaining_bytes: int = 0
 
 
 class MapPoint(BaseModel):

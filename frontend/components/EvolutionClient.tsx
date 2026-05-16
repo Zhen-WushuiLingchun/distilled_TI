@@ -67,6 +67,10 @@ export function EvolutionClient() {
       title: `${user.handle} 的 Distilled TI 历史入口`,
     });
     const profileInvite = await getCurrentUser(user).then((profile) => profile.invite_code);
+    if (!profileInvite) {
+      setShareStatus("当前没有可用的一次性邀请码，请先到用户配置页生成。");
+      return;
+    }
     params.set("invite", profileInvite);
     await navigator.clipboard.writeText(`${window.location.origin}/share?${params.toString()}`);
     setShareStatus("历史入口分享链接已复制，链接包含你的个人邀请码。");

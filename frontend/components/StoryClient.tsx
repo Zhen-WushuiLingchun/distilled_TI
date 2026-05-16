@@ -340,6 +340,10 @@ export function StoryClient() {
 
   const backgroundUrl = scene?.background_asset?.url ?? "/galgame-assets/backgrounds/campus_courtyard.svg";
   const characterUrl = scene?.character_asset?.url ?? "/galgame-assets/sprites/desk_mate.svg";
+  const selectedChoice =
+    scene?.choices.find((choice) => choice.option_key === selectedOptionKey) ??
+    scene?.choices[0] ??
+    null;
 
   if (busy && !scene) {
     return (
@@ -392,17 +396,22 @@ export function StoryClient() {
         {!hideUI ? (
           <>
             <section className="story-vn-choice-board" aria-label="剧情选项">
-              {scene?.choices.map((choice, index) => (
-                <button
-                  key={choice.key}
-                  className={`story-choice story-choice-vn ${choice.tone}`}
-                  disabled={busy}
-                  style={{ animationDelay: `${120 + index * 70}ms` }}
-                  onClick={() => void handleChoice(choice.option_key)}
-                >
-                  <span>{choice.text}</span>
-                </button>
-              ))}
+              {scene?.choices.map((choice, index) => {
+                const isSelected = choice.option_key === selectedChoice?.option_key;
+                return (
+                  <button
+                    key={choice.key}
+                    className={`story-choice story-choice-vn ${choice.tone} ${isSelected ? "is-selected" : ""}`}
+                    disabled={busy}
+                    aria-pressed={isSelected}
+                    style={{ animationDelay: `${120 + index * 70}ms` }}
+                    onClick={() => setSelectedOptionKey(choice.option_key)}
+                  >
+                    <span>{choice.text}</span>
+                    {isSelected ? <em>当前</em> : null}
+                  </button>
+                );
+              })}
             </section>
 
             <section className="story-vn-dialogue" onClick={revealLine}>
@@ -419,19 +428,19 @@ export function StoryClient() {
                   placeholder="自己写一句台词，例如：我低声问，那封信是谁放在这里的？"
                 />
                 <div className="story-vn-free-actions">
-                  <select value={selectedOptionKey} onChange={(event) => setSelectedOptionKey(event.target.value)}>
-                    {scene?.choices.map((choice) => (
-                      <option key={choice.key} value={choice.option_key}>
-                        {choice.text}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="story-vn-current-choice">
+                    <span>当前选择</span>
+                    <strong>{selectedChoice?.text ?? "请选择左侧选项"}</strong>
+                  </div>
                   <button
                     type="button"
-                    disabled={busy || !selectedOptionKey}
-                    onClick={() => void handleChoice(selectedOptionKey, customText)}
+                    disabled={busy || !selectedChoice}
+                    onClick={() => {
+                      if (!selectedChoice) return;
+                      void handleChoice(selectedChoice.option_key, customText);
+                    }}
                   >
-                  以这句推进
+                    {customText.trim() ? "以这句推进" : "以当前选择推进"}
                   </button>
                 </div>
               </div>
