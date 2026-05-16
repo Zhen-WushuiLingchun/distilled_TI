@@ -26,7 +26,7 @@ from app.services.reranker_service import reranker_service
 from app.services.scoring import ScoringEngine
 from app.services.storage import local_session_store
 from app.services.vector_indexer import vector_indexer
-from app.services.vector_store import vector_store
+from app.services.vector_store import VectorStoreError, vector_store
 
 
 def _enable_vectors(monkeypatch):
@@ -135,7 +135,7 @@ def test_galgame_asset_service_manual_generation_is_reused_when_auto_disabled(mo
     monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path))
     monkeypatch.setattr(settings, "galgame_asset_public_url_prefix", "/generated/galgame")
 
-    def _write_asset(_kind, _prompt, output_path):
+    def _write_asset(_kind, _prompt, output_path, _cache_key):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"fake-png")
 
@@ -157,6 +157,19 @@ def test_galgame_asset_service_manual_generation_is_reused_when_auto_disabled(mo
     assert generated.url == "/generated/galgame/background/night_library.png"
     assert background.source == "generated"
     assert background.url == generated.url
+
+
+def test_galgame_asset_cleanup_removes_oldest_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path))
+    for index in range(3):
+        path = tmp_path / "background" / f"asset-{index}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-png")
+
+    summary = galgame_asset_service.cleanup_generated_assets(max_files=2, max_age_days=0)
+
+    assert summary["deleted_count"] == 1
+    assert summary["remaining_count"] == 2
 
 
 def test_galgame_character_postprocess_removes_flat_background(tmp_path):
@@ -422,6 +435,42 @@ def test_preview_rewrite_passes_retrieval_context_to_ai(monkeypatch):
 
     assert preview.retrieval_context is not None
     assert captured["retrieval_context"]["template_hits"][0]["object_id"] == "core-plan-2"
+
+
+def test_preview_rewrite_degrades_when_vector_search_fails(monkeypatch):
+    _enable_vectors(monkeypatch)
+    template = build_seed_item_bank()[0].model_copy(update={"allow_rewrite": True})
+    session = _session()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(embedding_service, "embed_texts", lambda _texts: [[0.1, 0.2, 0.3]])
+    monkeypatch.setattr(vector_store, "search", lambda *_args, **_kwargs: (_ for _ in ()).throw(VectorStoreError("qdrant locked")))
+    monkeypatch.setattr(vector_indexer, "index_rewrite_candidate", lambda *_args, **_kwargs: None)
+
+    def _rewrite(*_args, **kwargs):
+        captured["retrieval_context"] = kwargs.get("retrieval_context")
+        return [
+            {
+                "rewritten_prompt": "我会先确认门后的情况，再决定要不要继续推进。",
+                "generation_mode": "llm_rewrite",
+                "validator_passed": True,
+            }
+        ]
+
+    monkeypatch.setattr(ai_service, "rewrite_template_candidates", _rewrite)
+
+    preview = generation_service.preview_rewrite(
+        session,
+        template,
+        "更自然的剧情台词",
+        AIProviderConfig(provider="x", model="y", base_url="https://example.com", api_key="z"),
+        allow_stored_config=False,
+    )
+
+    assert preview.selected.rewritten_prompt
+    assert preview.retrieval_context is not None
+    assert preview.retrieval_context.template_hits == []
+    assert captured["retrieval_context"]["template_hits"] == []
 
 
 def test_score_candidate_applies_embedding_breakdown(monkeypatch):

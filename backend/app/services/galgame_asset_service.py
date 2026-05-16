@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 from collections import deque
+import hashlib
 import re
 from pathlib import Path
+import time
 from typing import Any
 
 import httpx
@@ -73,6 +75,11 @@ class GalgameAssetService:
             "public_url_prefix": settings.galgame_asset_public_url_prefix,
             "background_count": self._generated_count("background"),
             "character_count": self._generated_count("character"),
+            "cache_total_count": self._generated_count(),
+            "cache_total_bytes": self._generated_bytes(),
+            "cache_max_files": settings.galgame_asset_cache_max_files,
+            "cache_max_age_days": settings.galgame_asset_cache_max_age_days,
+            "cleanup_enabled": settings.galgame_asset_cleanup_enabled,
             "sdwebui_available": self._probe("sdwebui"),
             "comfyui_available": self._probe("comfyui"),
         }
@@ -98,7 +105,7 @@ class GalgameAssetService:
                 source="generated",
                 status="ready",
             )
-        self._generate_image(kind, prompt, output_path)
+        self._generate_image(kind, prompt, output_path, normalized_key)
         return GalgameAssetReference(
             kind=kind,  # type: ignore[arg-type]
             key=normalized_key,
@@ -167,7 +174,7 @@ class GalgameAssetService:
             )
 
         try:
-            self._generate_image(kind, prompt, output_path)
+            self._generate_image(kind, prompt, output_path, normalized_key)
             return GalgameAssetReference(
                 kind=kind,  # type: ignore[arg-type]
                 key=normalized_key,
@@ -186,10 +193,38 @@ class GalgameAssetService:
                 status="failed",
             )
 
-    def _generate_image(self, kind: str, prompt: str, output_path: Path) -> None:
+    def cleanup_generated_assets(
+        self,
+        *,
+        max_files: int | None = None,
+        max_age_days: int | None = None,
+    ) -> dict[str, int]:
+        max_files = settings.galgame_asset_cache_max_files if max_files is None else max_files
+        max_age_days = settings.galgame_asset_cache_max_age_days if max_age_days is None else max_age_days
+        files = self._generated_files()
+        deleted = 0
+        now = time.time()
+
+        for path in files:
+            if max_age_days > 0 and now - path.stat().st_mtime > max_age_days * 24 * 60 * 60:
+                deleted += self._delete_asset_file(path)
+
+        remaining = [path for path in self._generated_files() if path.exists()]
+        if max_files > 0 and len(remaining) > max_files:
+            remaining.sort(key=lambda item: item.stat().st_mtime)
+            for path in remaining[: len(remaining) - max_files]:
+                deleted += self._delete_asset_file(path)
+
+        return {
+            "deleted_count": deleted,
+            "remaining_count": self._generated_count(),
+            "remaining_bytes": self._generated_bytes(),
+        }
+
+    def _generate_image(self, kind: str, prompt: str, output_path: Path, cache_key: str) -> None:
         backend = settings.galgame_asset_backend.lower()
         if backend == "sdwebui":
-            self._generate_sdwebui_image(kind, prompt, output_path)
+            self._generate_sdwebui_image(kind, prompt, output_path, cache_key)
             return
         if backend in {"openai_images", "openai-image", "image_api"}:
             self._generate_openai_image(kind, prompt, output_path)
@@ -214,11 +249,11 @@ class GalgameAssetService:
             status="ready",
         )
 
-    def _generate_sdwebui_image(self, kind: str, prompt: str, output_path: Path) -> None:
+    def _generate_sdwebui_image(self, kind: str, prompt: str, output_path: Path, cache_key: str) -> None:
         if settings.galgame_asset_backend.lower() != "sdwebui":
             raise ValueError("unsupported_galgame_asset_backend")
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = self._sdwebui_payload(kind, prompt)
+        payload = self._sdwebui_payload(kind, prompt, cache_key)
         headers = {"Content-Type": "application/json"}
         if settings.galgame_asset_api_key:
             headers["Authorization"] = f"Bearer {settings.galgame_asset_api_key}"
@@ -274,6 +309,8 @@ class GalgameAssetService:
     def _save_generated_image(self, kind: str, output_path: Path, content: bytes) -> None:
         output_path.write_bytes(content)
         self._postprocess_generated_image(kind, output_path)
+        if settings.galgame_asset_cleanup_enabled:
+            self.cleanup_generated_assets()
 
     def _postprocess_generated_image(self, kind: str, output_path: Path) -> None:
         if kind != "character" or Image is None:
@@ -376,7 +413,8 @@ class GalgameAssetService:
             return (0, 0, 0)
         return tuple(sum(pixel[index] for pixel in samples) // len(samples) for index in range(3))
 
-    def _sdwebui_payload(self, kind: str, prompt: str) -> dict[str, object]:
+    def _sdwebui_payload(self, kind: str, prompt: str, cache_key: str = "") -> dict[str, object]:
+        seed = self._seed_for(kind, cache_key or prompt)
         if kind == "background":
             return {
                 "prompt": (
@@ -387,6 +425,7 @@ class GalgameAssetService:
                 "height": 540,
                 "steps": 24,
                 "cfg_scale": 7,
+                "seed": seed,
                 "sampler_name": "DPM++ 2M Karras",
             }
         return {
@@ -398,6 +437,7 @@ class GalgameAssetService:
             "height": 768,
             "steps": 24,
             "cfg_scale": 7,
+            "seed": seed,
             "sampler_name": "DPM++ 2M Karras",
         }
 
@@ -441,11 +481,33 @@ class GalgameAssetService:
         slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", value.strip().lower()).strip("_")
         return slug[:72] or "asset"
 
-    def _generated_count(self, kind: str) -> int:
-        output_dir = self._output_dir(kind)
-        if not output_dir.exists():
+    def _generated_count(self, kind: str | None = None) -> int:
+        return len(self._generated_files(kind))
+
+    def _generated_bytes(self) -> int:
+        return sum(path.stat().st_size for path in self._generated_files())
+
+    def _generated_files(self, kind: str | None = None) -> list[Path]:
+        kinds = [kind] if kind else ["background", "character"]
+        files: list[Path] = []
+        for item in kinds:
+            output_dir = self._output_dir(item)
+            if output_dir.exists():
+                files.extend(output_dir.glob("*.png"))
+        return files
+
+    def _delete_asset_file(self, path: Path) -> int:
+        try:
+            path.unlink()
+            return 1
+        except FileNotFoundError:
             return 0
-        return len(list(output_dir.glob("*.png")))
+        except Exception:
+            return 0
+
+    def _seed_for(self, kind: str, cache_key: str) -> int:
+        digest = hashlib.sha256(f"{kind}:{cache_key}".encode("utf-8")).hexdigest()
+        return int(digest[:8], 16) % 2_147_483_647
 
     def _probe(self, backend: str) -> bool:
         try:

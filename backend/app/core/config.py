@@ -75,13 +75,21 @@ class Settings(BaseSettings):
     galgame_asset_timeout_seconds: float = 45.0
     galgame_asset_generate_backgrounds: bool = True
     galgame_asset_generate_characters: bool = False
+    galgame_asset_cleanup_enabled: bool = True
+    galgame_asset_cache_max_files: int = 300
+    galgame_asset_cache_max_age_days: int = 14
     galgame_audio_asset_enabled: bool = False
     galgame_turn_vector_top_k: int = 5
     galgame_free_text_inference_min_confidence: float = 0.42
     invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
+    invite_bootstrap_max_uses: int = 1
     invite_default_max_uses: int = 1000
+    user_invite_max_uses: int = 1
     registered_session_ttl_days: int = 3650
     relationship_recommendations_enabled: bool = True
+    context_analysis_api_key: str = ""
+    context_analysis_recent_message_limit: int = 30
+    context_analysis_store_raw_messages: bool = False
 
 
 settings = Settings()

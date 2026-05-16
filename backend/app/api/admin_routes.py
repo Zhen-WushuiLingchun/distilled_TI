@@ -13,6 +13,8 @@ from app.api.schemas import (
     ClusterOverviewResponse,
     ClusterLabelOverrideRequest,
     GalgameStoryTemplateListResponse,
+    GalgameAssetCleanupRequest,
+    GalgameAssetCleanupResponse,
     GalgameAssetGenerateRequest,
     GalgameAssetGenerateResponse,
     GalgameAssetStatusResponse,
@@ -248,6 +250,16 @@ def generate_galgame_asset(payload: GalgameAssetGenerateRequest, request: Reques
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"galgame_asset_generation_failed: {exc}") from exc
     return GalgameAssetGenerateResponse(assets={asset.kind: asset})
+
+
+@router.post("/admin/galgame/assets/cleanup", response_model=GalgameAssetCleanupResponse)
+def cleanup_galgame_assets(payload: GalgameAssetCleanupRequest, request: Request) -> GalgameAssetCleanupResponse:
+    require_local_admin(request)
+    summary = galgame_asset_service.cleanup_generated_assets(
+        max_files=payload.max_files,
+        max_age_days=payload.max_age_days,
+    )
+    return GalgameAssetCleanupResponse(**summary)
 
 
 @router.post("/admin/galgame/story-templates/{template_id}/assets", response_model=GalgameAssetGenerateResponse)

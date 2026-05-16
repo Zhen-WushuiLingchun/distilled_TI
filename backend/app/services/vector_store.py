@@ -77,19 +77,24 @@ class VectorStore:
         query_filter: models.Filter | None = None,
         collection_name: str | None = None,
     ) -> list[models.ScoredPoint]:
-        client = self._client_or_raise()
-        resolved_collection = self._resolve_collection_name(collection_name)
-        if not client.collection_exists(resolved_collection):
-            return []
-        response = client.query_points(
-            collection_name=resolved_collection,
-            query=vector,
-            limit=limit,
-            with_payload=True,
-            score_threshold=score_threshold,
-            query_filter=query_filter,
-        )
-        return list(response.points)
+        try:
+            client = self._client_or_raise()
+            resolved_collection = self._resolve_collection_name(collection_name)
+            if not client.collection_exists(resolved_collection):
+                return []
+            response = client.query_points(
+                collection_name=resolved_collection,
+                query=vector,
+                limit=limit,
+                with_payload=True,
+                score_threshold=score_threshold,
+                query_filter=query_filter,
+            )
+            return list(response.points)
+        except VectorStoreError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive wrapper for qdrant client internals
+            raise VectorStoreError(str(exc)) from exc
 
     def close(self) -> None:
         if self._client is None:
@@ -102,19 +107,22 @@ class VectorStore:
         if not self.is_enabled():
             raise VectorStoreError("qdrant_not_configured")
         if self._client is None:
-            if settings.qdrant_local_path.strip():
-                local_path = Path(settings.qdrant_local_path).expanduser()
-                local_path.mkdir(parents=True, exist_ok=True)
-                self._client = QdrantClient(
-                    path=str(local_path),
-                    force_disable_check_same_thread=True,
-                )
-            else:
-                self._client = QdrantClient(
-                    url=settings.qdrant_url,
-                    api_key=settings.qdrant_api_key or None,
-                    timeout=int(max(settings.embedding_timeout_seconds, 1)),
-                )
+            try:
+                if settings.qdrant_local_path.strip():
+                    local_path = Path(settings.qdrant_local_path).expanduser()
+                    local_path.mkdir(parents=True, exist_ok=True)
+                    self._client = QdrantClient(
+                        path=str(local_path),
+                        force_disable_check_same_thread=True,
+                    )
+                else:
+                    self._client = QdrantClient(
+                        url=settings.qdrant_url,
+                        api_key=settings.qdrant_api_key or None,
+                        timeout=int(max(settings.embedding_timeout_seconds, 1)),
+                    )
+            except Exception as exc:  # pragma: no cover - qdrant local can raise plain RuntimeError on lock conflicts
+                raise VectorStoreError(str(exc)) from exc
         return self._client
 
     def _ensure_collection(self, client: QdrantClient, collection_name: str, vector_size: int) -> None:

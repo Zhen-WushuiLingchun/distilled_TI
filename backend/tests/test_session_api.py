@@ -5,9 +5,14 @@ from app.domain.models import VectorSearchHit
 from app.main import app as public_app
 from app.services.ai_service import ai_service
 from app.services.storage import local_session_store
+from app.services.user_service import user_service
 from app.services.vector_indexer import vector_indexer
 
 public_client = TestClient(public_app)
+
+
+def create_test_invite(max_uses: int = 1) -> str:
+    return user_service.create_invite(label="test invite", max_uses=max_uses).code
 
 
 def session_headers(session_secret: str) -> dict[str, str]:
@@ -60,6 +65,7 @@ def test_public_session_flow_requires_tokens_and_supports_resume():
     assert payload["question"]["id"]
     assert payload["question"]["template_id"]
     assert payload["min_questions_for_report"] == 20
+    assert local_session_store.load_session(payload["session_id"]).mode == "core"
     assert payload["workbench_checkpoint"]["question_count"] == 0
     assert payload["workbench_checkpoint"]["report_ready"] is False
     assert payload["workbench_checkpoint"]["milestones"][0]["milestone"] == 5
@@ -138,6 +144,20 @@ def test_public_session_flow_requires_tokens_and_supports_resume():
     assert missing_response.status_code == 404
 
 
+def test_story_session_mode_is_preserved_in_history():
+    start_response = public_client.post("/api/session/start", json={"mode": "story"})
+    assert start_response.status_code == 200
+    payload = start_response.json()
+
+    record = local_session_store.load_session(payload["session_id"])
+    assert record is not None
+    assert record.mode == "story"
+
+    history = local_session_store.list_sessions()
+    entry = next(item for item in history if item.session_id == payload["session_id"])
+    assert entry.mode == "story"
+
+
 def test_session_secret_is_bound_to_owner_fingerprint():
     start_response = public_client.post("/api/session/start", json={"mode": "core"})
     payload = start_response.json()
@@ -152,9 +172,10 @@ def test_session_secret_is_bound_to_owner_fingerprint():
 
 
 def test_invite_user_can_keep_long_lived_session_history():
+    invite_code = create_test_invite()
     redeem_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "history-user@example.com"},
+        json={"invite_code": invite_code, "email": "history-user@example.com"},
     )
     assert redeem_response.status_code == 200
     user_access = redeem_response.json()
@@ -201,9 +222,10 @@ def test_invite_user_can_keep_long_lived_session_history():
 
 
 def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
+    inviter_signup_code = create_test_invite()
     inviter_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "inviter@example.com"},
+        json={"invite_code": inviter_signup_code, "email": "inviter@example.com"},
     )
     assert inviter_response.status_code == 200
     inviter = inviter_response.json()
@@ -217,12 +239,20 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
     share_invite = local_session_store.load_invite_code(inviter_profile["invite_code"])
     assert share_invite is not None
     assert share_invite.created_by_user_id == inviter["user_id"]
+    assert share_invite.max_uses == 1
 
     new_user_response = public_client.post(
         "/api/invite/redeem",
         json={"invite_code": inviter_profile["invite_code"], "email": "invited-new@example.com"},
     )
     assert new_user_response.status_code == 200
+    used_share_invite = local_session_store.load_invite_code(inviter_profile["invite_code"])
+    assert used_share_invite is not None
+    assert used_share_invite.active is False
+    spent_profile_response = public_client.get("/api/user/me", headers=inviter_headers)
+    assert spent_profile_response.status_code == 200
+    assert spent_profile_response.json()["invite_code"] is None
+    assert spent_profile_response.json()["invite_available"] is False
     new_user = new_user_response.json()
     new_user_relationships = local_session_store.list_user_relationships(user_id=new_user["user_id"], limit=100)
     assert any(
@@ -231,9 +261,15 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
         for relationship in new_user_relationships
     )
 
+    next_invite_response = public_client.post("/api/user/invite/generate", json={}, headers=inviter_headers)
+    assert next_invite_response.status_code == 200
+    next_invite = next_invite_response.json()["invite_code"]
+    assert next_invite and next_invite != inviter_profile["invite_code"]
+
+    existing_signup_code = create_test_invite()
     existing_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "existing-claimant@example.com"},
+        json={"invite_code": existing_signup_code, "email": "existing-claimant@example.com"},
     )
     assert existing_response.status_code == 200
     existing = existing_response.json()
@@ -244,7 +280,7 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
 
     claim_response = public_client.post(
         "/api/user/invite/claim",
-        json={"invite_code": inviter_profile["invite_code"]},
+        json={"invite_code": next_invite},
         headers=existing_headers,
     )
     assert claim_response.status_code == 200
@@ -257,22 +293,23 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
 
 
 def test_invite_registration_requires_unique_email():
+    invite_code = create_test_invite(max_uses=2)
     first_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "Unique.User@example.com"},
+        json={"invite_code": invite_code, "email": "Unique.User@example.com"},
     )
     assert first_response.status_code == 200
 
     duplicate_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "unique.user@example.com"},
+        json={"invite_code": invite_code, "email": "unique.user@example.com"},
     )
     assert duplicate_response.status_code == 422
     assert duplicate_response.json()["detail"] == "email_already_registered"
 
     invalid_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "not-an-email"},
+        json={"invite_code": invite_code, "email": "not-an-email"},
     )
     assert invalid_response.status_code == 422
     assert invalid_response.json()["detail"] == "invalid_email"
@@ -403,9 +440,10 @@ def test_galgame_scene_filters_ai_measurement_leaks(monkeypatch, tmp_path):
 
 def test_invite_user_can_manage_private_galgame_story_templates(monkeypatch):
     monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
+    invite_code = create_test_invite()
     redeem_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": "DISTILLED-TI-LOCAL", "email": "story-template-owner@example.com"},
+        json={"invite_code": invite_code, "email": "story-template-owner@example.com"},
     )
     assert redeem_response.status_code == 200
     user_access = redeem_response.json()

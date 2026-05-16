@@ -182,6 +182,54 @@ class SupportRiskFlag(BaseModel):
     diagnostic: bool = False
 
 
+class ContextAnalysisMessage(BaseModel):
+    role: Literal["user", "assistant", "system", "tool"] = "user"
+    content: str
+    timestamp: datetime | None = None
+
+
+class ContextAnalysisSignal(BaseModel):
+    key: str
+    label: str
+    severity: Literal["low", "medium", "high", "crisis"]
+    confidence: float
+    source: Literal["rule", "embedding", "llm", "hybrid"]
+    evidence: list[str] = Field(default_factory=list)
+    suggested_action: str
+    diagnostic: bool = False
+
+
+class ContextAnalysisResponse(BaseModel):
+    analysis_id: str
+    application_id: str
+    external_user_id: str
+    conversation_id: str
+    risk_level: Literal["none", "low", "medium", "high", "crisis"]
+    risk_score: float
+    cluster: str
+    confidence: float
+    signals: list[ContextAnalysisSignal] = Field(default_factory=list)
+    immediate_actions: list[str] = Field(default_factory=list)
+    escalation_required: bool = False
+    human_review_recommended: bool = False
+    evidence_window: list[str] = Field(default_factory=list)
+    model_usage: dict[str, object] = Field(default_factory=dict)
+    method_version: str = "context_support_signals_v1"
+    diagnostic: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ContextAnalysisRecord(BaseModel):
+    analysis_id: str
+    application_id: str
+    external_user_id: str
+    conversation_id: str
+    risk_level: Literal["none", "low", "medium", "high", "crisis"]
+    request_payload: dict[str, object] = Field(default_factory=dict)
+    response: ContextAnalysisResponse
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class SessionReport(BaseModel):
     session_id: str
     question_count: int
@@ -508,6 +556,7 @@ class VectorReindexSummary(BaseModel):
 
 class SessionHistoryEntry(BaseModel):
     session_id: str
+    mode: str = "core"
     user_id: str | None = None
     user_handle: str | None = None
     status: str

@@ -573,6 +573,27 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   transform: translateY(-1px);
   background: rgba(255, 246, 220, 0.16);
 }
+.story-vn-restore-control {
+  position: absolute;
+  z-index: 12;
+  right: 1.2rem;
+  bottom: 1rem;
+  border: 1px solid rgba(255, 246, 220, 0.32);
+  border-radius: 999px;
+  background: rgba(9, 16, 18, 0.72);
+  color: #fff6dc;
+  padding: 0.55rem 0.85rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(16px);
+  cursor: pointer;
+}
+.story-vn-restore-control:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 246, 220, 0.16);
+}
 .story-vn-dialogue {
   position: absolute;
   z-index: 5;
@@ -633,7 +654,6 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   gap: 0.8rem;
 }
 .story-vn-free-line textarea,
-.story-vn-free-line select,
 .story-template-form input,
 .story-template-form textarea {
   width: 100%;
@@ -651,6 +671,27 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .story-vn-free-actions {
   display: grid;
   gap: 0.55rem;
+}
+.story-vn-current-choice {
+  min-height: 4.3rem;
+  border: 1px solid rgba(26, 24, 22, 0.13);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.68);
+  padding: 0.72rem 0.85rem;
+}
+.story-vn-current-choice span {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.story-vn-current-choice strong {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--ink-strong);
+  font-weight: 700;
+  line-height: 1.5;
 }
 .story-vn-free-actions button,
 .story-template-row button {
@@ -708,6 +749,25 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   transform: translateY(-2px);
   border-color: var(--accent);
   background: rgba(255, 249, 232, 0.96);
+}
+.story-choice.is-selected {
+  border-color: var(--accent);
+  background:
+    linear-gradient(135deg, rgba(255, 251, 235, 0.98), rgba(232, 246, 238, 0.9)),
+    rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28), 0 0 0 2px rgba(51, 124, 101, 0.18);
+}
+.story-choice em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(51, 124, 101, 0.12);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 0.22rem 0.5rem;
+  text-transform: uppercase;
 }
 .story-choice.direct { border-left-color: var(--accent); }
 .story-choice.guarded { border-left-color: var(--warn); }

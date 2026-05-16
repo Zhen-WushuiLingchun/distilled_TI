@@ -10,6 +10,7 @@ import {
   createTemplate,
   deleteGalgameStoryTemplate,
   deleteTemplate,
+  cleanupGalgameAssets,
   generateGalgameAsset,
   generateGalgameStoryTemplateAssets,
   getAIConfigStatus,
@@ -339,6 +340,12 @@ export function AdminClient() {
     await load();
   }
 
+  async function handleCleanupAssets() {
+    const response = await cleanupGalgameAssets();
+    setFeedback(`Cleaned ${response.deleted_count} generated assets; ${response.remaining_count} files remain`);
+    await load();
+  }
+
   function loadStoryTemplate(template: GalgameStoryTemplate) {
     setStoryTemplateForm({
       template_id: template.template_id,
@@ -551,6 +558,9 @@ export function AdminClient() {
                 <p className="num mt-2 text-[0.76rem] text-[color:var(--ink-faint)]">
                   enabled {String(assetStatus?.generation_enabled ?? false)} · bg {assetStatus?.background_count ?? 0} · char {assetStatus?.character_count ?? 0} · {assetStatus?.base_url ?? "-"}
                 </p>
+                <p className="num mt-1 text-[0.76rem] text-[color:var(--ink-faint)]">
+                  cache {assetStatus?.cache_total_count ?? 0}/{assetStatus?.cache_max_files ?? 0} files · {(((assetStatus?.cache_total_bytes ?? 0) / 1024 / 1024)).toFixed(1)} MB · max age {assetStatus?.cache_max_age_days ?? 0}d
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => void handleGenerateAsset("background")}>
                     Generate BG from form
@@ -560,6 +570,9 @@ export function AdminClient() {
                   </button>
                   <button className="btn btn-primary px-3 py-1.5 text-xs" disabled={!storyTemplateForm.template_id} onClick={() => void handleGenerateStoryTemplateAssets()}>
                     Pre-generate selected template
+                  </button>
+                  <button className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => void handleCleanupAssets()}>
+                    Cleanup cache
                   </button>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-4 text-xs text-[color:var(--ink-muted)]">
