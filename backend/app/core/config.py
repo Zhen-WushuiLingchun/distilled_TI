@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     context_analysis_api_key: str = ""
     context_analysis_recent_message_limit: int = 30
     context_analysis_store_raw_messages: bool = False
+    senren_monitor_enabled: bool = True
+    senren_min_choices_for_report: int = 8
 
 
 settings = Settings()

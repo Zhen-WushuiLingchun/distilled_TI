@@ -1,0 +1,43 @@
+{
+  "name": "常陆茉子",
+  "display_name": "茉子",
+  "slug": "mako",
+  "character": "celebrity",
+  "created_at": "2026-05-14T00:00:00Z",
+  "version": "v1",
+  "profile": {
+    "role": "朝武家护卫·女忍者",
+    "origin": "穗织镇·朝武家",
+    "age": "17岁"
+  },
+  "tags": {
+    "personality": [
+      "女忍者",
+      "轻浮随性",
+      "细腻",
+      "面具",
+      "恶作剧",
+      "不羁",
+      "茉子线"
+    ],
+    "source": "千恋＊万花 (YUZUSOFT)"
+  },
+  "impression": "芳乃的护卫，表面上轻浮随性、爱开恶作剧的女忍者。用玩笑和笑容掩盖所有真实想法。嘴上说着无所谓，却会默默为所有人铺好路。",
+  "knowledge_sources": [
+    "千恋万花游戏剧本",
+    "角色攻略/Walkthrough",
+    "社区Wiki"
+  ],
+  "personality_traits": {
+    "social_initiative": 0.6,
+    "social_stimulation_tolerance": 0.2,
+    "planning_preference": -0.4,
+    "autonomous_judgment": 0.6,
+    "execution_drive": 0.2,
+    "emotional_stability": -0.2,
+    "risk_tolerance": 0.5,
+    "competition_cooperation": 0.0,
+    "abstraction_tendency": 0.0,
+    "novelty_seeking": 0.4
+  }
+}
