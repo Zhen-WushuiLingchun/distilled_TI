@@ -124,57 +124,83 @@ def _parse_layer2(text: str) -> dict[str, Any]:
 
 def _parse_layer3(text: str) -> dict[str, Any]:
     """解析决策判断层"""
-    result: dict[str, Any] = {}
-    for key, pattern in [
-        ("priorities", r"优先级[：:]?\s*\n(.+?)(?:\n\n|\n###|\Z)"),
-        ("enthusiasm", r"会积极[回应|推进].*?[：:]?\s*\n((?:\s*-\s*.+\n?)+)"),
-        ("caution", r"会谨慎[对待|的情况].*?[：:]?\s*\n((?:\s*-\s*.+\n?)+)"),
-        ("how_to_say_no", r"如何说[「「]不[」」].*?[：:]?\s*\n?(.+?)(?:\n\n|\n###|\Z)"),
-        ("how_to_handle_doubt", r"如何面对质疑.*?[：:]?\s*\n?(.+?)(?:\n\n|\n###|\Z)"),
-    ]:
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            val = match.group(1).strip()
-            if key in ("enthusiasm", "caution"):
-                val = [line.strip("- ").strip() for line in val.split("\n") if line.strip().startswith("-")]
-            result[key] = val
+    parsed = _parse_section_by_headings(text, {
+        "enthusiasm": r"会积极|会积极推进",
+        "caution": r"会谨慎|会谨慎对待",
+        "how_to_say_no": r"如何说.*不",
+        "how_to_handle_doubt": r"如何面对质疑",
+    })
+    result: dict[str, Any] = dict(parsed)
+
+    # 提取优先级（可能在开头，不在 ### 标题中）
+    prio_match = re.search(r"(?:###\s*)?优先级[：:]*\s*\n?(.+?)(?=\n###|\n\n\*\*|\Z)", text, re.DOTALL)
+    if prio_match:
+        result["priorities"] = prio_match.group(1).strip()
+
+    # 将 bullet 列表转为数组
+    for key in ("enthusiasm", "caution"):
+        if key in result and isinstance(result[key], str):
+            result[key] = [
+                line.strip("- ").strip()
+                for line in result[key].split("\n")
+                if line.strip().startswith("-")
+            ]
+    return result
+
+
+def _parse_section_by_headings(text: str, heading_map: dict[str, str]) -> dict[str, str]:
+    """通用章节解析：按 ### 标题分割，再按 heading_map 中的中文标签匹配"""
+    result: dict[str, str] = {}
+    # 先按 ### 分割
+    blocks = re.split(r"\n(?=###\s)", text)
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        # 提取标题行
+        title_match = re.match(r"###\s*(.+?)(?:[：:]\s*)?$", block, re.MULTILINE)
+        if not title_match:
+            continue
+        title = title_match.group(1).strip()
+        content = block[title_match.end():].strip()
+        # 匹配 heading_map 中的 key
+        for key, label_pattern in heading_map.items():
+            if re.search(label_pattern, title):
+                result[key] = content
+                break
     return result
 
 
 def _parse_layer4(text: str) -> dict[str, Any]:
     """解析人际行为层"""
-    result: dict[str, Any] = {}
-    labels_map = [
-        ("with_superiors", r"对上级.*?|对长辈.*?"),
-        ("with_juniors", r"对下级.*?|对后辈.*?"),
-        ("with_peers", r"对平级.*?|对同伴.*?"),
-        ("under_pressure", r"压力下"),
-    ]
-    for key, label_pattern in labels_map:
-        # 匹配 "### 对上级/长辈" 或 "对上级/长辈：" 后面的内容
-        match = re.search(
-            rf"(?:###\s*)?(?:{label_pattern})[：:]*\s*\n+(.+?)(?=\n(?:##\s|\n##|###\s|\*\*|$))",
-            text, re.DOTALL,
-        )
-        if match:
-            val = match.group(1).strip()
-            if val:
-                result[key] = val
-    return result
+    return _parse_section_by_headings(text, {
+        "with_superiors": r"对上级|对长辈",
+        "with_juniors": r"对下级|对后辈",
+        "with_peers": r"对平级|对同伴",
+        "under_pressure": r"压力下",
+    })
 
 
 def _parse_layer5(text: str) -> dict[str, Any]:
     """解析边界雷区层"""
     result: dict[str, Any] = {}
+    # 按 **label** 分割
     for key, label in [
-        ("dislikes", "不喜欢"),
-        ("refuses", "会拒绝"),
-        ("excited_by", "会兴奋"),
-        ("avoids", "会回避"),
+        ("dislikes", r"\*\*不喜欢\*\*"),
+        ("refuses", r"\*\*会拒绝\*\*"),
+        ("excited_by", r"\*\*会兴奋[的话题]*\*\*"),
+        ("avoids", r"\*\*会回避[的话题]*\*\*"),
     ]:
-        match = re.search(rf"(?:\*\*{label}\*\*|{label}).*?\n((?:\s*-\s*.+\n?)+)", text, re.DOTALL)
+        match = re.search(
+            rf"{label}[：:]*\s*\n((?:\s*-\s*.+\n?)+)",
+            text, re.DOTALL,
+        )
         if match:
-            result[key] = [line.strip("- ").strip() for line in match.group(1).split("\n") if line.strip().startswith("-")]
+            result[key] = [
+                line.strip("- ").strip()
+                for line in match.group(1).split("\n")
+                if line.strip().startswith("-")
+            ]
     return result
 
 
