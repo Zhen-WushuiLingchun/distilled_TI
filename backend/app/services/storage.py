@@ -488,6 +488,7 @@ class LocalSessionStore:
             entries.append(
                 SessionHistoryEntry(
                     session_id=session_id,
+                    mode=record.mode,
                     user_id=record.user_id,
                     user_handle=user_handle,
                     status=status,

@@ -158,7 +158,7 @@ export function StoryClient() {
         let currentAccess = getActiveSessionAccess();
         if (!currentAccess) {
           clearFinalReportSnapshot();
-          const started = await startSession(currentUser);
+          const started = await startSession(currentUser, "story");
           currentAccess = {
             session_id: started.session_id,
             session_secret: started.session_secret,
@@ -229,6 +229,17 @@ export function StoryClient() {
       // Browser autoplay policies can block ambient audio until the user clicks.
     });
   }, [scene?.audio_asset?.url]);
+
+  useEffect(() => {
+    if (!hideUI) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setHideUI(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [hideUI]);
 
   async function refreshTemplates(currentUser = user) {
     if (!currentUser) return;
@@ -392,6 +403,17 @@ export function StoryClient() {
           </button>
           <button type="button" onClick={() => router.push("/session")}>Workbench</button>
         </div>
+
+        {hideUI ? (
+          <button
+            type="button"
+            className="story-vn-restore-control"
+            onClick={() => setHideUI(false)}
+            aria-label="恢复剧情界面"
+          >
+            Show UI
+          </button>
+        ) : null}
 
         {!hideUI ? (
           <>

@@ -508,6 +508,7 @@ class VectorReindexSummary(BaseModel):
 
 class SessionHistoryEntry(BaseModel):
     session_id: str
+    mode: str = "core"
     user_id: str | None = None
     user_handle: str | None = None
     status: str

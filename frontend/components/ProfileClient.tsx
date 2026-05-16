@@ -88,7 +88,7 @@ export function ProfileClient() {
     }
   }
 
-  async function handleResume(sessionId: string, destination: "/session" | "/report") {
+  async function handleResume(sessionId: string, destination: "/session" | "/story" | "/report") {
     if (!access) return;
     try {
       setBusy(true);
@@ -287,14 +287,18 @@ export function ProfileClient() {
               sessions.map((session) => (
                 <article key={session.session_id} className="surface-sunken flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
                   <div>
+                    <div className="mb-1 flex flex-wrap gap-1.5">
+                      <span className="chip">{session.mode === "story" ? "Story Archive" : "Core Archive"}</span>
+                      <span className="chip">{session.status}</span>
+                    </div>
                     <p className="text-sm text-[color:var(--ink-strong)]">{session.narrative_label ?? "会话进行中"}</p>
                     <p className="num mt-1 text-xs text-[color:var(--ink-muted)]">
                       {session.question_count} questions · {session.cluster_name ?? "unclustered"} · {new Date(session.updated_at).toLocaleString()}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button className="btn btn-ghost px-3 py-1.5 text-xs" disabled={busy} onClick={() => void handleResume(session.session_id, "/session")}>
-                      继续
+                    <button className="btn btn-ghost px-3 py-1.5 text-xs" disabled={busy} onClick={() => void handleResume(session.session_id, session.mode === "story" ? "/story" : "/session")}>
+                      {session.mode === "story" ? "继续剧情" : "继续"}
                     </button>
                     <button className="btn btn-primary px-3 py-1.5 text-xs" disabled={busy || !session.can_generate_report} onClick={() => void handleResume(session.session_id, "/report")}>
                       报告

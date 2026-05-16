@@ -364,6 +364,7 @@ export type RuntimeAIConfig = {
 
 export type SessionHistoryEntry = {
   session_id: string;
+  mode: string;
   user_id?: string | null;
   user_handle?: string | null;
   status: string;
@@ -708,10 +709,10 @@ export function deleteUserGalgameStoryTemplate(user: UserAccessBundle, templateI
   );
 }
 
-export function startSession(user?: UserAccessBundle | null) {
+export function startSession(user?: UserAccessBundle | null, mode: "core" | "story" = "core") {
   return publicRequest<SessionStartResponse>("/session/start", {
     method: "POST",
-    json: { mode: "core" },
+    json: { mode },
   }, user ? { user } : undefined);
 }
 

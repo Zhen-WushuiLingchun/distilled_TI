@@ -65,6 +65,7 @@ def test_public_session_flow_requires_tokens_and_supports_resume():
     assert payload["question"]["id"]
     assert payload["question"]["template_id"]
     assert payload["min_questions_for_report"] == 20
+    assert local_session_store.load_session(payload["session_id"]).mode == "core"
     assert payload["workbench_checkpoint"]["question_count"] == 0
     assert payload["workbench_checkpoint"]["report_ready"] is False
     assert payload["workbench_checkpoint"]["milestones"][0]["milestone"] == 5
@@ -141,6 +142,20 @@ def test_public_session_flow_requires_tokens_and_supports_resume():
         headers=session_headers(payload["session_secret"]),
     )
     assert missing_response.status_code == 404
+
+
+def test_story_session_mode_is_preserved_in_history():
+    start_response = public_client.post("/api/session/start", json={"mode": "story"})
+    assert start_response.status_code == 200
+    payload = start_response.json()
+
+    record = local_session_store.load_session(payload["session_id"])
+    assert record is not None
+    assert record.mode == "story"
+
+    history = local_session_store.list_sessions()
+    entry = next(item for item in history if item.session_id == payload["session_id"])
+    assert entry.mode == "story"
 
 
 def test_session_secret_is_bound_to_owner_fingerprint():

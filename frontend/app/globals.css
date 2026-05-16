@@ -573,6 +573,27 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   transform: translateY(-1px);
   background: rgba(255, 246, 220, 0.16);
 }
+.story-vn-restore-control {
+  position: absolute;
+  z-index: 12;
+  right: 1.2rem;
+  bottom: 1rem;
+  border: 1px solid rgba(255, 246, 220, 0.32);
+  border-radius: 999px;
+  background: rgba(9, 16, 18, 0.72);
+  color: #fff6dc;
+  padding: 0.55rem 0.85rem;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(16px);
+  cursor: pointer;
+}
+.story-vn-restore-control:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 246, 220, 0.16);
+}
 .story-vn-dialogue {
   position: absolute;
   z-index: 5;

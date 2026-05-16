@@ -41,7 +41,7 @@ export function HistoryClient() {
     await load();
   }
 
-  async function handleResume(sessionId: string, destination: "/session" | "/report") {
+  async function handleResume(sessionId: string, destination: "/session" | "/story" | "/report") {
     try {
       setBusySessionId(sessionId);
       const storedUser = getUserAccess();
@@ -56,6 +56,9 @@ export function HistoryClient() {
       setBusySessionId("");
     }
   }
+
+  const storyCount = sessions.filter((session) => session.mode === "story").length;
+  const coreCount = sessions.length - storyCount;
 
   return (
     <main className="cockpit-shell">
@@ -72,6 +75,8 @@ export function HistoryClient() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2.5">
+              <span className="chip">剧情档案 {storyCount}</span>
+              <span className="chip">测评档案 {coreCount}</span>
               <button className="btn btn-ghost" onClick={() => router.push("/")}>
                 返回首页
               </button>
@@ -107,6 +112,7 @@ export function HistoryClient() {
               >
                 <div className="min-w-0">
                   <span className="chip">{session.status}</span>
+                  <span className="chip ml-2">{session.mode === "story" ? "Story" : "Core"}</span>
                   {session.user_handle ? <span className="chip ml-2">{session.user_handle}</span> : null}
                   <h2 className="mt-2.5 truncate text-xl text-[color:var(--ink-strong)]">
                     {session.narrative_label ?? "会话进行中"}
@@ -123,9 +129,9 @@ export function HistoryClient() {
                   <button
                     className="btn btn-ghost"
                     disabled={busySessionId === session.session_id}
-                    onClick={() => void handleResume(session.session_id, "/session")}
+                    onClick={() => void handleResume(session.session_id, session.mode === "story" ? "/story" : "/session")}
                   >
-                    {busySessionId === session.session_id ? "签发中…" : "继续答题"}
+                    {busySessionId === session.session_id ? "签发中…" : session.mode === "story" ? "继续剧情" : "继续答题"}
                   </button>
                   <button
                     className="btn btn-primary"
