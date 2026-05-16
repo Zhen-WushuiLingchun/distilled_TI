@@ -90,6 +90,8 @@ class SenrenMonitorSession:
         self.state = self._new_state()
         self.choices_made: list[dict] = []  # [{choice_id, option_key, timestamp}, ...]
         self.current_route: str | None = None  # 检测到的当前路线
+        self.game_path: str | None = None  # 本地游戏路径（local 模式）
+        self.game_info: dict | None = None  # 游戏路径校验信息
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)
 

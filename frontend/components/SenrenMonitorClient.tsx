@@ -31,6 +31,32 @@ interface LiveState {
   can_generate_report: boolean;
 }
 
+interface PersonaData {
+  display_name: string;
+  profile: Record<string, string>;
+  impression: string;
+  tags: string[];
+  layer0: string[];
+  layer2: {
+    tone: string;
+    patterns: string[];
+    voice_sample: string;
+    emotional_tells: string;
+    speaking_pace: string;
+  };
+  layer3: {
+    priorities: string;
+    enthusiasm: string[];
+    caution: string[];
+  };
+  layer5: {
+    excited_by: string[];
+    avoids: string[];
+    dislikes: string[];
+  };
+  personality_traits: Record<string, number>;
+}
+
 const DIM_LABELS: Record<string, string> = {
   social_initiative: "社交主动性",
   social_stimulation_tolerance: "社交刺激耐受",
@@ -52,23 +78,36 @@ export default function SenrenMonitorClient() {
   const [sessionId, setSessionId] = useState("");
   const [sessionSecret, setSessionSecret] = useState("");
   const [deleteToken, setDeleteToken] = useState("");
+  const [mode, setMode] = useState("");
+  const [gamePath, setGamePath] = useState("");
 
   const [roadmap, setRoadmap] = useState<ChoiceNode[]>([]);
   const [liveState, setLiveState] = useState<LiveState | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [showReport, setShowReport] = useState(false);
 
   // Current scenario being displayed
   const [currentScene, setCurrentScene] = useState<ChoiceNode | null>(null);
   const [allCompleted, setAllCompleted] = useState(false);
 
-  // Fetch roadmap on mount
+  // Skills persona data
+  const [allPersonas, setAllPersonas] = useState<Record<string, PersonaData>>({});
+  const [currentScenePersonas, setCurrentScenePersonas] = useState<PersonaData[]>([]);
+
+  // Local game info
+  const [localGameInfo, setLocalGameInfo] = useState<{
+    game_path?: string;
+    game_info?: { valid?: boolean; found_files?: string[]; found_dirs?: string[] };
+  } | null>(null);
+
+  // Fetch roadmap + personas on mount
   useEffect(() => {
     const sid = sessionStorage.getItem("senren_session_id") || "";
     const secret = sessionStorage.getItem("senren_session_secret") || "";
     const dt = sessionStorage.getItem("senren_delete_token") || "";
+    const m = sessionStorage.getItem("senren_mode") || "";
+    const gp = sessionStorage.getItem("senren_game_path") || "";
 
     if (!sid || !secret) {
       router.push("/senren");
@@ -78,10 +117,60 @@ export default function SenrenMonitorClient() {
     setSessionId(sid);
     setSessionSecret(secret);
     setDeleteToken(dt);
+    setMode(m);
+    setGamePath(gp);
 
     fetchRoadmap(sid, secret);
     fetchLiveState(sid, secret);
+    fetchPersonas();
+
+    if (m === "local") {
+      fetchLocalGameInfo(sid, secret);
+    }
   }, []);
+
+  // Update persona cards when scene changes
+  useEffect(() => {
+    if (currentScene && Object.keys(allPersonas).length > 0) {
+      const personas: PersonaData[] = [];
+      for (const charName of currentScene.characters) {
+        // Find matching persona by display name
+        const match = Object.values(allPersonas).find(
+          (p) => p.display_name === charName || charName.includes(p.display_name)
+        );
+        if (match) personas.push(match);
+      }
+      setCurrentScenePersonas(personas);
+    } else {
+      setCurrentScenePersonas([]);
+    }
+  }, [currentScene, allPersonas]);
+
+  async function fetchPersonas() {
+    try {
+      const res = await fetch(`${API_BASE}/senren/skills/personas`);
+      if (res.ok) {
+        const data = await res.json();
+        setAllPersonas(data.personas || {});
+      }
+    } catch {
+      // Personas are nice-to-have, fail silently
+    }
+  }
+
+  async function fetchLocalGameInfo(sid: string, secret: string) {
+    try {
+      const res = await fetch(`${API_BASE}/senren/local-game/${sid}/info`, {
+        headers: { "X-Session-Secret": secret },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLocalGameInfo(data);
+      }
+    } catch {
+      // Non-critical
+    }
+  }
 
   async function fetchRoadmap(sid: string, secret: string) {
     try {
@@ -92,12 +181,10 @@ export default function SenrenMonitorClient() {
       const data = await res.json();
       setRoadmap(data.nodes);
 
-      // Find first incomplete node
       const next = data.nodes.find((n: ChoiceNode) => !n.completed);
       if (next) {
         setCurrentScene(next);
       } else if (data.nodes.length > 0) {
-        // All completed
         setAllCompleted(true);
       }
     } catch (err: any) {
@@ -142,7 +229,6 @@ export default function SenrenMonitorClient() {
           throw new Error((detail as any).detail || "提交失败");
         }
 
-        // Refresh state after choice
         await fetchLiveState(sessionId, sessionSecret);
         await fetchRoadmap(sessionId, sessionSecret);
         setCurrentScene(null);
@@ -155,7 +241,6 @@ export default function SenrenMonitorClient() {
     [sessionId, sessionSecret]
   );
 
-  // Scroll to next available scene
   const jumpToScene = useCallback(
     (choiceId: string) => {
       const node = roadmap.find((n) => n.choice_id === choiceId);
@@ -179,22 +264,22 @@ export default function SenrenMonitorClient() {
     );
   }
 
-  // ============================================================
-  // 渲染：实时仪表盘
-  // ============================================================
   return (
     <div className="min-h-[calc(100vh-41px)] px-4 py-6 max-w-6xl mx-auto">
       {/* 头部状态栏 */}
-      <div className="flex items-center justify-between mb-6 senren-dashboard-panel">
+      <div className="flex items-center justify-between mb-6 senren-dashboard-panel flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <span className="senren-pulse" />
+          <span className={mode === "local" ? "w-2 h-2 rounded-full bg-[var(--senren-jade)] animate-pulse shrink-0" : "senren-pulse"} />
           <div>
             <p className="text-[var(--senren-ink-strong)] text-sm font-medium">
               千恋万花 · 人格监视器
+              {mode === "local" && <span className="ml-2 text-[10px] text-[var(--senren-jade)]">本地游戏</span>}
+              {mode === "story" && <span className="ml-2 text-[10px] text-[var(--senren-gold)]">故事模式</span>}
             </p>
             <p className="text-xs text-[var(--senren-ink-muted)]">
               已记录 {liveState?.question_count || 0} 个选择
               {liveState?.current_route && ` · ${liveState.current_route}`}
+              {gamePath && ` · ${gamePath.slice(0, 30)}...`}
             </p>
           </div>
         </div>
@@ -220,18 +305,73 @@ export default function SenrenMonitorClient() {
         </div>
       </div>
 
-      {/* 主布局：左侧场景 + 右侧仪表盘 */}
+      {/* 本地游戏连接状态 */}
+      {mode === "local" && localGameInfo && (
+        <div className="mb-5 senren-dashboard-panel border-l-2 border-[var(--senren-jade)]">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--senren-jade)]" />
+            <p className="text-xs font-medium text-[var(--senren-jade)]">本地游戏已连接</p>
+          </div>
+          <p className="text-xs text-[var(--senren-ink-dim)]">
+            路径: {localGameInfo.game_path || gamePath}
+            {localGameInfo.game_info?.found_files && (
+              <span className="ml-2">
+                (找到: {localGameInfo.game_info.found_files.join(", ")})
+              </span>
+            )}
+          </p>
+        </div>
+      )}
+
+      {/* 主布局 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 左侧：当前场景 / 路线图 */}
+        {/* 左侧：当前场景 */}
         <div className="lg:col-span-2 space-y-6">
-          {/* 当前场景选择面板 */}
           {currentScene && !allCompleted && (
-            <SenrenChoicePanel
-              scene={currentScene}
-              onSubmit={handleChoiceSubmit}
-              submitting={submitting}
-              error={error}
-            />
+            <>
+              {/* 角色 persona 卡片（在场景上方） */}
+              {currentScenePersonas.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {currentScenePersonas.map((p, i) => (
+                    <div
+                      key={i}
+                      className="bg-[var(--senren-bg-deep)] border border-[var(--senren-line-soft)] rounded-lg p-3 text-xs"
+                    >
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="font-medium text-[var(--senren-gold)]">{p.display_name}</span>
+                        <span className="text-[var(--senren-ink-dim)]">
+                          {p.profile?.role || ""}
+                        </span>
+                      </div>
+                      {p.layer2?.voice_sample && (
+                        <p className="text-[var(--senren-ink-muted)] italic mb-1 line-clamp-2">
+                          「{p.layer2.voice_sample}」
+                        </p>
+                      )}
+                      {p.layer2?.tone && (
+                        <p className="text-[var(--senren-ink-dim)]">
+                          语气: {p.layer2.tone}
+                          {p.layer2?.speaking_pace && ` · ${p.layer2.speaking_pace}`}
+                        </p>
+                      )}
+                      {p.layer2?.patterns && p.layer2.patterns.length > 0 && (
+                        <p className="text-[var(--senren-ink-dim)] mt-0.5">
+                          口头禅: {p.layer2.patterns.join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <SenrenChoicePanel
+                scene={currentScene}
+                onSubmit={handleChoiceSubmit}
+                submitting={submitting}
+                error={error}
+                personas={currentScenePersonas}
+              />
+            </>
           )}
 
           {allCompleted && (
@@ -327,7 +467,7 @@ export default function SenrenMonitorClient() {
             )}
           </div>
 
-          {/* 核心维度雷达（简化版：条形图） */}
+          {/* 核心维度 */}
           <div className="senren-dashboard-panel">
             <h2>核心人格维度</h2>
             <div className="space-y-2">
@@ -380,7 +520,7 @@ export default function SenrenMonitorClient() {
             </div>
           </div>
 
-          {/* 最近选择时间线 */}
+          {/* 最近选择 */}
           <div className="senren-dashboard-panel">
             <h2>最近选择</h2>
             <div className="space-y-2.5 max-h-[260px] overflow-y-auto">
