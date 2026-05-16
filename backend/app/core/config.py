@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     user_invite_max_uses: int = 1
     registered_session_ttl_days: int = 3650
     relationship_recommendations_enabled: bool = True
+    context_analysis_api_key: str = ""
+    context_analysis_recent_message_limit: int = 30
+    context_analysis_store_raw_messages: bool = False
 
 
 settings = Settings()

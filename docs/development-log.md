@@ -1,5 +1,53 @@
 # Development Log
 
+## 2026-05-16: Universal Context Support Signal API And Standalone Chat Demo
+
+### Completed
+
+- Added a generic context analysis API for external products:
+  - `POST /api/context/analyze`
+  - `GET /api/context/analyses`
+  - `GET /api/context/alerts`
+  - optional `X-Context-API-Key` via `CONTEXT_ANALYSIS_API_KEY`
+- Implemented `ContextAnalysisService` as a non-diagnostic support-signal layer:
+  - rule signals for crisis language, hopeless/trapped/burden language, distress, withdrawal, and sleep/substance/function changes
+  - optional embedding semantic anchor matching when embedding is configured
+  - optional LLM JSON evaluator when the admin AI provider is configured
+  - cluster outputs such as `acute_safety_escalation`, `distress_escalation_watch`, and `longitudinal_support_watch`
+- Added SQLite persistence for context analysis records in `context_analysis_events`.
+- Added a standalone `ai-chat-support-demo/`:
+  - separate FastAPI BFF
+  - static chat UI
+  - optional OpenAI-compatible chat assistant model
+  - background calls to the main backend context API
+  - right-side developer/safety console for demo visibility
+- Added `ai-chat-support-demo/nextchat/` from upstream NextChat and wired it to the same backend:
+  - chat page calls `/api/distilled/context` through `SupportSignalProbe`
+  - server route keeps the Distilled TI context API key off the browser
+  - `/support-admin` lists recent medium/high/crisis support-signal records for human review
+- Added developer API documentation in `docs/context-support-api.md`.
+
+### Validation
+
+- Backend: `python -m compileall app tests; pytest -q` passed with `70 passed`.
+- NextChat demo:
+  - `npm install --ignore-scripts --legacy-peer-deps --package-lock=false` completed.
+  - `npx tsc --noEmit --pretty false` passed.
+  - targeted ESLint on the new Distilled TI files passed.
+  - `npm run build` passed on the local default Node 24 after disabling Next output tracing for this Windows demo.
+
+### Known Warnings
+
+- Upstream NextChat `npm run lint` still hits `unused-imports/no-unused-imports` on `app/constant.ts`; this is an upstream/tooling warning and does not block `next build`.
+- `next@14.1.1` is kept to match upstream `yarn.lock`; productionizing this demo should include a deliberate Next upgrade pass.
+- `outputFileTracing=false` is used only to avoid Windows `readlink` failures in this local demo build path.
+
+### Safety Boundary
+
+- The API returns support/risk signals, not mental-health diagnosis.
+- Production callers should use explicit user authorization, privacy policy coverage, or enterprise compliance basis.
+- `crisis` output should route to human review and local crisis resources rather than automated punitive action.
+
 ## 2026-05-13: Invite-Gated Email Registration
 
 ### Completed

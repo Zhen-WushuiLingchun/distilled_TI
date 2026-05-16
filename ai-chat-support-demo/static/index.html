@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Context Support Signal Chat Demo</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Context Is All You Need / Standalone Demo</p>
+        <h1>AI 助手聊天 + 后台上下文支持信号 API</h1>
+        <p>
+          前台是普通聊天；后台把授权上下文发送到 Distilled TI 后端，实时返回非诊断的支持/风险信号。
+          这个 demo 用来证明后端分析能力可以泛化到任意 AI 助手、客服、社区或陪伴产品。
+        </p>
+      </section>
+
+      <section class="workspace">
+        <section class="chat-card">
+          <header class="chat-header">
+            <div>
+              <p class="eyebrow">User View</p>
+              <h2>普通 AI Chat</h2>
+            </div>
+            <span id="model-pill" class="pill">fallback</span>
+          </header>
+          <div id="messages" class="messages"></div>
+          <form id="chat-form" class="composer">
+            <textarea id="chat-input" placeholder="随便聊点什么，例如：最近我真的撑不住了。" rows="3"></textarea>
+            <button type="submit">发送</button>
+          </form>
+        </section>
+
+        <aside class="ops-card">
+          <div class="ops-header">
+            <div>
+              <p class="eyebrow">Developer / Safety Console</p>
+              <h2>后台分析</h2>
+            </div>
+            <span id="risk-pill" class="pill muted">none</span>
+          </div>
+          <p class="hint">
+            真实产品可把这块隐藏在后台，只保留人工复核、风控或支持团队入口。不要把它当医学诊断。
+          </p>
+          <dl class="metrics">
+            <div><dt>cluster</dt><dd id="cluster">-</dd></div>
+            <div><dt>risk_score</dt><dd id="risk-score">0.000</dd></div>
+            <div><dt>confidence</dt><dd id="confidence">0.000</dd></div>
+          </dl>
+          <h3>signals</h3>
+          <div id="signals" class="signals empty">等待第一轮分析。</div>
+          <h3>actions</h3>
+          <ul id="actions" class="actions"></ul>
+          <details>
+            <summary>raw JSON</summary>
+            <pre id="raw-json">{}</pre>
+          </details>
+        </aside>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

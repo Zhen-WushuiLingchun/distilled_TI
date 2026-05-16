@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.domain.models import (
     ClusterOverview,
+    ContextAnalysisMessage,
+    ContextAnalysisRecord,
+    ContextAnalysisResponse,
     EmbeddingScoreBreakdown,
     GalgameChoice,
     GalgameAssetReference,
@@ -112,6 +115,24 @@ class UserSessionListResponse(BaseModel):
 class UserEvolutionResponse(BaseModel):
     user: UserProfileResponse
     items: list[UserEvolutionEntry] = Field(default_factory=list)
+
+
+class ContextAnalysisRequest(BaseModel):
+    application_id: str = Field(min_length=1, max_length=120)
+    external_user_id: str = Field(min_length=1, max_length=180)
+    conversation_id: str = Field(min_length=1, max_length=180)
+    messages: list[ContextAnalysisMessage] = Field(min_length=1)
+    consent_basis: str = Field(min_length=3, max_length=500)
+    channel: str = "chat"
+    locale: str = "zh-CN"
+    metadata: dict[str, object] = Field(default_factory=dict)
+    persist: bool = True
+    persist_messages: bool = False
+    include_debug: bool = False
+
+
+class ContextAnalysisHistoryResponse(BaseModel):
+    items: list[ContextAnalysisRecord] = Field(default_factory=list)
 
 
 class QuestionResponse(BaseModel):

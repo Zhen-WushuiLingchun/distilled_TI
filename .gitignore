@@ -30,12 +30,18 @@ frontend/.next/
 frontend/out/
 frontend/build/
 frontend/coverage/
+ai-chat-support-demo/nextchat/node_modules/
+ai-chat-support-demo/nextchat/.next/
+ai-chat-support-demo/nextchat/out/
+ai-chat-support-demo/nextchat/build/
+ai-chat-support-demo/nextchat/coverage/
 *.tsbuildinfo
 
 # Local env
 .env
 .env.*
 !.env.example
+!ai-chat-support-demo/nextchat/.env.template
 backend/.env
 backend/.env.*
 !backend/.env.example
@@ -60,3 +66,4 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 files.zip
+reference/NextChat/

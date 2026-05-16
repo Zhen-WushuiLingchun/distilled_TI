@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import secrets
 from uuid import uuid4
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.api.schemas import (
     ClaimInviteRequest,
+    ContextAnalysisHistoryResponse,
+    ContextAnalysisRequest,
+    ContextAnalysisResponse,
     GenerateUserInviteRequest,
     GalgameStoryTemplateListResponse,
     GalgameStoryTemplateRequest,
@@ -39,10 +43,14 @@ from app.api.schemas import (
 from app.api.security import build_owner_key
 from app.core.config import settings
 from app.domain.models import GalgameStoryTemplate
+from app.services.context_analysis_service import context_analysis_service
 from app.services.session_service import session_service
+from app.services.storage import local_session_store
 from app.services.user_service import user_service
 
 router = APIRouter()
+
+_CONTEXT_RISK_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "crisis": 4}
 
 
 def _require_session_access(session_id: str, session_secret: str | None, request: Request) -> None:
@@ -78,9 +86,80 @@ def _require_user(user_id: str | None, user_secret: str | None):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
+def _require_context_analysis_access(api_key: str | None) -> None:
+    expected = settings.context_analysis_api_key.strip()
+    if not expected:
+        return
+    if not api_key or not secrets.compare_digest(api_key, expected):
+        raise HTTPException(status_code=401, detail="context_analysis_api_key_required")
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.post("/context/analyze", response_model=ContextAnalysisResponse)
+def analyze_context(
+    payload: ContextAnalysisRequest,
+    x_context_api_key: str | None = Header(default=None, alias="X-Context-API-Key"),
+) -> ContextAnalysisResponse:
+    _require_context_analysis_access(x_context_api_key)
+    try:
+        return context_analysis_service.analyze(
+            application_id=payload.application_id,
+            external_user_id=payload.external_user_id,
+            conversation_id=payload.conversation_id,
+            messages=payload.messages,
+            consent_basis=payload.consent_basis,
+            channel=payload.channel,
+            locale=payload.locale,
+            metadata=payload.metadata,
+            persist=payload.persist,
+            persist_messages=payload.persist_messages,
+            include_debug=payload.include_debug,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/context/analyses", response_model=ContextAnalysisHistoryResponse)
+def list_context_analyses(
+    application_id: str,
+    external_user_id: str,
+    conversation_id: str | None = None,
+    limit: int = 20,
+    x_context_api_key: str | None = Header(default=None, alias="X-Context-API-Key"),
+) -> ContextAnalysisHistoryResponse:
+    _require_context_analysis_access(x_context_api_key)
+    return ContextAnalysisHistoryResponse(
+        items=local_session_store.list_context_analysis_records(
+            application_id=application_id,
+            external_user_id=external_user_id,
+            conversation_id=conversation_id,
+            limit=max(1, min(limit, 100)),
+        )
+    )
+
+
+@router.get("/context/alerts", response_model=ContextAnalysisHistoryResponse)
+def list_context_alerts(
+    application_id: str | None = None,
+    min_risk: str = "medium",
+    limit: int = 50,
+    x_context_api_key: str | None = Header(default=None, alias="X-Context-API-Key"),
+) -> ContextAnalysisHistoryResponse:
+    _require_context_analysis_access(x_context_api_key)
+    normalized_min_risk = min_risk.strip().lower()
+    if normalized_min_risk not in _CONTEXT_RISK_ORDER:
+        raise HTTPException(status_code=422, detail="invalid_min_risk")
+    return ContextAnalysisHistoryResponse(
+        items=local_session_store.list_context_analysis_alerts(
+            application_id=application_id,
+            min_risk=normalized_min_risk,
+            limit=max(1, min(limit, 100)),
+        )
+    )
 
 
 @router.post("/invite/redeem", response_model=UserAccessResponse)

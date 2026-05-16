@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.domain.models import (
     ClusterLabelOverride,
     ClusterVersionInfo,
+    ContextAnalysisRecord,
     GalgameStoryTemplate,
     GalgameTurn,
     InviteCode,
@@ -21,6 +22,9 @@ from app.domain.models import (
     UserRelationship,
     VectorSyncFailure,
 )
+
+
+_CONTEXT_RISK_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "crisis": 4}
 
 
 class LocalSessionStore:
@@ -117,6 +121,31 @@ class LocalSessionStore:
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS context_analysis_events (
+                    analysis_id TEXT PRIMARY KEY,
+                    application_id TEXT NOT NULL,
+                    external_user_id TEXT NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    risk_level TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_context_analysis_lookup
+                ON context_analysis_events(application_id, external_user_id, conversation_id, created_at)
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_context_analysis_alerts
+                ON context_analysis_events(application_id, risk_level, created_at)
                 """
             )
             connection.execute(
@@ -403,6 +432,86 @@ class LocalSessionStore:
         if row is None:
             return None
         return ItemInstance.model_validate_json(row[0])
+
+    def save_context_analysis_record(self, record: ContextAnalysisRecord) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO context_analysis_events (
+                    analysis_id,
+                    application_id,
+                    external_user_id,
+                    conversation_id,
+                    risk_level,
+                    payload_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(analysis_id) DO UPDATE SET
+                    risk_level = excluded.risk_level,
+                    payload_json = excluded.payload_json
+                """,
+                (
+                    record.analysis_id,
+                    record.application_id,
+                    record.external_user_id,
+                    record.conversation_id,
+                    record.risk_level,
+                    record.model_dump_json(),
+                    record.created_at.isoformat(),
+                ),
+            )
+            connection.commit()
+
+    def list_context_analysis_records(
+        self,
+        *,
+        application_id: str,
+        external_user_id: str,
+        conversation_id: str | None = None,
+        limit: int = 20,
+    ) -> list[ContextAnalysisRecord]:
+        params: tuple[object, ...]
+        query = """
+            SELECT payload_json FROM context_analysis_events
+            WHERE application_id = ? AND external_user_id = ?
+        """
+        params = (application_id, external_user_id)
+        if conversation_id:
+            query += " AND conversation_id = ?"
+            params = (*params, conversation_id)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params = (*params, limit)
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        records = [ContextAnalysisRecord.model_validate_json(row[0]) for row in rows]
+        return list(reversed(records))
+
+    def list_context_analysis_alerts(
+        self,
+        *,
+        application_id: str | None = None,
+        min_risk: str = "medium",
+        limit: int = 50,
+    ) -> list[ContextAnalysisRecord]:
+        min_order = _CONTEXT_RISK_ORDER.get(min_risk, _CONTEXT_RISK_ORDER["medium"])
+        risk_levels = [
+            level for level, order in _CONTEXT_RISK_ORDER.items() if order >= min_order
+        ]
+        placeholders = ", ".join("?" for _ in risk_levels)
+        query = f"""
+            SELECT payload_json FROM context_analysis_events
+            WHERE risk_level IN ({placeholders})
+        """
+        params: tuple[object, ...] = tuple(risk_levels)
+        if application_id:
+            query += " AND application_id = ?"
+            params = (*params, application_id)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params = (*params, limit)
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [ContextAnalysisRecord.model_validate_json(row[0]) for row in rows]
 
     def save_template(self, template: ItemTemplate) -> None:
         with self._connect() as connection:
