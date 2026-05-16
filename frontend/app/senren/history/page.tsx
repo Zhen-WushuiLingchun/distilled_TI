@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
@@ -30,8 +31,8 @@ export default function SenrenHistoryPage() {
       if (!res.ok) throw new Error("无法获取会话列表");
       const data = await res.json();
       setSessions(data.sessions || []);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "无法获取会话列表");
     } finally {
       setLoading(false);
     }
@@ -75,12 +76,12 @@ export default function SenrenHistoryPage() {
           <p className="text-[var(--senren-ink-muted)] text-sm mb-4">
             暂无监视记录
           </p>
-          <a
+          <Link
             href="/senren"
             className="senren-choice-btn inline-block text-center"
           >
             开始新的监视会话
-          </a>
+          </Link>
         </div>
       ) : (
         <div className="space-y-3">
@@ -111,24 +112,24 @@ export default function SenrenHistoryPage() {
 
           {sessions.length > 0 && (
             <div className="text-center mt-6">
-              <a
+              <Link
                 href="/senren"
                 className="text-xs text-[var(--senren-gold)] hover:underline"
               >
                 + 开始新会话
-              </a>
+              </Link>
             </div>
           )}
         </div>
       )}
 
       <div className="mt-12 text-center">
-        <a
+        <Link
           href="/senren/monitor"
           className="text-xs text-[var(--senren-ink-dim)] hover:text-[var(--senren-ink-muted)] transition-colors"
         >
           ← 返回仪表盘
-        </a>
+        </Link>
       </div>
     </div>
   );

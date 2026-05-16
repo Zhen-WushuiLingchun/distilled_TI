@@ -1,20 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
-const DIM_LABELS: Record<string, string> = {
-  social_initiative: "社交主动性",
-  social_stimulation_tolerance: "社交刺激耐受",
-  autonomous_judgment: "自主决断",
-  planning_preference: "规划偏好",
-  risk_tolerance: "风险容忍",
-  abstraction_tendency: "抽象化",
-  novelty_seeking: "新奇寻求",
-  competition_cooperation: "竞争合作",
-  emotional_stability: "情绪稳定",
-  execution_drive: "执行力",
+type ApiErrorPayload = {
+  detail?: string;
+};
+
+type ClusterMix = {
+  cluster_name: string;
+  weight: number;
+};
+
+type ChoiceSummary = {
+  location?: string;
+  option_text?: string;
 };
 
 interface ReportData {
@@ -29,7 +31,7 @@ interface ReportData {
   cluster_name: string;
   narrative_label: string;
   cluster_confidence: number;
-  cluster_mix: any[];
+  cluster_mix: ClusterMix[];
   structural_labels: { dimension: string; label: string; score: number }[];
   core_bars: Record<string, number>;
   character_affinity: Record<string, number>;
@@ -38,7 +40,7 @@ interface ReportData {
     avg_sigma: number;
     stable_dimensions: number;
   };
-  choice_summary: any[];
+  choice_summary: ChoiceSummary[];
   ai_summary?: string;
   ai_aliases?: string[];
 }
@@ -67,13 +69,13 @@ export default function SenrenReportClient() {
         headers: { "X-Session-Secret": secret },
       });
       if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error((detail as any).detail || `需要至少8个选择才能生成报告`);
+        const detail = (await res.json().catch(() => ({}))) as ApiErrorPayload;
+        throw new Error(detail.detail || `需要至少8个选择才能生成报告`);
       }
       const data = await res.json();
       setReport(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "报告生成失败");
     } finally {
       setLoading(false);
     }
@@ -92,12 +94,12 @@ export default function SenrenReportClient() {
       <div className="min-h-[calc(100vh-41px)] flex items-center justify-center px-4">
         <div className="text-center max-w-md">
           <p className="text-[var(--senren-sakura)] text-lg mb-4">{error}</p>
-          <a
+          <Link
             href="/senren/monitor"
             className="senren-choice-btn inline-block text-center"
           >
             返回仪表盘
-          </a>
+          </Link>
         </div>
       </div>
     );
@@ -260,7 +262,7 @@ export default function SenrenReportClient() {
           </p>
           {report.cluster_mix && report.cluster_mix.length > 1 && (
             <div className="mt-2 space-y-1">
-              {report.cluster_mix.slice(0, 3).map((mix: any, idx: number) => (
+              {report.cluster_mix.slice(0, 3).map((mix, idx) => (
                 <div key={idx} className="flex items-center gap-2 text-xs">
                   <span className="text-[#5a5665]">{mix.cluster_name}</span>
                   <div className="flex-1 h-1.5 bg-[#e8e0d0] rounded-full overflow-hidden">
@@ -287,7 +289,7 @@ export default function SenrenReportClient() {
             共 {report.question_count} 次选择 · 当前路线: {report.current_route || "未确定"}
           </p>
           <div className="max-h-60 overflow-y-auto space-y-1.5">
-            {report.choice_summary?.map((choice: any, idx: number) => (
+            {report.choice_summary?.map((choice, idx) => (
               <div key={idx} className="text-xs text-[#5a5665] flex gap-2">
                 <span className="text-[#8b8694] shrink-0">{idx + 1}.</span>
                 <span>
@@ -301,18 +303,18 @@ export default function SenrenReportClient() {
 
       {/* 底部操作 */}
       <div className="mt-6 flex justify-center gap-4">
-        <a
+        <Link
           href="/senren/monitor"
           className="text-xs text-[var(--senren-ink-muted)] hover:text-[var(--senren-gold)] transition-colors"
         >
           ← 返回仪表盘
-        </a>
-        <a
+        </Link>
+        <Link
           href="/senren/history"
           className="text-xs text-[var(--senren-ink-muted)] hover:text-[var(--senren-gold)] transition-colors"
         >
           历史记录
-        </a>
+        </Link>
       </div>
 
       <p className="mt-12 text-center text-xs text-[var(--senren-ink-dim)]">

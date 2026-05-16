@@ -32,7 +32,7 @@ from app.domain.models import (
     VectorSearchHit,
     VectorSyncFailure,
 )
-from app.services.embedding_service import EmbeddingDocument, EmbeddingServiceError, embedding_service
+from app.services.embedding_service import EmbeddingDocument, embedding_service
 from app.services.reranker_service import RerankerServiceError, reranker_service
 from app.services.scoring import ScoringEngine
 from app.services.storage import local_session_store
@@ -311,7 +311,7 @@ class VectorIndexer:
                 collection_name=self._item_collection_name(),
             )
             alignment_similarity = max((float(hit.score) for hit in alignment_hits), default=0.0)
-        except (EmbeddingServiceError, VectorStoreError):
+        except Exception:
             return None
 
         if 0.78 <= source_similarity <= 0.94:
@@ -434,7 +434,7 @@ class VectorIndexer:
                 collection_name=collection_name,
             )
             reranked_hits = self._rerank_hits(natural_query, hits, top_k)
-        except (EmbeddingServiceError, VectorStoreError):
+        except Exception:
             return []
         return [self._map_hit(hit, rerank_score=rerank_score) for hit, rerank_score in reranked_hits[:top_k]]
 

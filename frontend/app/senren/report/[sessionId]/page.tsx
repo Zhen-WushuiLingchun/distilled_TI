@@ -1,7 +1,7 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import SenrenReportClient from "@/components/SenrenReportClient";
 
 export default function SenrenHistoricalReportPage() {
   const params = useParams();
@@ -18,12 +18,12 @@ export default function SenrenHistoricalReportPage() {
         <p className="text-xs text-[var(--senren-ink-dim)] mt-2">
           请通过当前活动会话查看报告。如需查看历史报告，请在会话未过期时保存凭证。
         </p>
-        <a
+        <Link
           href="/senren/report"
           className="inline-block mt-4 text-xs text-[var(--senren-gold)] hover:underline"
         >
           查看当前会话报告 →
-        </a>
+        </Link>
       </div>
     </div>
   );

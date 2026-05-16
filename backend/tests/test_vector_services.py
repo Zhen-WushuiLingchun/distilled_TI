@@ -26,7 +26,7 @@ from app.services.reranker_service import reranker_service
 from app.services.scoring import ScoringEngine
 from app.services.storage import local_session_store
 from app.services.vector_indexer import vector_indexer
-from app.services.vector_store import vector_store
+from app.services.vector_store import VectorStoreError, vector_store
 
 
 def _enable_vectors(monkeypatch):
@@ -422,6 +422,42 @@ def test_preview_rewrite_passes_retrieval_context_to_ai(monkeypatch):
 
     assert preview.retrieval_context is not None
     assert captured["retrieval_context"]["template_hits"][0]["object_id"] == "core-plan-2"
+
+
+def test_preview_rewrite_degrades_when_vector_search_fails(monkeypatch):
+    _enable_vectors(monkeypatch)
+    template = build_seed_item_bank()[0].model_copy(update={"allow_rewrite": True})
+    session = _session()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(embedding_service, "embed_texts", lambda _texts: [[0.1, 0.2, 0.3]])
+    monkeypatch.setattr(vector_store, "search", lambda *_args, **_kwargs: (_ for _ in ()).throw(VectorStoreError("qdrant locked")))
+    monkeypatch.setattr(vector_indexer, "index_rewrite_candidate", lambda *_args, **_kwargs: None)
+
+    def _rewrite(*_args, **kwargs):
+        captured["retrieval_context"] = kwargs.get("retrieval_context")
+        return [
+            {
+                "rewritten_prompt": "我会先确认门后的情况，再决定要不要继续推进。",
+                "generation_mode": "llm_rewrite",
+                "validator_passed": True,
+            }
+        ]
+
+    monkeypatch.setattr(ai_service, "rewrite_template_candidates", _rewrite)
+
+    preview = generation_service.preview_rewrite(
+        session,
+        template,
+        "更自然的剧情台词",
+        AIProviderConfig(provider="x", model="y", base_url="https://example.com", api_key="z"),
+        allow_stored_config=False,
+    )
+
+    assert preview.selected.rewritten_prompt
+    assert preview.retrieval_context is not None
+    assert preview.retrieval_context.template_hits == []
+    assert captured["retrieval_context"]["template_hits"] == []
 
 
 def test_score_candidate_applies_embedding_breakdown(monkeypatch):

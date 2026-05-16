@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "千恋万花 · 人格监视器",
@@ -18,18 +19,18 @@ export default function SenrenLayout({ children }: { children: React.ReactNode }
       {/* 顶部导航条 */}
       <nav className="relative z-10 border-b border-[var(--senren-line-soft)] bg-[var(--senren-bg-deep)]/60 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-4 py-2.5 flex items-center justify-between">
-          <a
+          <Link
             href="/senren"
             className="text-[var(--senren-gold)] text-sm font-semibold tracking-[0.08em] hover:text-[var(--senren-sakura)] transition-colors"
           >
             千恋＊万花 人格监视器
-          </a>
+          </Link>
           <div className="flex items-center gap-4 text-xs text-[var(--senren-ink-muted)]">
-            <a href="/senren/monitor" className="hover:text-[var(--senren-ink-body)] transition-colors">仪表盘</a>
-            <a href="/senren/report" className="hover:text-[var(--senren-ink-body)] transition-colors">报告</a>
-            <a href="/senren/history" className="hover:text-[var(--senren-ink-body)] transition-colors">历史</a>
+            <Link href="/senren/monitor" className="hover:text-[var(--senren-ink-body)] transition-colors">仪表盘</Link>
+            <Link href="/senren/report" className="hover:text-[var(--senren-ink-body)] transition-colors">报告</Link>
+            <Link href="/senren/history" className="hover:text-[var(--senren-ink-body)] transition-colors">历史</Link>
             <span className="text-[var(--senren-line-mid)]">|</span>
-            <a href="/" className="hover:text-[var(--senren-ink-body)] transition-colors">← TI</a>
+            <Link href="/" className="hover:text-[var(--senren-ink-body)] transition-colors">← TI</Link>
           </div>
         </div>
       </nav>

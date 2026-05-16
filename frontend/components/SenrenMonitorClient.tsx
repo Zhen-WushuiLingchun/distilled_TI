@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import SenrenChoicePanel from "./SenrenChoicePanel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
+
+type ApiErrorPayload = {
+  detail?: string;
+};
 
 interface ChoiceNode {
   choice_id: string;
@@ -18,6 +22,11 @@ interface ChoiceNode {
   user_option?: string;
 }
 
+interface RecentChoice {
+  context?: string;
+  option_text?: string;
+}
+
 interface LiveState {
   session_id: string;
   mode: string;
@@ -27,7 +36,7 @@ interface LiveState {
   core_sigma: Record<string, number>;
   top_dimensions: { key: string; label: string; score: number }[];
   character_affinity: Record<string, number>;
-  recent_choices: any[];
+  recent_choices: RecentChoice[];
   can_generate_report: boolean;
 }
 
@@ -51,14 +60,12 @@ export default function SenrenMonitorClient() {
 
   const [sessionId, setSessionId] = useState("");
   const [sessionSecret, setSessionSecret] = useState("");
-  const [deleteToken, setDeleteToken] = useState("");
 
   const [roadmap, setRoadmap] = useState<ChoiceNode[]>([]);
   const [liveState, setLiveState] = useState<LiveState | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [showReport, setShowReport] = useState(false);
 
   // Current scenario being displayed
   const [currentScene, setCurrentScene] = useState<ChoiceNode | null>(null);
@@ -68,7 +75,6 @@ export default function SenrenMonitorClient() {
   useEffect(() => {
     const sid = sessionStorage.getItem("senren_session_id") || "";
     const secret = sessionStorage.getItem("senren_session_secret") || "";
-    const dt = sessionStorage.getItem("senren_delete_token") || "";
 
     if (!sid || !secret) {
       router.push("/senren");
@@ -77,11 +83,10 @@ export default function SenrenMonitorClient() {
 
     setSessionId(sid);
     setSessionSecret(secret);
-    setDeleteToken(dt);
 
     fetchRoadmap(sid, secret);
     fetchLiveState(sid, secret);
-  }, []);
+  }, [router]);
 
   async function fetchRoadmap(sid: string, secret: string) {
     try {
@@ -100,8 +105,8 @@ export default function SenrenMonitorClient() {
         // All completed
         setAllCompleted(true);
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "无法加载路线图");
     }
   }
 
@@ -138,16 +143,16 @@ export default function SenrenMonitorClient() {
           }),
         });
         if (!res.ok) {
-          const detail = await res.json().catch(() => ({}));
-          throw new Error((detail as any).detail || "提交失败");
+          const detail = (await res.json().catch(() => ({}))) as ApiErrorPayload;
+          throw new Error(detail.detail || "提交失败");
         }
 
         // Refresh state after choice
         await fetchLiveState(sessionId, sessionSecret);
         await fetchRoadmap(sessionId, sessionSecret);
         setCurrentScene(null);
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "提交失败");
       } finally {
         setSubmitting(false);
       }
@@ -385,7 +390,7 @@ export default function SenrenMonitorClient() {
             <h2>最近选择</h2>
             <div className="space-y-2.5 max-h-[260px] overflow-y-auto">
               {liveState?.recent_choices?.length ? (
-                [...liveState.recent_choices].reverse().map((choice: any, idx: number) => (
+                [...liveState.recent_choices].reverse().map((choice, idx) => (
                   <div key={idx} className="text-xs border-l-2 border-[var(--senren-line-soft)] pl-3">
                     <p className="text-[var(--senren-ink-muted)]">
                       {choice.context?.slice(0, 40)}...

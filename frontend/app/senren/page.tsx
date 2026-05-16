@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
+type ApiErrorPayload = {
+  detail?: string;
+};
+
 export default function SenrenLandingPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -19,8 +23,8 @@ export default function SenrenLandingPage() {
         headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error((detail as any).detail || `Server error ${res.status}`);
+        const detail = (await res.json().catch(() => ({}))) as ApiErrorPayload;
+        throw new Error(detail.detail || `Server error ${res.status}`);
       }
       const data = await res.json();
 
@@ -31,8 +35,8 @@ export default function SenrenLandingPage() {
       sessionStorage.setItem("senren_mode", mode);
 
       router.push("/senren/monitor");
-    } catch (err: any) {
-      setError(err.message || "启动失败");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "启动失败");
     } finally {
       setLoading(false);
     }
