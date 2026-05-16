@@ -1,0 +1,43 @@
+{
+  "name": "有地将臣",
+  "display_name": "将臣",
+  "slug": "masamichi",
+  "character": "celebrity",
+  "created_at": "2026-05-14T00:00:00Z",
+  "version": "v1",
+  "profile": {
+    "role": "温泉旅馆住客·穗织镇来访者",
+    "origin": "都市 → 穗织镇",
+    "age": "17岁"
+  },
+  "tags": {
+    "personality": [
+      "男主角",
+      "都市少年",
+      "善良",
+      "责任感",
+      "正义感",
+      "天然呆",
+      "共通线"
+    ],
+    "source": "千恋＊万花 (YUZUSOFT)"
+  },
+  "impression": "从都市来到穗织镇的少年，因家庭原因暂住在志那都神社附近的温泉旅馆。温和可靠，总能在关键时刻站出来。有时候迟钝得让人着急，但这份迟钝也正是他让人信赖的原因。",
+  "knowledge_sources": [
+    "千恋万花游戏剧本",
+    "角色攻略/Walkthrough",
+    "社区Wiki"
+  ],
+  "personality_traits": {
+    "social_initiative": 0.2,
+    "social_stimulation_tolerance": 0.3,
+    "planning_preference": 0.1,
+    "autonomous_judgment": 0.4,
+    "execution_drive": 0.3,
+    "emotional_stability": 0.5,
+    "risk_tolerance": 0.1,
+    "competition_cooperation": -0.3,
+    "abstraction_tendency": 0.0,
+    "novelty_seeking": 0.2
+  }
+}
