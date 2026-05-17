@@ -49,6 +49,8 @@ backend/.env.*
 # Local secrets and vector state
 local-secrets.*
 backend/local-secrets.*
+.local/
+backend/.local/
 .qdrant-local/
 backend/.qdrant-local/
 frontend/public/generated/

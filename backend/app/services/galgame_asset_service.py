@@ -142,6 +142,23 @@ class GalgameAssetService:
             )
         return assets
 
+    def generate_senren_character_assets(
+        self,
+        *,
+        personas: dict[str, dict[str, Any]],
+        force: bool = False,
+    ) -> dict[str, GalgameAssetReference]:
+        generated: dict[str, GalgameAssetReference] = {}
+        for slug, persona in personas.items():
+            display_name = str(persona.get("display_name") or slug)
+            generated[slug] = self.generate_image_asset(
+                kind="character",
+                key=f"senren_{slug}",
+                prompt=self._senren_character_prompt(slug, display_name, persona),
+                force=force,
+            )
+        return generated
+
     def _resolve_image_asset(
         self,
         *,
@@ -452,6 +469,25 @@ class GalgameAssetService:
             "masterpiece, high quality visual novel character sprite, upper body, front view, "
             "transparent or simple background, non sexualized, "
             f"{prompt}"
+        )
+
+    def _senren_character_prompt(self, slug: str, display_name: str, persona: dict[str, Any]) -> str:
+        profile = persona.get("profile", {}) if isinstance(persona.get("profile"), dict) else {}
+        layer0 = persona.get("layer0", []) if isinstance(persona.get("layer0"), list) else []
+        layer2 = persona.get("layer2", {}) if isinstance(persona.get("layer2"), dict) else {}
+        layer3 = persona.get("layer3", {}) if isinstance(persona.get("layer3"), dict) else {}
+        layer5 = persona.get("layer5", {}) if isinstance(persona.get("layer5"), dict) else {}
+        traits = ", ".join(str(item) for item in layer0[:4])
+        tone = str(layer2.get("tone") or layer2.get("voice_sample") or "")
+        priorities = str(layer3.get("priorities") or "")
+        boundaries = ", ".join(str(item) for item in layer5.get("avoids", [])[:3]) if isinstance(layer5.get("avoids"), list) else ""
+        role = str(profile.get("role") or "visual novel heroine")
+        return (
+            "original anime visual novel character sprite, not an existing copyrighted character, "
+            "clean lineart, expressive eyes, cohesive game UI asset, transparent background, "
+            "front-facing upper body, school-life galgame style, "
+            f"character_key={slug}, display_name={display_name}, role={role}, "
+            f"personality={traits}, voice_tone={tone}, priorities={priorities}, avoids={boundaries}"
         )
 
     def _fallback_background(self, key: str) -> str:

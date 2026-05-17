@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
 from app.core.config import settings
@@ -68,6 +69,68 @@ SENREN_NARRATIVE_LABELS = {
     "情境适配簇": "穿梭于异界的付丧神",
 }
 
+SENREN_BACKGROUND_ASSETS = {
+    "senren-c1": "/generated/galgame/background/old_school_corridor_afternoon.png",
+    "senren-c2": "/generated/galgame/background/old_building_corridor_dusk.png",
+    "senren-c3": "/generated/galgame/background/old_teaching_building_corridor.png",
+    "senren-c4": "/generated/galgame/background/student_council_room_afternoon.png",
+    "senren-c4a": "/generated/galgame/background/old_school_corridor_night.png",
+    "senren-c5": "/generated/galgame/background/old_building_corridor_night.png",
+    "senren-c6": "/generated/galgame/background/rooftop_dusk_tension.png",
+    "senren-c7": "/generated/galgame/background/rooftop_iron_door_twilight.png",
+}
+
+SENREN_CHARACTER_ASSETS = {
+    "芳乃": "/generated/galgame/character/transfer_student_conflict.png",
+    "丛雨": "/generated/galgame/character/classmate_androgynous_calm.png",
+    "茉子": "/generated/galgame/character/classmate_neutral.png",
+    "蕾娜": "/generated/galgame/character/transfer_student_smirk.png",
+    "小春": "/generated/galgame/character/classmate_closeup.png",
+    "芦花": "/generated/galgame/character/companion_portrait.png",
+}
+
+
+LOCAL_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+LOCAL_ASSET_SCAN_LIMIT = 5000
+LOCAL_ASSET_SKIP_PARTS = {"savedata", "save", "cache", "temp", "tmp", "movies", "video"}
+LOCAL_BACKGROUND_KEYWORDS = {
+    "background",
+    "back",
+    "bg",
+    "haikei",
+    "scene",
+    "event",
+    "cg",
+    "room",
+    "school",
+    "corridor",
+    "hall",
+    "hallway",
+    "rooftop",
+    "class",
+    "street",
+    "shrine",
+    "onsen",
+    "ryokan",
+    "kitchen",
+    "garden",
+    "背景",
+    "场景",
+}
+LOCAL_CHARACTER_KEYWORDS = {
+    "character",
+    "char",
+    "sprite",
+    "stand",
+    "tachie",
+    "face",
+    "body",
+    "pose",
+    "heroine",
+    "立绘",
+    "立ち",
+}
+
 
 class SenrenMonitorSession:
     """一次千恋万花监视会话的状态"""
@@ -92,6 +155,8 @@ class SenrenMonitorSession:
         self.current_route: str | None = None  # 检测到的当前路线
         self.game_path: str | None = None  # 本地游戏路径（local 模式）
         self.game_info: dict | None = None  # 游戏路径校验信息
+        self.local_visual_assets: dict[str, list[str]] = {"backgrounds": [], "characters": [], "all": []}
+        self.local_asset_registry: dict[str, str] = {}
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)
 
@@ -114,6 +179,79 @@ class SenrenMonitorService:
     def __init__(self):
         self._sessions: dict[str, SenrenMonitorSession] = {}
         self._scoring_engine = ScoringEngine()
+
+    # ============================================================
+    # Local visual assets
+    # ============================================================
+
+    def attach_local_visual_assets(self, session: SenrenMonitorSession, game_path: str) -> dict[str, list[str]]:
+        assets = self.discover_local_visual_assets(game_path)
+        session.local_visual_assets = assets
+        return assets
+
+    def discover_local_visual_assets(self, game_path: str) -> dict[str, list[str]]:
+        root = Path(game_path)
+        if not root.exists() or not root.is_dir():
+            return {"backgrounds": [], "characters": [], "all": []}
+
+        backgrounds: list[str] = []
+        characters: list[str] = []
+        all_images: list[str] = []
+        scanned = 0
+        for item in root.rglob("*"):
+            if scanned >= LOCAL_ASSET_SCAN_LIMIT:
+                break
+            scanned += 1
+            if not item.is_file() or item.suffix.lower() not in LOCAL_IMAGE_SUFFIXES:
+                continue
+            try:
+                rel = item.relative_to(root)
+            except ValueError:
+                continue
+            if {part.lower() for part in rel.parts} & LOCAL_ASSET_SKIP_PARTS:
+                continue
+
+            lowered = rel.as_posix().lower()
+            resolved = str(item.resolve())
+            all_images.append(resolved)
+            if any(keyword in lowered for keyword in LOCAL_CHARACTER_KEYWORDS):
+                characters.append(resolved)
+                continue
+            if any(keyword in lowered for keyword in LOCAL_BACKGROUND_KEYWORDS):
+                backgrounds.append(resolved)
+
+        if not backgrounds:
+            backgrounds = [
+                image
+                for image in all_images
+                if not any(keyword in Path(image).as_posix().lower() for keyword in LOCAL_CHARACTER_KEYWORDS)
+            ][:80]
+        return {
+            "backgrounds": backgrounds[:160],
+            "characters": characters[:160],
+            "all": all_images[:240],
+        }
+
+    def local_visual_asset_summary(self, game_path: str) -> dict:
+        assets = self.discover_local_visual_assets(game_path)
+        return {
+            "local_game_images": len(assets.get("all", [])),
+            "local_background_candidates": len(assets.get("backgrounds", [])),
+            "local_character_candidates": len(assets.get("characters", [])),
+        }
+
+    def resolve_local_asset(self, session_id: str, asset_id: str) -> Path:
+        session = self.get_session(session_id)
+        raw_path = session.local_asset_registry.get(asset_id)
+        if not raw_path:
+            raise KeyError("local_asset_not_found")
+        asset_path = Path(raw_path).resolve()
+        roots = self._local_asset_roots(session)
+        if not asset_path.is_file() or asset_path.suffix.lower() not in LOCAL_IMAGE_SUFFIXES:
+            raise PermissionError("unsupported_local_asset")
+        if not any(self._is_relative_to(asset_path, root) for root in roots):
+            raise PermissionError("local_asset_outside_allowed_roots")
+        return asset_path
 
     # ============================================================
     # 会话管理
@@ -308,6 +446,385 @@ class SenrenMonitorService:
             "completed": len(made_choice_ids),
             "current_route": session.current_route,
         }
+
+    def get_vn_scene(self, session_id: str) -> dict:
+        """Build the current playable visual-novel scene.
+
+        The original game is not hooked here. This endpoint turns the next
+        recorded Senren choice node plus local skills/personas into a playable
+        web VN scene, optionally enriched by the configured DeepSeek-compatible
+        AI provider.
+        """
+        session = self.get_session(session_id)
+        made_choice_ids = {c["choice_id"] for c in session.choices_made}
+        choice_node = next((choice for choice in ALL_CHOICES if choice.choice_id not in made_choice_ids), None)
+        if choice_node is None:
+            return {
+                "completed": True,
+                "session_id": session_id,
+                "title": "尾声",
+                "location": session.current_route or "织守镇",
+                "mood": "afterglow",
+                "speaker": "系统",
+                "narrator_text": "所有关键选择已经记录完毕。",
+                "character_text": "可以查看这次路线的报告，或者从头开始另一轮记录。",
+                "choices": [],
+                "ai_generated": False,
+                "background_asset": self._background_asset_ref(
+                    session,
+                    None,
+                    "/generated/galgame/background/old_school_building_hallway_sunset.png",
+                    "ending hallway",
+                ),
+                "character_asset": None,
+                "skill_enrichment": {},
+                "asset_strategy": self._asset_strategy(session),
+                "skill_driven": True,
+            }
+
+        fallback_scene = self._fallback_vn_scene(session, choice_node)
+        ai_scene = self._try_ai_vn_scene(session, choice_node)
+        if ai_scene:
+            ai_speaker_identity = self._character_identity(str(ai_scene.get("speaker") or fallback_scene["speaker"]))
+            ai_speaker = ai_speaker_identity["display_name"] or fallback_scene["speaker"]
+            fallback_scene.update(
+                {
+                    "title": str(ai_scene.get("title") or fallback_scene["title"]),
+                    "location": str(ai_scene.get("location") or fallback_scene["location"]),
+                    "mood": str(ai_scene.get("mood") or fallback_scene["mood"]),
+                    "speaker": ai_speaker,
+                    "speaker_slug": ai_speaker_identity["slug"] or fallback_scene.get("speaker_slug", ""),
+                    "speaker_source_name": ai_speaker_identity["source_name"] or fallback_scene.get("speaker_source_name", ""),
+                    "narrator_text": str(ai_scene.get("narrator_text") or fallback_scene["narrator_text"]),
+                    "character_text": str(ai_scene.get("character_text") or fallback_scene["character_text"]),
+                    "ai_generated": True,
+                    "skill_driven": True,
+                }
+            )
+            if ai_speaker:
+                fallback_scene["character_asset"] = self._character_asset_ref(
+                    session,
+                    ai_speaker,
+                    self._character_fallback_url(ai_speaker_identity),
+                    f"{ai_speaker} sprite",
+                )
+            choice_texts = ai_scene.get("choice_texts", {})
+            if isinstance(choice_texts, dict):
+                fallback_scene["choices"] = [
+                    {
+                        **choice,
+                        "text": str(choice_texts.get(choice["option_key"]) or choice["text"]),
+                    }
+                    for choice in fallback_scene["choices"]
+                ]
+        return fallback_scene
+
+    def _fallback_vn_scene(self, session: SenrenMonitorSession, choice_node: GameChoiceNode) -> dict:
+        primary_identity = self._primary_speaker_identity(choice_node.characters)
+        speaker = primary_identity["display_name"] or primary_identity["source_name"] or "将臣"
+        speaker_slug = primary_identity["slug"]
+        persona_enrichment = self._skill_enrichment(choice_node.characters)
+        background_url = SENREN_BACKGROUND_ASSETS.get(
+            choice_node.choice_id,
+            "/generated/galgame/background/old_school_building_corridor.png",
+        )
+        character_url = self._character_fallback_url(primary_identity)
+        character_identities = self._character_identities(choice_node.characters)
+
+        return {
+            "completed": False,
+            "session_id": session.session_id,
+            "choice_id": choice_node.choice_id,
+            "chapter": choice_node.chapter,
+            "title": self._scene_title(choice_node),
+            "location": choice_node.location,
+            "mood": self._scene_mood(choice_node),
+            "speaker": speaker,
+            "speaker_slug": speaker_slug,
+            "speaker_source_name": primary_identity["source_name"],
+            "narrator_text": choice_node.context,
+            "character_text": choice_node.prompt,
+            "characters": [item["display_name"] or item["source_name"] for item in character_identities],
+            "source_characters": choice_node.characters,
+            "character_identities": character_identities,
+            "choices": [
+                {
+                    "option_key": option.key,
+                    "text": option.text,
+                    "affection_target": option.affection_target,
+                }
+                for option in choice_node.options
+            ],
+            "ai_generated": False,
+            "skill_driven": bool(persona_enrichment),
+            "asset_strategy": self._asset_strategy(session),
+            "background_asset": self._background_asset_ref(
+                session,
+                choice_node,
+                background_url,
+                f"{choice_node.location} background",
+            ),
+            "character_asset": self._character_asset_ref(
+                session,
+                speaker,
+                character_url,
+                f"{speaker} sprite",
+            ),
+            "skill_enrichment": persona_enrichment,
+            "recent_choices": session.choices_made[-6:],
+            "current_route": session.current_route,
+        }
+
+    def _try_ai_vn_scene(self, session: SenrenMonitorSession, choice_node: GameChoiceNode) -> dict | None:
+        persona_enrichment = self._skill_enrichment(choice_node.characters)
+        character_identities = self._character_identities(choice_node.characters)
+        primary_speaker = self._primary_speaker_identity(choice_node.characters)
+        choices_payload = []
+        for option in choice_node.options:
+            mapping = get_mapping(choice_node.choice_id, option.key)
+            choices_payload.append(
+                {
+                    "option_key": option.key,
+                    "text": option.text,
+                    "affection_target": option.affection_target,
+                    "dimension_weights": mapping.dimension_weights if mapping else {},
+                    "scenario_tags": mapping.scenario_tags if mapping else [],
+                }
+            )
+
+        payload = {
+            "mode": session.mode,
+            "chapter": choice_node.chapter,
+            "location": choice_node.location,
+            "characters": [item["display_name"] or item["source_name"] for item in character_identities],
+            "source_characters": choice_node.characters,
+            "character_identities": character_identities,
+            "primary_speaker": primary_speaker,
+            "context": choice_node.context,
+            "prompt": choice_node.prompt,
+            "choices": choices_payload,
+            "recent_choices": session.choices_made[-4:],
+            "skill_personas": persona_enrichment,
+            "skill_contract": {
+                "enabled": True,
+                "mode": "ai_first_every_scene",
+                "rules": [
+                    "Use current speaker's skill persona as the primary voice source.",
+                    "Keep tone, speaking pace, emotional tells, priorities, boundaries, and sample voice consistent.",
+                    "Do not mention personality measurement, scoring, dimensions, options, or backend analysis.",
+                    "Generate natural visual-novel dialogue that could be played directly.",
+                    "choice_texts must be in-world actions or lines, not psychometric labels.",
+                ],
+            },
+            "style": {
+                "format": "single-screen visual novel",
+                "reference": "paper2galgame style: sprite, dialogue box, log/hide/auto controls",
+                "tone": "natural galgame dialogue, not questionnaire language",
+                "no_measurement_terms": True,
+            },
+            "private_analysis_seed": {
+                "current_route": session.current_route,
+                "core_mu": session.state.core_mu,
+            },
+        }
+        return ai_service.generate_galgame_scene(payload)
+
+    def _background_asset_ref(
+        self,
+        session: SenrenMonitorSession,
+        choice_node: GameChoiceNode | None,
+        fallback_url: str,
+        alt: str,
+    ) -> dict:
+        local_path = self._select_local_background(session, choice_node)
+        if local_path:
+            return {
+                "url": self._register_local_asset(session, "background", local_path),
+                "alt": alt,
+                "source": "local_game",
+            }
+        return {"url": fallback_url, "alt": alt, "source": "generated_fallback"}
+
+    def _character_asset_ref(
+        self,
+        session: SenrenMonitorSession,
+        character_name: str,
+        fallback_url: str | None,
+        alt: str,
+    ) -> dict | None:
+        local_path = self._select_local_character(session, character_name)
+        if local_path:
+            return {
+                "url": self._register_local_asset(session, "character", local_path),
+                "alt": alt,
+                "source": "local_or_generated_character",
+            }
+        if fallback_url:
+            return {"url": fallback_url, "alt": alt, "source": "generated_fallback"}
+        return None
+
+    def _select_local_background(self, session: SenrenMonitorSession, choice_node: GameChoiceNode | None) -> str | None:
+        backgrounds = session.local_visual_assets.get("backgrounds", [])
+        if not backgrounds:
+            return None
+        if not choice_node:
+            return backgrounds[0]
+        target = " ".join([choice_node.choice_id, choice_node.location, choice_node.chapter]).lower()
+        ranked = sorted(
+            backgrounds,
+            key=lambda path: self._asset_match_score(Path(path).as_posix().lower(), target),
+            reverse=True,
+        )
+        return ranked[0] if ranked else None
+
+    def _select_local_character(self, session: SenrenMonitorSession, character_name: str) -> str | None:
+        if not character_name:
+            return None
+        character_dir_match = self._match_character_asset_dir(character_name)
+        if character_dir_match:
+            return character_dir_match
+        characters = session.local_visual_assets.get("characters", [])
+        if not characters:
+            return None
+        aliases = self._character_aliases(character_name)
+        ranked = sorted(
+            characters,
+            key=lambda path: max(self._asset_match_score(Path(path).as_posix().lower(), alias) for alias in aliases),
+            reverse=True,
+        )
+        if ranked and max(self._asset_match_score(Path(ranked[0]).as_posix().lower(), alias) for alias in aliases) > 0:
+            return ranked[0]
+        return ranked[0] if len(characters) == 1 else None
+
+    def _match_character_asset_dir(self, character_name: str) -> str | None:
+        roots = [root for root in self._character_asset_roots() if root.exists()]
+        if not roots:
+            return None
+        aliases = self._character_aliases(character_name)
+        images = [
+            item
+            for root in roots
+            for item in root.rglob("*")
+            if item.is_file() and item.suffix.lower() in LOCAL_IMAGE_SUFFIXES
+        ]
+        ranked = sorted(
+            images,
+            key=lambda path: max(self._asset_match_score(path.as_posix().lower(), alias) for alias in aliases),
+            reverse=True,
+        )
+        if ranked and max(self._asset_match_score(ranked[0].as_posix().lower(), alias) for alias in aliases) > 0:
+            return str(ranked[0].resolve())
+        return None
+
+    def _register_local_asset(self, session: SenrenMonitorSession, kind: str, raw_path: str) -> str:
+        digest = hashlib.sha256(f"{session.session_secret}:{raw_path}".encode("utf-8")).hexdigest()[:16]
+        asset_id = f"{kind}-{digest}"
+        session.local_asset_registry[asset_id] = raw_path
+        return f"/api/senren/monitor/{session.session_id}/asset/{asset_id}"
+
+    def _character_asset_root(self) -> Path:
+        root = Path(settings.senren_character_asset_dir)
+        if not root.is_absolute():
+            root = Path(__file__).resolve().parents[3] / root
+        return root.resolve()
+
+    def _generated_character_root(self) -> Path:
+        root = Path(settings.galgame_asset_public_dir)
+        if not root.is_absolute():
+            root = Path(__file__).resolve().parents[3] / root
+        return (root / "character").resolve()
+
+    def _character_asset_roots(self) -> list[Path]:
+        return [self._character_asset_root(), self._generated_character_root()]
+
+    def _local_asset_roots(self, session: SenrenMonitorSession) -> list[Path]:
+        roots = self._character_asset_roots()
+        if session.game_path:
+            roots.append(Path(session.game_path).resolve())
+        return roots
+
+    def _asset_strategy(self, session: SenrenMonitorSession) -> str:
+        if session.local_visual_assets.get("all"):
+            return "local_game_assets_first"
+        if any(root.exists() for root in self._character_asset_roots()):
+            return "local_character_assets_first"
+        return "generated_fallback"
+
+    def _character_identity(self, character_name: str) -> dict[str, str]:
+        try:
+            from app.domain.senren_skills_loader import resolve_character_identity
+
+            return resolve_character_identity(character_name)
+        except Exception:
+            name = (character_name or "").strip()
+            return {"source_name": name, "slug": "", "display_name": name}
+
+    def _character_identities(self, characters: list[str]) -> list[dict[str, str]]:
+        identities = [self._character_identity(name) for name in characters]
+        return [identity for identity in identities if identity["source_name"] or identity["display_name"]]
+
+    def _primary_speaker_identity(self, characters: list[str]) -> dict[str, str]:
+        identities = self._character_identities(characters)
+        for identity in identities:
+            if identity["slug"] != "masamichi":
+                return identity
+        if identities:
+            return identities[0]
+        return self._character_identity("将臣")
+
+    def _character_fallback_url(self, identity: dict[str, str]) -> str | None:
+        for key in (identity.get("display_name", ""), identity.get("source_name", "")):
+            if key and key in SENREN_CHARACTER_ASSETS:
+                return SENREN_CHARACTER_ASSETS[key]
+        return None
+
+    def _character_aliases(self, character_name: str) -> list[str]:
+        identity = self._character_identity(character_name)
+        aliases = {
+            character_name.lower(),
+            identity.get("slug", "").lower(),
+            identity.get("display_name", "").lower(),
+            identity.get("source_name", "").lower(),
+        }
+        return [alias for alias in aliases if alias]
+
+    def _asset_match_score(self, path_text: str, target_text: str) -> int:
+        score = 0
+        for token in target_text.replace("-", " ").replace("_", " ").split():
+            if token and token in path_text:
+                score += 2
+        if target_text and target_text in path_text:
+            score += 5
+        return score
+
+    def _is_relative_to(self, path: Path, root: Path) -> bool:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
+    def _skill_enrichment(self, characters: list[str]) -> dict:
+        try:
+            from app.domain.senren_skills_loader import get_storymode_character_enrichment
+
+            return get_storymode_character_enrichment(characters)
+        except Exception:
+            return {}
+
+    def _scene_title(self, choice_node: GameChoiceNode) -> str:
+        chapter = choice_node.chapter.split("-")[-1] if "-" in choice_node.chapter else choice_node.chapter
+        if choice_node.location:
+            return f"{chapter} · {choice_node.location}"
+        return chapter
+
+    def _scene_mood(self, choice_node: GameChoiceNode) -> str:
+        tags = []
+        for option in choice_node.options:
+            mapping = get_mapping(choice_node.choice_id, option.key)
+            if mapping:
+                tags.extend(mapping.scenario_tags[:2])
+        return " / ".join(dict.fromkeys(tags).keys()) or "静かな分岐"
 
     def _build_roadmap(self) -> dict:
         """构建完整路线图（无会话上下文）"""

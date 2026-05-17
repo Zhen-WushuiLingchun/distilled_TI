@@ -31,6 +31,83 @@ def choose_option_key(question: dict) -> str:
     return option_keys[-1]
 
 
+def test_senren_local_mode_serves_registered_local_assets(tmp_path):
+    (tmp_path / "SenrenBanka.exe").write_text("fake", encoding="utf-8")
+    background_dir = tmp_path / "backgrounds"
+    character_dir = tmp_path / "characters"
+    background_dir.mkdir()
+    character_dir.mkdir()
+    (background_dir / "senren-c1-corridor.png").write_bytes(b"fake-background")
+    (character_dir / "roka_sprite.png").write_bytes(b"fake-character")
+
+    start_response = public_client.post(
+        "/api/senren/local-game/start",
+        json={"game_path": str(tmp_path), "mode": "local"},
+    )
+    assert start_response.status_code == 200
+    payload = start_response.json()
+    assert payload["game_info"]["asset_summary"]["local_game_images"] == 2
+
+    scene_response = public_client.get(
+        f"/api/senren/monitor/{payload['session_id']}/vn-scene",
+        headers=session_headers(payload["session_secret"]),
+    )
+    assert scene_response.status_code == 200
+    scene = scene_response.json()
+    assert scene["asset_strategy"] == "local_game_assets_first"
+    assert scene["speaker_slug"] == "roka"
+    assert scene["speaker"] == "芦花"
+    assert scene["background_asset"]["source"] == "local_game"
+    assert scene["character_asset"]["source"] == "local_or_generated_character"
+
+    asset_response = public_client.get(scene["character_asset"]["url"])
+    assert asset_response.status_code == 200
+    assert asset_response.content == b"fake-character"
+
+
+def test_senren_vn_scene_is_ai_first_and_skill_driven(monkeypatch):
+    captured_payload = {}
+
+    def fake_scene(scene_payload):
+        captured_payload.update(scene_payload)
+        return {
+            "title": "AI 生成的一幕",
+            "location": "旧教学楼",
+            "mood": "quiet tension",
+            "speaker": "芦花",
+            "narrator_text": "走廊里只剩下傍晚的光。",
+            "character_text": "先别急着解释，我想听你自己说。",
+            "choice_texts": {
+                "strong_reject": "直接推开话题。",
+                "soft_reject": "先把话题绕开。",
+            },
+        }
+
+    monkeypatch.setattr(ai_service, "generate_galgame_scene", fake_scene)
+    start_response = public_client.post("/api/senren/monitor/start?mode=story")
+    assert start_response.status_code == 200
+    payload = start_response.json()
+
+    scene_response = public_client.get(
+        f"/api/senren/monitor/{payload['session_id']}/vn-scene",
+        headers=session_headers(payload["session_secret"]),
+    )
+
+    assert scene_response.status_code == 200
+    scene = scene_response.json()
+    assert scene["ai_generated"] is True
+    assert scene["skill_driven"] is True
+    assert scene["character_text"] == "先别急着解释，我想听你自己说。"
+    assert scene["speaker"] == "芦花"
+    assert scene["speaker_slug"] == "roka"
+    assert captured_payload["skill_contract"]["mode"] == "ai_first_every_scene"
+    assert captured_payload["primary_speaker"]["slug"] == "roka"
+    assert "芦花" in captured_payload["characters"]
+    assert any(identity["display_name"] == "芦花" for identity in captured_payload["character_identities"])
+    assert captured_payload["skill_personas"]
+    assert captured_payload["style"]["no_measurement_terms"] is True
+
+
 def advance_questions(access: dict[str, str], first_question: dict, count: int) -> dict:
     current_question = first_question
     last_payload: dict = {}

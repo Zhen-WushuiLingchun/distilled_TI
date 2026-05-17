@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.domain.senren_choice_tree import ALL_CHOICES, ALL_ROUTES, get_choice_by_id
@@ -108,6 +109,39 @@ def get_roadmap(
     """获取选择路线图及进度"""
     _require_session(session_id, x_session_secret)
     return senren_monitor_service.get_roadmap(session_id)
+
+
+@router.get("/monitor/{session_id}/vn-scene")
+def get_vn_scene(
+    session_id: str,
+    x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
+) -> dict:
+    """获取当前可游玩的 VN 场景。
+
+    该接口会把 Senren 选择节点、角色 skills、历史选择和现有 DeepSeek-compatible
+    AI 配置组合成前端可直接渲染的视觉小说 scene。AI 不可用时返回规则 fallback。
+    """
+    _require_session(session_id, x_session_secret)
+    return senren_monitor_service.get_vn_scene(session_id)
+
+
+@router.get("/monitor/{session_id}/asset/{asset_id}")
+def get_monitor_asset(
+    session_id: str,
+    asset_id: str,
+) -> FileResponse:
+    """Serve a registered local/generated VN asset for the active session.
+
+    The asset id is only created by the scene endpoint and is resolved against
+    the session's approved game directory or ignored local character asset dirs.
+    """
+    try:
+        asset_path = senren_monitor_service.resolve_local_asset(session_id, asset_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return FileResponse(asset_path)
 
 
 @router.get("/roadmap")
@@ -277,11 +311,18 @@ VALID_GAME_DIRS = ["data", "savedata"]
 
 def _validate_game_path(game_path: str) -> dict:
     """校验本地千恋万花安装目录"""
-    import os as _os
-
     path = Path(game_path)
     if not path.exists():
-        return {"valid": False, "error": f"路径不存在: {game_path}", "found_files": [], "missing_files": []}
+        return {
+            "valid": False,
+            "error": f"路径不存在: {game_path}",
+            "found_files": [],
+            "missing_files": VALID_GAME_FILES,
+            "found_dirs": [],
+            "skill_count": _senren_skill_count(),
+            "asset_summary": _senren_asset_summary(game_path),
+            "integration_mode": "manual_companion_vn",
+        }
 
     found_files = []
     missing_files = []
@@ -311,8 +352,49 @@ def _validate_game_path(game_path: str) -> dict:
         "found_files": found_files,
         "missing_files": missing_files,
         "found_dirs": found_dirs,
+        "skill_count": _senren_skill_count(),
+        "asset_summary": _senren_asset_summary(game_path),
+        "integration_mode": "manual_companion_vn",
+        "capabilities": [
+            "validate_local_game_directory",
+            "play_web_vn_companion",
+            "load_character_skills",
+            "deepseek_scene_enrichment",
+            "record_route_choices",
+        ],
         "hint": "目录有效，可启动监视" if is_valid else f"未找到千恋万花关键文件。找到: {found_files}，缺失: {missing_files}",
     }
+
+
+def _senren_skill_count() -> int:
+    try:
+        from app.domain.senren_skills_loader import get_all_personas_cached
+
+        return len(get_all_personas_cached())
+    except Exception:
+        return 0
+
+
+def _senren_asset_summary(game_path: str | None = None) -> dict:
+    repo_root = Path(__file__).resolve().parents[3]
+    generated_root = repo_root / "frontend" / "public" / "generated" / "galgame"
+    static_root = repo_root / "frontend" / "public" / "galgame-assets"
+
+    def count_images(root: Path, folder: str) -> int:
+        target = root / folder
+        if not target.exists():
+            return 0
+        return sum(1 for item in target.iterdir() if item.is_file())
+
+    summary = {
+        "generated_backgrounds": count_images(generated_root, "background"),
+        "generated_characters": count_images(generated_root, "character"),
+        "fallback_backgrounds": count_images(static_root, "backgrounds"),
+        "fallback_sprites": count_images(static_root, "sprites"),
+    }
+    if game_path:
+        summary.update(senren_monitor_service.local_visual_asset_summary(game_path))
+    return summary
 
 
 @router.post("/local-game/validate")
@@ -354,11 +436,21 @@ def start_local_game_monitor(
     session = senren_monitor_service.get_session(result["session_id"])
     session.game_path = str(Path(game_path).absolute())
     session.game_info = validation
+    local_assets = senren_monitor_service.attach_local_visual_assets(session, session.game_path)
+    session.game_info = {
+        **validation,
+        "asset_summary": {
+            **validation.get("asset_summary", {}),
+            "local_game_images": len(local_assets.get("all", [])),
+            "local_background_candidates": len(local_assets.get("backgrounds", [])),
+            "local_character_candidates": len(local_assets.get("characters", [])),
+        },
+    }
 
     return {
         **result,
         "game_path": session.game_path,
-        "game_info": validation,
+        "game_info": session.game_info,
     }
 
 

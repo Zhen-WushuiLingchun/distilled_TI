@@ -28,6 +28,24 @@ CHARACTER_SLUG_MAP: dict[str, str] = {
 }
 
 
+def resolve_character_identity(character_name: str) -> dict[str, str]:
+    """Resolve any scene character label to the canonical skill identity."""
+    raw_name = (character_name or "").strip()
+    if not raw_name:
+        return {"source_name": "", "slug": "", "display_name": ""}
+
+    lowered = raw_name.lower()
+    all_personas = get_all_personas_cached()
+    for slug, mapped_name in CHARACTER_SLUG_MAP.items():
+        persona = all_personas.get(slug, {})
+        display_name = str(persona.get("display_name") or mapped_name or slug)
+        aliases = {slug.lower(), mapped_name.lower(), display_name.lower()}
+        if lowered in aliases or raw_name in {mapped_name, display_name}:
+            return {"source_name": raw_name, "slug": slug, "display_name": display_name}
+
+    return {"source_name": raw_name, "slug": "", "display_name": raw_name}
+
+
 def _parse_persona_md(content: str) -> dict[str, Any]:
     """解析 persona.md 的 Layer 结构"""
     result: dict[str, Any] = {
@@ -308,16 +326,15 @@ def get_storymode_character_enrichment(scene_characters: list[str]) -> dict[str,
     enriched = {}
 
     for char_name in scene_characters:
-        # 找到匹配的 slug
-        slug = None
-        for s, name in CHARACTER_SLUG_MAP.items():
-            if name == char_name or char_name in name:
-                slug = s
-                break
+        identity = resolve_character_identity(char_name)
+        slug = identity["slug"]
         if slug and slug in all_personas:
             p = all_personas[slug]
-            enriched[char_name] = {
-                "display_name": p.get("display_name", char_name),
+            key = identity["display_name"] or char_name
+            enriched[key] = {
+                "source_name": identity["source_name"],
+                "slug": slug,
+                "display_name": p.get("display_name", key),
                 "layer0": p.get("layer0", []),
                 "layer2": {
                     "tone": p.get("layer2", {}).get("tone", ""),

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     app_name: str = "Distilled TI Backend"
     api_prefix: str = "/api"
+    cors_allow_origins: str = "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001"
     session_ttl_hours: int = 1
     default_sigma: float = 1.5
     min_sigma: float = 0.35
@@ -81,6 +82,7 @@ class Settings(BaseSettings):
     galgame_audio_asset_enabled: bool = False
     galgame_turn_vector_top_k: int = 5
     galgame_free_text_inference_min_confidence: float = 0.42
+    senren_character_asset_dir: str = ".local/senren-character-assets"
     invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
     invite_bootstrap_max_uses: int = 1
     invite_default_max_uses: int = 1000

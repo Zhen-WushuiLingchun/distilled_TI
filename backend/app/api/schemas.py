@@ -276,6 +276,10 @@ class GalgameStoryTemplateAssetGenerateRequest(BaseModel):
     force: bool = False
 
 
+class SenrenCharacterAssetGenerateRequest(BaseModel):
+    force: bool = False
+
+
 class GalgameAssetGenerateResponse(BaseModel):
     assets: dict[str, GalgameAssetReference] = Field(default_factory=dict)
 

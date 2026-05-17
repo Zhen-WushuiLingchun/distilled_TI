@@ -871,6 +871,886 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   resize: vertical;
 }
 
+/* ---- Senren Paper2Gal Title Screen ------------------------------------- */
+.senren-title-stage {
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100vh - 41px);
+  overflow: hidden;
+  background: #070912;
+  color: #fff8ef;
+  padding: clamp(1rem, 3vw, 2rem);
+}
+.senren-title-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -5;
+  background-position: center;
+  background-size: cover;
+  filter: saturate(1.08) contrast(1.03);
+  transform: scale(1.03);
+}
+.senren-title-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 181, 198, 0.36), transparent 26%),
+    radial-gradient(circle at 82% 24%, rgba(115, 186, 255, 0.3), transparent 28%),
+    linear-gradient(90deg, rgba(6, 8, 15, 0.74), rgba(6, 8, 15, 0.2) 52%, rgba(6, 8, 15, 0.7)),
+    linear-gradient(180deg, rgba(6, 8, 15, 0.08), rgba(6, 8, 15, 0.74));
+}
+.senren-title-glow {
+  position: absolute;
+  inset: 0;
+  z-index: -4;
+  pointer-events: none;
+  box-shadow: inset 0 -220px 180px rgba(0, 0, 0, 0.7), inset 0 0 180px rgba(0, 0, 0, 0.52);
+}
+.senren-title-glow::before {
+  content: "";
+  position: absolute;
+  left: 6vw;
+  top: 16vh;
+  width: 48vw;
+  height: 48vw;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 159, 181, 0.32), transparent 64%);
+  filter: blur(10px);
+}
+.senren-title-hero {
+  position: relative;
+  z-index: 2;
+  min-height: calc(100vh - 41px - clamp(2rem, 6vw, 4rem));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 34rem);
+  align-items: center;
+  gap: clamp(1.2rem, 5vw, 5rem);
+  max-width: 86rem;
+  margin: 0 auto;
+}
+.senren-title-copy {
+  max-width: 48rem;
+  animation: fade-rise 520ms ease both;
+}
+.senren-title-kicker,
+.senren-title-copy strong,
+.senren-title-status span,
+.senren-title-menu span,
+.senren-title-modal span {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.senren-title-kicker {
+  color: rgba(255, 248, 239, 0.72);
+}
+.senren-title-copy h1 {
+  margin-top: 0.6rem;
+  color: #fff8ef;
+  font-size: clamp(4rem, 13vw, 11rem);
+  line-height: 0.82;
+  letter-spacing: -0.08em;
+  text-shadow: 0 20px 54px rgba(0, 0, 0, 0.52), 0 0 24px rgba(255, 159, 181, 0.26);
+}
+.senren-title-copy h1 span {
+  color: #ffb3c2;
+  margin-inline: 0.03em;
+}
+.senren-title-copy strong {
+  display: inline-flex;
+  margin-top: 1rem;
+  border: 1px solid rgba(255, 248, 239, 0.2);
+  border-radius: 999px;
+  background: rgba(7, 10, 17, 0.48);
+  color: #ffd7df;
+  padding: 0.45rem 0.75rem;
+  backdrop-filter: blur(14px);
+}
+.senren-title-copy p {
+  margin-top: 1rem;
+  max-width: 40rem;
+  color: rgba(255, 248, 239, 0.78);
+  line-height: 1.9;
+}
+.senren-title-sprite {
+  position: absolute;
+  right: clamp(1rem, 8vw, 7rem);
+  bottom: 0;
+  z-index: -1;
+  height: min(82vh, 780px);
+  width: min(44vw, 520px);
+  display: grid;
+  place-items: end center;
+  filter: drop-shadow(0 38px 44px rgba(0, 0, 0, 0.52));
+  animation: senren-character-enter 620ms ease both, character-float 6s ease-in-out 800ms infinite;
+}
+.senren-title-sprite img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+}
+.senren-title-menu {
+  justify-self: end;
+  width: min(27rem, 100%);
+  display: grid;
+  gap: 0.82rem;
+  animation: fade-rise 520ms ease 120ms both;
+}
+.senren-title-menu button {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  width: 100%;
+  min-height: 5.4rem;
+  border: 1px solid rgba(255, 248, 239, 0.24);
+  border-radius: 1.05rem;
+  background: rgba(255, 251, 241, 0.86);
+  color: #231f1b;
+  padding: 0.92rem 1.1rem;
+  text-align: left;
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+  transform: skewX(-4deg);
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+.senren-title-menu button > * {
+  display: block;
+  transform: skewX(4deg);
+}
+.senren-title-menu button::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.42rem;
+  background: linear-gradient(180deg, #ffb3c2, #78b9ff);
+}
+.senren-title-menu button:hover:not(:disabled) {
+  transform: translateX(-8px) skewX(-4deg);
+  border-color: rgba(255, 211, 126, 0.72);
+  box-shadow: 0 26px 68px rgba(0, 0, 0, 0.36), 0 0 0 2px rgba(255, 179, 194, 0.18);
+}
+.senren-title-menu button.is-primary {
+  background:
+    linear-gradient(135deg, rgba(255, 219, 228, 0.96), rgba(211, 234, 255, 0.9)),
+    rgba(255, 255, 255, 0.9);
+}
+.senren-title-menu button span {
+  color: rgba(35, 31, 27, 0.5);
+}
+.senren-title-menu button strong {
+  margin-top: 0.2rem;
+  color: #231f1b;
+  font-family: var(--font-display), serif;
+  font-size: 1.28rem;
+}
+.senren-title-menu button em {
+  margin-top: 0.28rem;
+  color: rgba(35, 31, 27, 0.62);
+  font-size: 0.82rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+.senren-title-status {
+  position: absolute;
+  z-index: 4;
+  left: clamp(1rem, 3vw, 2rem);
+  right: clamp(1rem, 3vw, 2rem);
+  bottom: clamp(1rem, 3vw, 2rem);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  max-width: 58rem;
+}
+.senren-title-status div {
+  border: 1px solid rgba(255, 248, 239, 0.18);
+  border-radius: 1rem;
+  background: rgba(7, 10, 17, 0.46);
+  padding: 0.78rem 0.9rem;
+  backdrop-filter: blur(16px);
+}
+.senren-title-status span {
+  color: rgba(255, 248, 239, 0.52);
+}
+.senren-title-status strong {
+  display: block;
+  margin-top: 0.2rem;
+  color: #fff8ef;
+  font-size: 1.35rem;
+}
+.senren-title-status p {
+  margin-top: 0.25rem;
+  color: rgba(255, 248, 239, 0.66);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.senren-title-toast {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  bottom: 1.2rem;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 248, 239, 0.22);
+  border-radius: 999px;
+  background: rgba(7, 10, 17, 0.72);
+  color: #fff8ef;
+  padding: 0.6rem 0.9rem;
+  backdrop-filter: blur(16px);
+}
+.senren-title-toast.is-error {
+  color: #ffd4d4;
+  border-color: rgba(255, 160, 160, 0.42);
+}
+.senren-title-modal-backdrop {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(4, 7, 13, 0.74);
+  backdrop-filter: blur(16px);
+}
+.senren-title-modal {
+  width: min(58rem, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  border: 1px solid rgba(255, 248, 239, 0.25);
+  border-radius: 1.35rem;
+  background:
+    linear-gradient(135deg, rgba(255, 252, 244, 0.98), rgba(232, 242, 249, 0.95)),
+    #fffaf2;
+  color: #231f1b;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  box-shadow: 0 34px 110px rgba(0, 0, 0, 0.5);
+}
+.senren-title-modal.is-compact {
+  width: min(44rem, 100%);
+}
+.senren-title-modal header,
+.senren-title-modal footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.senren-title-modal h2 {
+  margin-top: 0.25rem;
+  color: #231f1b;
+  font-size: clamp(1.65rem, 3vw, 2.4rem);
+}
+.senren-title-modal header button,
+.senren-title-modal footer button,
+.senren-title-path-row button {
+  border: 1px solid rgba(35, 31, 27, 0.12);
+  border-radius: 999px;
+  background: rgba(35, 31, 27, 0.06);
+  color: #231f1b;
+  padding: 0.58rem 0.9rem;
+}
+.senren-title-modal footer button.is-primary,
+.senren-title-path-row button {
+  background: #2f6f5e;
+  color: #fff8ef;
+}
+.senren-title-modal footer button.is-ghost {
+  background: transparent;
+}
+.senren-title-modal-lead {
+  margin-top: 1rem;
+  color: rgba(35, 31, 27, 0.68);
+  line-height: 1.8;
+}
+.senren-title-path-row {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+}
+.senren-title-path-row input {
+  width: 100%;
+  border: 1px solid rgba(35, 31, 27, 0.13);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #231f1b;
+  padding: 0.78rem 1rem;
+  outline: none;
+}
+.senren-title-validation {
+  margin-top: 1rem;
+  border: 1px solid rgba(35, 31, 27, 0.1);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.62);
+  padding: 1rem;
+}
+.senren-title-validation.is-valid {
+  border-color: rgba(47, 111, 94, 0.28);
+  background: rgba(226, 242, 236, 0.72);
+}
+.senren-title-validation.is-invalid {
+  border-color: rgba(163, 48, 42, 0.28);
+  background: rgba(250, 228, 224, 0.72);
+}
+.senren-title-validation strong {
+  display: block;
+  margin-top: 0.25rem;
+}
+.senren-title-validation p {
+  margin-top: 0.6rem;
+  color: rgba(35, 31, 27, 0.7);
+  font-size: 0.86rem;
+}
+.senren-title-validation-grid {
+  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+.senren-title-validation-grid div {
+  border: 1px solid rgba(35, 31, 27, 0.08);
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 0.65rem;
+}
+.senren-title-validation-grid span {
+  color: rgba(35, 31, 27, 0.52);
+}
+.senren-title-validation-grid strong {
+  margin-top: 0.15rem;
+  font-size: 1.3rem;
+}
+.senren-title-modal footer {
+  margin-top: 1.1rem;
+  justify-content: flex-end;
+}
+.senren-title-notes {
+  display: grid;
+  gap: 0.8rem;
+}
+.senren-title-notes article {
+  border: 1px solid rgba(35, 31, 27, 0.09);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.58);
+  padding: 0.9rem;
+}
+.senren-title-notes p {
+  margin-top: 0.45rem;
+  color: rgba(35, 31, 27, 0.68);
+  line-height: 1.7;
+}
+@media (max-width: 900px) {
+  .senren-title-stage {
+    min-height: 100svh;
+    padding-bottom: 13rem;
+  }
+  .senren-title-hero {
+    min-height: auto;
+    display: block;
+  }
+  .senren-title-copy h1 {
+    font-size: clamp(3.6rem, 20vw, 6rem);
+  }
+  .senren-title-sprite {
+    right: -4rem;
+    bottom: 8rem;
+    width: 68vw;
+    height: 48vh;
+    opacity: 0.58;
+  }
+  .senren-title-menu {
+    margin-top: 2rem;
+    justify-self: stretch;
+    width: 100%;
+  }
+  .senren-title-status {
+    grid-template-columns: 1fr;
+  }
+  .senren-title-path-row,
+  .senren-title-validation-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Senren Local VN ---------------------------------------------------- */
+.senren-vn-stage {
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100vh - 41px);
+  overflow: hidden;
+  background: #080b12;
+  color: #fff8ea;
+  font-family: var(--font-body), "Noto Serif SC", serif;
+}
+.senren-vn-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -4;
+  background-position: center;
+  background-size: cover;
+  filter: saturate(1.08) contrast(1.04);
+  transform: scale(1.02);
+}
+.senren-vn-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 72% 26%, rgba(255, 226, 156, 0.28), transparent 24%),
+    linear-gradient(90deg, rgba(4, 7, 13, 0.74), rgba(4, 7, 13, 0.18) 48%, rgba(4, 7, 13, 0.64)),
+    linear-gradient(180deg, rgba(4, 7, 13, 0.18), rgba(4, 7, 13, 0.7));
+}
+.senren-vn-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  pointer-events: none;
+  box-shadow: inset 0 -220px 180px rgba(0, 0, 0, 0.74), inset 0 0 180px rgba(0, 0, 0, 0.5);
+}
+.senren-vn-vignette::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.13;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.28) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(circle at 50% 42%, black, transparent 78%);
+}
+.senren-vn-header {
+  position: absolute;
+  z-index: 5;
+  top: clamp(1rem, 3vw, 2rem);
+  left: clamp(1rem, 3vw, 2rem);
+  right: clamp(1rem, 3vw, 2rem);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  pointer-events: none;
+}
+.senren-vn-header p,
+.senren-vn-header span {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  color: rgba(255, 248, 234, 0.68);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.senren-vn-header h1 {
+  margin-top: 0.35rem;
+  max-width: min(46rem, 68vw);
+  color: #fff8ea;
+  font-size: clamp(2.6rem, 7vw, 6.8rem);
+  line-height: 0.92;
+  letter-spacing: -0.055em;
+  text-shadow: 0 18px 44px rgba(0, 0, 0, 0.58);
+}
+.senren-vn-tags {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-width: 28rem;
+}
+.senren-vn-tags span,
+.senren-vn-pill {
+  border: 1px solid rgba(255, 248, 234, 0.22);
+  border-radius: 999px;
+  background: rgba(7, 10, 16, 0.58);
+  color: #fff8ea;
+  padding: 0.48rem 0.72rem;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
+}
+.senren-vn-character {
+  position: absolute;
+  z-index: -1;
+  right: clamp(2rem, 9vw, 10rem);
+  bottom: clamp(8rem, 14vh, 10rem);
+  height: min(78vh, 760px);
+  width: min(42vw, 520px);
+  display: grid;
+  place-items: end center;
+  pointer-events: none;
+  animation: senren-character-enter 520ms ease both, character-float 6s ease-in-out 620ms infinite;
+  filter: drop-shadow(0 36px 42px rgba(0, 0, 0, 0.52));
+}
+.senren-vn-character img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+}
+.senren-vn-choice-stack {
+  position: absolute;
+  z-index: 7;
+  left: clamp(1rem, 4vw, 4rem);
+  top: clamp(8rem, 22vh, 15rem);
+  display: grid;
+  width: min(36rem, calc(100vw - 2rem));
+  gap: 0.75rem;
+}
+.senren-vn-choice-stack button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid rgba(255, 248, 234, 0.36);
+  border-left: 5px solid #f3bc55;
+  border-radius: 1rem;
+  background:
+    linear-gradient(135deg, rgba(255, 252, 240, 0.94), rgba(231, 241, 236, 0.82)),
+    rgba(255, 255, 255, 0.84);
+  color: #211d19;
+  padding: 0.95rem 1.1rem;
+  text-align: left;
+  line-height: 1.45;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+  animation: choice-rise 420ms ease both;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+.senren-vn-choice-stack button:hover:not(:disabled) {
+  transform: translateX(6px);
+  border-left-color: #4bb59a;
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.34), 0 0 0 2px rgba(75, 181, 154, 0.2);
+}
+.senren-vn-choice-stack button:disabled { opacity: 0.62; }
+.senren-vn-choice-stack em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(47, 111, 94, 0.12);
+  color: #1d594b;
+  padding: 0.22rem 0.58rem;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 700;
+}
+.senren-vn-dialogue {
+  position: absolute;
+  z-index: 8;
+  left: clamp(1rem, 4vw, 4rem);
+  right: clamp(1rem, 4vw, 4rem);
+  bottom: clamp(3.8rem, 8vh, 5.4rem);
+  min-height: 13.5rem;
+  border: 1px solid rgba(255, 248, 234, 0.3);
+  border-radius: 1.5rem 1.5rem 0.7rem 0.7rem;
+  background:
+    linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(232, 242, 235, 0.9)),
+    rgba(255, 255, 255, 0.88);
+  color: #211d19;
+  padding: clamp(1rem, 2vw, 1.45rem);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(24px);
+}
+.senren-vn-nameplate {
+  position: absolute;
+  left: 1.35rem;
+  top: -1.15rem;
+  min-width: 8.5rem;
+  border: 1px solid rgba(255, 248, 234, 0.42);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #213a45, #b97a35);
+  color: #fff8ea;
+  padding: 0.5rem 1.05rem;
+  font-family: var(--font-display), serif;
+  font-size: 1rem;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+.senren-vn-narrator {
+  margin-top: 0.4rem;
+  max-width: 78rem;
+  color: rgba(33, 29, 25, 0.62);
+  font-size: 0.94rem;
+  line-height: 1.75;
+}
+.senren-vn-line {
+  margin-top: 0.55rem;
+  min-height: 4.5rem;
+  max-width: 74rem;
+  color: #16130f;
+  font-family: var(--font-display), "Noto Serif SC", serif;
+  font-size: clamp(1.18rem, 2vw, 1.75rem);
+  font-weight: 600;
+  line-height: 1.75;
+}
+.senren-vn-caret {
+  display: inline-block;
+  width: 0.55rem;
+  height: 1.2em;
+  margin-left: 0.2rem;
+  background: #2f6f5e;
+  vertical-align: -0.18em;
+  animation: caret-blink 860ms steps(2, start) infinite;
+}
+.senren-vn-report-button {
+  margin-top: 0.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: #2f6f5e;
+  color: #fff8ea;
+  padding: 0.7rem 1.1rem;
+}
+.senren-vn-error-line {
+  margin-top: 0.6rem;
+  color: #8e2b25;
+  font-size: 0.85rem;
+}
+.senren-vn-controls {
+  position: absolute;
+  z-index: 10;
+  right: clamp(1rem, 4vw, 3.2rem);
+  bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+.senren-vn-controls button,
+.senren-vn-restore,
+.senren-vn-exit {
+  border: 1px solid rgba(255, 248, 234, 0.24);
+  border-radius: 999px;
+  background: rgba(7, 10, 16, 0.56);
+  color: #fff8ea;
+  padding: 0.5rem 0.78rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  backdrop-filter: blur(16px);
+  transition: transform 150ms ease, background 150ms ease;
+}
+.senren-vn-controls button:hover,
+.senren-vn-controls button.is-active,
+.senren-vn-restore:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 248, 234, 0.18);
+}
+.senren-vn-restore {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 20;
+}
+.senren-vn-exit {
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  z-index: 20;
+}
+.senren-vn-local-card {
+  position: absolute;
+  z-index: 6;
+  right: clamp(1rem, 4vw, 3.2rem);
+  top: clamp(6rem, 16vh, 10rem);
+  width: min(22rem, calc(100vw - 2rem));
+  border: 1px solid rgba(255, 248, 234, 0.18);
+  border-radius: 1.1rem;
+  background: rgba(7, 10, 16, 0.5);
+  color: rgba(255, 248, 234, 0.76);
+  padding: 1rem;
+  backdrop-filter: blur(16px);
+}
+.senren-vn-local-card span,
+.senren-vn-loading span,
+.senren-vn-modal header button,
+.senren-vn-workbench section > span,
+.senren-vn-skill-grid article > span {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.senren-vn-local-card strong {
+  display: block;
+  margin-top: 0.35rem;
+  color: #fff8ea;
+}
+.senren-vn-local-card p {
+  margin-top: 0.35rem;
+  word-break: break-all;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.senren-vn-loading,
+.senren-vn-busy {
+  position: absolute;
+  z-index: 10;
+  left: 50%;
+  top: 50%;
+  width: min(34rem, calc(100vw - 2rem));
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 248, 234, 0.22);
+  border-radius: 1.4rem;
+  background: rgba(7, 10, 16, 0.68);
+  padding: 1.4rem;
+  text-align: center;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(18px);
+}
+.senren-vn-loading strong,
+.senren-vn-busy strong {
+  display: block;
+  margin-top: 0.4rem;
+  color: #fff8ea;
+  font-size: 1.45rem;
+}
+.senren-vn-loading p,
+.senren-vn-busy span {
+  display: block;
+  margin-top: 0.45rem;
+  color: rgba(255, 248, 234, 0.7);
+}
+.senren-vn-modal-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(4, 7, 13, 0.72);
+  backdrop-filter: blur(14px);
+}
+.senren-vn-modal {
+  width: min(72rem, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  border: 1px solid rgba(255, 248, 234, 0.26);
+  border-radius: 1.4rem;
+  background:
+    linear-gradient(135deg, rgba(255, 252, 242, 0.98), rgba(231, 241, 236, 0.95)),
+    #fffaf1;
+  color: #211d19;
+  padding: clamp(1rem, 3vw, 1.6rem);
+  box-shadow: 0 30px 110px rgba(0, 0, 0, 0.48);
+}
+.senren-vn-modal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.senren-vn-modal h2,
+.senren-vn-modal h3 {
+  color: #211d19;
+}
+.senren-vn-modal header button {
+  border: 1px solid rgba(33, 29, 25, 0.14);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(33, 29, 25, 0.62);
+  padding: 0.45rem 0.75rem;
+}
+.senren-vn-log-list,
+.senren-vn-skill-grid,
+.senren-vn-workbench {
+  display: grid;
+  gap: 0.85rem;
+}
+.senren-vn-skill-grid {
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+.senren-vn-log-list article,
+.senren-vn-skill-grid article,
+.senren-vn-workbench section {
+  border: 1px solid rgba(33, 29, 25, 0.08);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.64);
+  padding: 0.95rem;
+}
+.senren-vn-log-list span,
+.senren-vn-skill-grid span,
+.senren-vn-workbench span {
+  color: rgba(33, 29, 25, 0.48);
+}
+.senren-vn-log-list p,
+.senren-vn-skill-grid p,
+.senren-vn-workbench p {
+  margin-top: 0.45rem;
+  line-height: 1.65;
+}
+.senren-vn-log-list strong,
+.senren-vn-skill-grid em {
+  display: block;
+  margin-top: 0.45rem;
+  color: #2f6f5e;
+}
+.senren-vn-skill-grid ul {
+  margin-top: 0.55rem;
+  padding-left: 1rem;
+  color: rgba(33, 29, 25, 0.72);
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+.senren-vn-meter {
+  margin-top: 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 0.7rem;
+  background: rgba(47, 111, 94, 0.08);
+  padding: 0.52rem 0.7rem;
+}
+.senren-vn-meter em {
+  color: #2f6f5e;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+.senren-vn-empty {
+  color: rgba(33, 29, 25, 0.58);
+}
+.is-senren-hidden .senren-vn-header,
+.is-senren-hidden .senren-vn-character,
+.is-senren-hidden .senren-vn-choice-stack,
+.is-senren-hidden .senren-vn-dialogue,
+.is-senren-hidden .senren-vn-controls,
+.is-senren-hidden .senren-vn-local-card {
+  opacity: 0;
+  pointer-events: none;
+}
+@media (max-width: 900px) {
+  .senren-vn-stage { min-height: 100svh; }
+  .senren-vn-header {
+    display: block;
+  }
+  .senren-vn-header h1 {
+    max-width: 100%;
+    font-size: clamp(2.2rem, 12vw, 4.4rem);
+  }
+  .senren-vn-tags {
+    justify-content: flex-start;
+    margin-top: 0.8rem;
+  }
+  .senren-vn-character {
+    right: -2.6rem;
+    bottom: 18rem;
+    width: 62vw;
+    height: 48vh;
+    opacity: 0.75;
+  }
+  .senren-vn-choice-stack {
+    top: auto;
+    left: 0.8rem;
+    right: 0.8rem;
+    bottom: 19.2rem;
+    width: auto;
+  }
+  .senren-vn-dialogue {
+    left: 0.8rem;
+    right: 0.8rem;
+    bottom: 4rem;
+    min-height: 13rem;
+  }
+  .senren-vn-local-card { display: none; }
+}
+@keyframes senren-character-enter {
+  from { opacity: 0; transform: translateX(28px) translateY(8px); }
+  to   { opacity: 1; transform: translateX(0) translateY(0); }
+}
+
 .share-shell {
   min-height: 100vh;
   display: grid;
