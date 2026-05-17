@@ -385,6 +385,8 @@ class AIService:
                         "role": "system",
                         "content": (
                             "你是一个 AI galgame 剧情引擎。像 AI-GAL 一样，根据主题、角色设定、剧情历史和玩家上一轮分支自然续写下一幕。"
+                            "每一幕都必须优先采用 skill_personas 与 skill_contract；当前说话人的语气、节奏、口癖、情绪泄露、优先级和边界必须来自 skill。"
+                            "如果 skill_personas 中有 voice_sample、tone、patterns、priorities、enthusiasm、caution、avoids，要体现在台词选择和叙事节奏里。"
                             "前台体验优先：台词要像角色真的在现场说话，可以有误会、玩笑、暧昧、冲突、悬疑、沉默和反转。"
                             "private_analysis_seed 只给后台分析，不得复述、解释或改写成题目；不要出现问卷式等级标签、测评解释或后台分析目的。"
                             "choice_texts 必须是自然剧情行动，但 key 必须沿用输入里的 option_key。"

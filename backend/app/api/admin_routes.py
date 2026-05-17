@@ -31,6 +31,7 @@ from app.api.schemas import (
     RelationshipListResponse,
     RewriteQuestionRequest,
     RewriteQuestionResponse,
+    SenrenCharacterAssetGenerateRequest,
     SessionAccessIssueResponse,
     SessionHistoryListResponse,
     TemplateListResponse,
@@ -250,6 +251,26 @@ def generate_galgame_asset(payload: GalgameAssetGenerateRequest, request: Reques
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"galgame_asset_generation_failed: {exc}") from exc
     return GalgameAssetGenerateResponse(assets={asset.kind: asset})
+
+
+@router.post("/admin/galgame/assets/senren-characters", response_model=GalgameAssetGenerateResponse)
+def generate_senren_character_assets(
+    payload: SenrenCharacterAssetGenerateRequest,
+    request: Request,
+) -> GalgameAssetGenerateResponse:
+    require_local_admin(request)
+    try:
+        from app.domain.senren_skills_loader import get_all_personas_cached
+
+        assets = galgame_asset_service.generate_senren_character_assets(
+            personas=get_all_personas_cached(),
+            force=payload.force,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"senren_character_asset_generation_failed: {exc}") from exc
+    return GalgameAssetGenerateResponse(assets=assets)
 
 
 @router.post("/admin/galgame/assets/cleanup", response_model=GalgameAssetCleanupResponse)

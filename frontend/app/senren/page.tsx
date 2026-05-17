@@ -1,20 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { SenrenLocalSetupModal } from "@/components/senren-vn/SenrenLocalSetupModal";
+import { SenrenTitleScreen } from "@/components/senren-vn/SenrenTitleScreen";
+import type { ApiErrorPayload, PersonaOverview, SenrenMode, ValidationResult } from "@/components/senren-vn/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
-
-type ApiErrorPayload = {
-  detail?: string;
-};
 
 export default function SenrenLandingPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showLocalSetup, setShowLocalSetup] = useState(false);
+  const [showCredits, setShowCredits] = useState(false);
+  const [gamePath, setGamePath] = useState("");
+  const [validating, setValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [personaOverview, setPersonaOverview] = useState<PersonaOverview | null>(null);
 
-  async function startSession(mode: "monitor" | "story") {
+  useEffect(() => {
+    void fetchPersonaOverview();
+  }, []);
+
+  async function fetchPersonaOverview() {
+    try {
+      const res = await fetch(`${API_BASE}/senren/skills/personas`);
+      if (res.ok) setPersonaOverview(await res.json());
+    } catch {
+      // Landing remains usable without the overview.
+    }
+  }
+
+  async function startSession(mode: Extract<SenrenMode, "monitor" | "story">) {
     setLoading(true);
     setError("");
     try {
@@ -28,11 +46,60 @@ export default function SenrenLandingPage() {
       }
       const data = await res.json();
 
-      // Store credentials in sessionStorage for the monitor page
       sessionStorage.setItem("senren_session_id", data.session_id);
       sessionStorage.setItem("senren_session_secret", data.session_secret);
       sessionStorage.setItem("senren_delete_token", data.delete_token);
       sessionStorage.setItem("senren_mode", mode);
+      sessionStorage.removeItem("senren_game_path");
+
+      router.push("/senren/monitor");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "启动失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function validateGamePath() {
+    if (!gamePath.trim()) return;
+    setValidating(true);
+    setValidationResult(null);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/senren/local-game/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ game_path: gamePath.trim() }),
+      });
+      setValidationResult(await res.json());
+    } catch {
+      setValidationResult({ valid: false, hint: "验证请求失败，请检查后端服务。" });
+    } finally {
+      setValidating(false);
+    }
+  }
+
+  async function startLocalGame() {
+    if (!validationResult?.valid) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/senren/local-game/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ game_path: gamePath.trim(), mode: "local" }),
+      });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => ({}))) as ApiErrorPayload;
+        throw new Error(detail.detail || `Server error ${res.status}`);
+      }
+      const data = await res.json();
+
+      sessionStorage.setItem("senren_session_id", data.session_id);
+      sessionStorage.setItem("senren_session_secret", data.session_secret);
+      sessionStorage.setItem("senren_delete_token", data.delete_token);
+      sessionStorage.setItem("senren_mode", "local");
+      sessionStorage.setItem("senren_game_path", gamePath.trim());
 
       router.push("/senren/monitor");
     } catch (err: unknown) {
@@ -43,78 +110,67 @@ export default function SenrenLandingPage() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-41px)] flex flex-col items-center justify-center px-4 py-12">
-      {/* 标题区域 */}
-      <div className="text-center max-w-2xl fade-rise">
-        <p className="senren-subtitle mb-3 tracking-[0.15em]">SENREN * BANKA</p>
-        <h1 className="senren-title text-4xl md:text-5xl font-semibold mb-4">
-          千恋＊万花
-        </h1>
-        <p className="senren-subtitle text-lg mb-2">人格监视器</p>
-        <p className="text-[var(--senren-ink-muted)] text-sm mt-6 leading-relaxed max-w-md mx-auto">
-          在穗织镇的羁绊中，每一个选择都在刻画出你独特的人格轮廓。
-          <br />
-          追踪你的游戏选择，实时映射深层行为倾向。
-        </p>
-      </div>
+    <main className="senren-title-stage">
+      <SenrenTitleScreen
+        loading={loading}
+        error={error}
+        personaOverview={personaOverview}
+        onStartMode={startSession}
+        onOpenLocalSetup={() => setShowLocalSetup(true)}
+        onOpenCredits={() => setShowCredits(true)}
+      />
 
-      {/* 模式选择 */}
-      <div className="mt-10 grid gap-4 w-full max-w-lg fade-rise" style={{ animationDelay: "150ms" }}>
-        <button
-          onClick={() => startSession("monitor")}
-          disabled={loading}
-          className="senren-choice-btn text-left group"
-        >
-          <div className="flex items-start gap-3">
-            <span className="senren-pulse mt-0.5 shrink-0" />
-            <div>
-              <p className="text-[var(--senren-ink-strong)] font-medium mb-1">
-                实时监视模式
-              </p>
-              <p className="text-xs text-[var(--senren-ink-muted)] leading-relaxed">
-                一边游玩千恋万花，一边在监视器上记录你的选择。
-                系统会实时更新你的人格画像和角色契合度。
-              </p>
-            </div>
-          </div>
-        </button>
-
-        <button
-          onClick={() => startSession("story")}
-          disabled={loading}
-          className="senren-choice-btn text-left"
-        >
-          <div className="flex items-start gap-3">
-            <span className="w-2 h-2 rounded-full bg-[var(--senren-gold)] mt-0.5 shrink-0" />
-            <div>
-              <p className="text-[var(--senren-ink-strong)] font-medium mb-1">
-                独立故事模式
-              </p>
-              <p className="text-xs text-[var(--senren-ink-muted)] leading-relaxed">
-                以视觉小说风格依次呈现游戏中的关键选择场景。
-                无需运行游戏，即可完成人格测试。
-              </p>
-            </div>
-          </div>
-        </button>
-      </div>
-
-      {/* 加载/错误 */}
-      {loading && (
-        <p className="mt-6 text-sm text-[var(--senren-ink-muted)] animate-pulse">
-          正在启动监视器...
-        </p>
-      )}
-      {error && (
-        <p className="mt-6 text-sm text-[var(--senren-sakura)]">{error}</p>
+      {showLocalSetup && (
+        <SenrenLocalSetupModal
+          gamePath={gamePath}
+          validationResult={validationResult}
+          personaOverview={personaOverview}
+          validating={validating}
+          loading={loading}
+          onGamePathChange={setGamePath}
+          onValidate={validateGamePath}
+          onStartLocalGame={startLocalGame}
+          onClose={() => setShowLocalSetup(false)}
+        />
       )}
 
-      {/* 底部提示 */}
-      <p className="mt-16 text-xs text-[var(--senren-ink-dim)] text-center max-w-sm leading-relaxed">
-        本工具为娱乐性人格映射系统，不构成心理学诊断。
-        <br />
-        千恋＊万花 © YUZUSOFT
-      </p>
+      {showCredits && <RuntimeNotesModal onClose={() => setShowCredits(false)} />}
     </main>
+  );
+}
+
+function RuntimeNotesModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="senren-title-modal-backdrop" onClick={onClose}>
+      <div className="senren-title-modal is-compact" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <div>
+            <span>Runtime Notes</span>
+            <h2>当前实现边界</h2>
+          </div>
+          <button onClick={onClose}>Close</button>
+        </header>
+        <div className="senren-title-notes">
+          <article>
+            <strong>结构</strong>
+            <p>
+              按 Paper2Gal 的 Title / Setup / Game screen 拆分，但没有复制其源码；当前仓库只保留等价架构和交互模型。
+            </p>
+          </article>
+          <article>
+            <strong>内容</strong>
+            <p>使用 Senren choice tree、9 个角色 skills、已生成 SD/本地资产，并通过 DeepSeek-compatible provider 做场景润色。</p>
+          </article>
+          <article>
+            <strong>测量 API</strong>
+            <p>VN 层只负责展示和提交选择；心理测量、embedding、聚类与报告分析都通过容器回调/后端接口接入。</p>
+          </article>
+          <article>
+            <strong>当前限制</strong>
+            <p>本地游戏目录只用于合法性/存在性校验；目前不 hook 原游戏进程、不读取原游戏存档、不修改原游戏文件。</p>
+          </article>
+        </div>
+      </div>
+    </div>
   );
 }

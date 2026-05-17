@@ -1,0 +1,43 @@
+{
+  "name": "鞍马小春",
+  "display_name": "小春",
+  "slug": "koharu",
+  "character": "celebrity",
+  "created_at": "2026-05-14T00:00:00Z",
+  "version": "v1",
+  "profile": {
+    "role": "弓道少女",
+    "origin": "穗织镇·鞍马家",
+    "age": "17岁"
+  },
+  "tags": {
+    "personality": [
+      "弓道",
+      "坚强",
+      "独立",
+      "完美主义",
+      "守诺",
+      "二周目",
+      "小春线"
+    ],
+    "source": "千恋＊万花 (YUZUSOFT)"
+  },
+  "impression": "神社的弓道少女，在弓道场上英姿飒爽，在学校也品学兼优。坚强独立到让人心疼，把所有的'应该'和'必须'扛在自己肩上。偶尔露出的笑容比任何人都更动人。",
+  "knowledge_sources": [
+    "千恋万花游戏剧本",
+    "角色攻略/Walkthrough",
+    "社区Wiki"
+  ],
+  "personality_traits": {
+    "social_initiative": 0.1,
+    "social_stimulation_tolerance": 0.4,
+    "planning_preference": 0.5,
+    "autonomous_judgment": 0.6,
+    "execution_drive": 0.7,
+    "emotional_stability": 0.5,
+    "risk_tolerance": 0.0,
+    "competition_cooperation": 0.3,
+    "abstraction_tendency": 0.2,
+    "novelty_seeking": -0.1
+  }
+}

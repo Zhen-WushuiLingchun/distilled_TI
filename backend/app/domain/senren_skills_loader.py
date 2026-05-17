@@ -1,0 +1,355 @@
+"""千恋万花角色 Skills 人设加载器
+
+从 skills/ 目录加载 9 个角色的 Layer 0-5 人格定义，
+用于 storymode 角色对话生成和前端 persona 卡片展示。
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+# skills 目录相对于项目根目录
+_SKILLS_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "skills"
+
+# 角色 slug → 展示名 映射
+CHARACTER_SLUG_MAP: dict[str, str] = {
+    "yoshino": "芳乃",
+    "murasame": "丛雨",
+    "mako": "茉子",
+    "lena": "蕾娜",
+    "koharu": "小春",
+    "roka": "芦花",
+    "masamichi": "将臣",
+    "rentarou": "廉太郎",
+    "takafumi": "隆文",
+}
+
+
+def resolve_character_identity(character_name: str) -> dict[str, str]:
+    """Resolve any scene character label to the canonical skill identity."""
+    raw_name = (character_name or "").strip()
+    if not raw_name:
+        return {"source_name": "", "slug": "", "display_name": ""}
+
+    lowered = raw_name.lower()
+    all_personas = get_all_personas_cached()
+    for slug, mapped_name in CHARACTER_SLUG_MAP.items():
+        persona = all_personas.get(slug, {})
+        display_name = str(persona.get("display_name") or mapped_name or slug)
+        aliases = {slug.lower(), mapped_name.lower(), display_name.lower()}
+        if lowered in aliases or raw_name in {mapped_name, display_name}:
+            return {"source_name": raw_name, "slug": slug, "display_name": display_name}
+
+    return {"source_name": raw_name, "slug": "", "display_name": raw_name}
+
+
+def _parse_persona_md(content: str) -> dict[str, Any]:
+    """解析 persona.md 的 Layer 结构"""
+    result: dict[str, Any] = {
+        "layer0": [],
+        "layer1": {},
+        "layer2": {},
+        "layer3": {},
+        "layer4": {},
+        "layer5": {},
+    }
+
+    # Layer 0：核心性格（bullet list）
+    l0_match = re.search(r"## Layer 0[：:].*?\n\n(.*?)(?=\n---|\n## Layer)", content, re.DOTALL)
+    if l0_match:
+        result["layer0"] = [
+            line.strip("- ").strip()
+            for line in l0_match.group(1).strip().split("\n")
+            if line.strip().startswith("-")
+        ]
+
+    # Layer 1：身份描述
+    l1_match = re.search(r"## Layer 1[：:].*?\n\n(.*?)(?=\n---|\n## )", content, re.DOTALL)
+    if l1_match:
+        l1_text = l1_match.group(1).strip()
+        # 提取角色路线描述
+        route_match = re.search(r"角色路线[：:](.*?)(?=\n\n|$)", l1_text, re.DOTALL)
+        impression_match = re.search(r"有人这样描述你[：:]\s*[「「](.*?)[」」]", l1_text, re.DOTALL)
+        result["layer1"] = {
+            "full_text": l1_text,
+            "route": route_match.group(1).strip() if route_match else "",
+            "impression": impression_match.group(1).strip() if impression_match else "",
+        }
+
+    # Layer 2：表达风格
+    l2_match = re.search(r"## Layer 2[：:].*?\n\n(.*?)(?=\n---|\n## Layer)", content, re.DOTALL)
+    if l2_match:
+        l2_text = l2_match.group(1).strip()
+        result["layer2"] = _parse_layer2(l2_text)
+
+    # Layer 3：决策与判断
+    l3_match = re.search(r"## Layer 3[：:].*?\n\n(.*?)(?=\n---|\n## Layer)", content, re.DOTALL)
+    if l3_match:
+        l3_text = l3_match.group(1).strip()
+        result["layer3"] = _parse_layer3(l3_text)
+
+    # Layer 4：人际行为
+    l4_match = re.search(r"## Layer 4[：:].*?\n\n(.*?)(?=\n---|\n## Layer)", content, re.DOTALL)
+    if l4_match:
+        l4_text = l4_match.group(1).strip()
+        result["layer4"] = _parse_layer4(l4_text)
+
+    # Layer 5：边界与雷区
+    l5_match = re.search(r"## Layer 5[：:].*?\n\n(.*?)(?=\n---|\n## )", content, re.DOTALL)
+    if l5_match:
+        l5_text = l5_match.group(1).strip()
+        result["layer5"] = _parse_layer5(l5_text)
+
+    return result
+
+
+def _parse_layer2(text: str) -> dict[str, Any]:
+    """解析表达风格层"""
+    result: dict[str, Any] = {}
+    # 标志性台词
+    voice_match = re.search(r"[>＞]\s*[「「](.*?)[」」]", text)
+    if voice_match:
+        result["voice_sample"] = voice_match.group(1).strip()
+    # 高频词
+    kw_match = re.search(r"高频词[：:]\s*(.*?)$", text, re.MULTILINE)
+    if kw_match:
+        result["signature_phrases"] = [p.strip() for p in kw_match.group(1).split("、")]
+    # 语速
+    pace_match = re.search(r"语速[：:]\s*(.*?)$", text, re.MULTILINE)
+    if pace_match:
+        result["speaking_pace"] = pace_match.group(1).strip()
+    # 敬语
+    honorifics_match = re.search(r"敬语使用[：:]\s*(.*?)$", text, re.MULTILINE)
+    if honorifics_match:
+        result["honorifics"] = honorifics_match.group(1).strip()
+    # 语气
+    tone_match = re.search(r"语气[：:]\s*(.*?)$", text, re.MULTILINE)
+    if tone_match:
+        result["tone"] = tone_match.group(1).strip()
+    # 标志性句式
+    pattern_match = re.search(r"标志性句式[：:]\s*(.*?)$", text, re.MULTILINE)
+    if pattern_match:
+        result["patterns"] = [p.strip() for p in pattern_match.group(1).split(",")]
+    # 情感泄密
+    tells_match = re.search(r"情感泄密[：:]\s*(.*?)$", text, re.MULTILINE)
+    if tells_match:
+        result["emotional_tells"] = tells_match.group(1).strip()
+    return result
+
+
+def _parse_layer3(text: str) -> dict[str, Any]:
+    """解析决策判断层"""
+    parsed = _parse_section_by_headings(text, {
+        "enthusiasm": r"会积极|会积极推进",
+        "caution": r"会谨慎|会谨慎对待",
+        "how_to_say_no": r"如何说.*不",
+        "how_to_handle_doubt": r"如何面对质疑",
+    })
+    result: dict[str, Any] = dict(parsed)
+
+    # 提取优先级（可能在开头，不在 ### 标题中）
+    prio_match = re.search(r"(?:###\s*)?优先级[：:]*\s*\n?(.+?)(?=\n###|\n\n\*\*|\Z)", text, re.DOTALL)
+    if prio_match:
+        result["priorities"] = prio_match.group(1).strip()
+
+    # 将 bullet 列表转为数组
+    for key in ("enthusiasm", "caution"):
+        if key in result and isinstance(result[key], str):
+            result[key] = [
+                line.strip("- ").strip()
+                for line in result[key].split("\n")
+                if line.strip().startswith("-")
+            ]
+    return result
+
+
+def _parse_section_by_headings(text: str, heading_map: dict[str, str]) -> dict[str, str]:
+    """通用章节解析：按 ### 标题分割，再按 heading_map 中的中文标签匹配"""
+    result: dict[str, str] = {}
+    # 先按 ### 分割
+    blocks = re.split(r"\n(?=###\s)", text)
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        # 提取标题行
+        title_match = re.match(r"###\s*(.+?)(?:[：:]\s*)?$", block, re.MULTILINE)
+        if not title_match:
+            continue
+        title = title_match.group(1).strip()
+        content = block[title_match.end():].strip()
+        # 匹配 heading_map 中的 key
+        for key, label_pattern in heading_map.items():
+            if re.search(label_pattern, title):
+                result[key] = content
+                break
+    return result
+
+
+def _parse_layer4(text: str) -> dict[str, Any]:
+    """解析人际行为层"""
+    return _parse_section_by_headings(text, {
+        "with_superiors": r"对上级|对长辈",
+        "with_juniors": r"对下级|对后辈",
+        "with_peers": r"对平级|对同伴",
+        "under_pressure": r"压力下",
+    })
+
+
+def _parse_layer5(text: str) -> dict[str, Any]:
+    """解析边界雷区层"""
+    result: dict[str, Any] = {}
+    # 按 **label** 分割
+    for key, label in [
+        ("dislikes", r"\*\*不喜欢\*\*"),
+        ("refuses", r"\*\*会拒绝\*\*"),
+        ("excited_by", r"\*\*会兴奋[的话题]*\*\*"),
+        ("avoids", r"\*\*会回避[的话题]*\*\*"),
+    ]:
+        match = re.search(
+            rf"{label}[：:]*\s*\n((?:\s*-\s*.+\n?)+)",
+            text, re.DOTALL,
+        )
+        if match:
+            result[key] = [
+                line.strip("- ").strip()
+                for line in match.group(1).split("\n")
+                if line.strip().startswith("-")
+            ]
+    return result
+
+
+def load_character_persona(slug: str) -> dict[str, Any] | None:
+    """加载单个角色的完整 persona"""
+    persona_path = _SKILLS_ROOT / slug / "persona.md"
+    skill_path = _SKILLS_ROOT / slug / "SKILL.md"
+    meta_path = _SKILLS_ROOT / slug / "meta.json"
+
+    if not persona_path.exists():
+        return None
+
+    persona_content = persona_path.read_text(encoding="utf-8")
+    result = _parse_persona_md(persona_content)
+
+    # 补充 meta.json 信息
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        result["meta"] = meta
+        result["display_name"] = meta.get("display_name", slug)
+        result["profile"] = meta.get("profile", {})
+        result["tags"] = meta.get("tags", {})
+        result["impression"] = meta.get("impression", "")
+        if "personality_traits" in meta:
+            result["personality_traits"] = meta["personality_traits"]
+    else:
+        result["display_name"] = CHARACTER_SLUG_MAP.get(slug, slug)
+
+    # 补充 SKILL.md 的 description
+    if skill_path.exists():
+        skill_content = skill_path.read_text(encoding="utf-8")
+        fm_match = re.search(r"^---\n(.*?)\n---", skill_content, re.DOTALL)
+        if fm_match:
+            desc_match = re.search(r"description:\s*(.+)$", fm_match.group(1), re.MULTILINE)
+            if desc_match:
+                result["description"] = desc_match.group(1).strip()
+
+    return result
+
+
+def load_all_personas() -> dict[str, dict[str, Any]]:
+    """加载所有角色 persona"""
+    personas = {}
+    for slug in CHARACTER_SLUG_MAP:
+        persona = load_character_persona(slug)
+        if persona:
+            personas[slug] = persona
+    return personas
+
+
+def get_character_speech_context(slug: str) -> str:
+    """生成角色的对话上下文提示词（用于 AI 生成角色对话）"""
+    persona = load_character_persona(slug)
+    if not persona:
+        return ""
+
+    display_name = persona.get("display_name", slug)
+    l0 = persona.get("layer0", [])
+    l2 = persona.get("layer2", {})
+    l3 = persona.get("layer3", {})
+    l5 = persona.get("layer5", {})
+
+    lines = [f"你是{display_name}。"]
+
+    if l0:
+        lines.append("核心性格：")
+        for rule in l0[:3]:
+            lines.append(f"- {rule}")
+
+    if l2:
+        if l2.get("tone"):
+            lines.append(f"语气：{l2['tone']}")
+        if l2.get("patterns"):
+            lines.append(f"口头禅：{', '.join(l2['patterns'][:4])}")
+        if l2.get("voice_sample"):
+            lines.append(f"说话风格参考：「{l2['voice_sample']}」")
+
+    if l3.get("priorities"):
+        lines.append(f"优先级：{l3['priorities']}")
+
+    if l5.get("avoids"):
+        lines.append(f"回避话题：{', '.join(l5['avoids'][:3])}")
+
+    return "\n".join(lines)
+
+
+# 缓存
+_persona_cache: dict[str, dict[str, Any]] | None = None
+
+
+def get_all_personas_cached() -> dict[str, dict[str, Any]]:
+    """获取缓存的全部 persona"""
+    global _persona_cache
+    if _persona_cache is None:
+        _persona_cache = load_all_personas()
+    return _persona_cache
+
+
+def get_storymode_character_enrichment(scene_characters: list[str]) -> dict[str, Any]:
+    """为 storymode 场景提供角色人设富化数据
+
+    输入场景中出现的角色名列表，返回这些角色的对话风格、决策框架等。
+    """
+    all_personas = get_all_personas_cached()
+    enriched = {}
+
+    for char_name in scene_characters:
+        identity = resolve_character_identity(char_name)
+        slug = identity["slug"]
+        if slug and slug in all_personas:
+            p = all_personas[slug]
+            key = identity["display_name"] or char_name
+            enriched[key] = {
+                "source_name": identity["source_name"],
+                "slug": slug,
+                "display_name": p.get("display_name", key),
+                "layer0": p.get("layer0", []),
+                "layer2": {
+                    "tone": p.get("layer2", {}).get("tone", ""),
+                    "patterns": p.get("layer2", {}).get("patterns", [])[:3],
+                    "voice_sample": p.get("layer2", {}).get("voice_sample", ""),
+                    "emotional_tells": p.get("layer2", {}).get("emotional_tells", ""),
+                    "speaking_pace": p.get("layer2", {}).get("speaking_pace", ""),
+                },
+                "layer3": {
+                    "priorities": p.get("layer3", {}).get("priorities", ""),
+                    "how_to_say_no": p.get("layer3", {}).get("how_to_say_no", ""),
+                },
+                "impression": p.get("impression", ""),
+                "profile": p.get("profile", {}),
+                "tags": p.get("tags", {}).get("personality", []),
+            }
+
+    return enriched
