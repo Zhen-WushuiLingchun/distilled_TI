@@ -299,6 +299,52 @@ class SenrenMonitorService:
     # 选择提交与状态更新
     # ============================================================
 
+    # 章节阶段定义（按剧情推进顺序）。
+    # 每个阶段是一个列表，列表内的章节为并行分支（完成其一即可推进）。
+    CHAPTER_ORDER: list[list[str]] = [
+        ["共通线-第1章"],
+        ["共通线-第2章"],
+        ["共通线-第3章", "共通线-第3章（钓鱼分支后续）"],  # 分支路线，二选一
+        ["共通线-第5章"],
+        ["共通线-第6章"],
+        ["共通线-第7章"],
+    ]
+
+    # 扁平化映射：章节名 → 所属阶段索引
+    _CHAPTER_STAGE: dict[str, int] = {}
+    for _stage_idx, _stage_chapters in enumerate(CHAPTER_ORDER):
+        for _ch in _stage_chapters:
+            _CHAPTER_STAGE[_ch] = _stage_idx
+
+    def _validate_chapter_order(self, session: SenrenMonitorSession, choice_id: str) -> None:
+        """校验章节顺序：并行分支阶段只需完成其一，不可跳阶段选择"""
+        choice_node = CHOICE_BY_ID.get(choice_id)
+        if not choice_node:
+            return  # 未知节点不阻塞
+
+        target_chapter = choice_node.chapter
+        target_stage = self._CHAPTER_STAGE.get(target_chapter)
+        if target_stage is None:
+            return  # 不在标准章节列表中，允许
+
+        # 收集每个阶段是否已有完成的选择
+        completed_stages: set[int] = set()
+        for c in session.choices_made:
+            node = CHOICE_BY_ID.get(c["choice_id"])
+            if node:
+                stage = self._CHAPTER_STAGE.get(node.chapter)
+                if stage is not None:
+                    # 该章节所属阶段只需完成任意一章
+                    completed_stages.add(stage)
+
+        # 检查是否有更早阶段完全没有完成
+        for stage_idx in range(target_stage):
+            if stage_idx not in completed_stages:
+                stage_chapters = " / ".join(self.CHAPTER_ORDER[stage_idx])
+                raise ValueError(
+                    f"请先完成「{stage_chapters}」的选择后才能进入「{target_chapter}」。"
+                )
+
     def submit_game_choice(
         self,
         session_id: str,
@@ -307,6 +353,9 @@ class SenrenMonitorService:
     ) -> dict:
         """提交一个游戏选择，更新人格状态"""
         session = self.get_session(session_id)
+
+        # 校验章节顺序
+        self._validate_chapter_order(session, choice_id)
 
         # 查找选择映射
         mapping = get_mapping(choice_id, option_key)
@@ -376,6 +425,41 @@ class SenrenMonitorService:
     # 实时状态
     # ============================================================
 
+    def _compute_chapter_progress(self, session: SenrenMonitorSession) -> dict:
+        """计算章节进度。每个阶段只需完成任一分支即视为该阶段完成。"""
+        # 收集每个章节是否已有完成的选择
+        chapter_done: dict[str, bool] = {}
+        for c in session.choices_made:
+            node = CHOICE_BY_ID.get(c["choice_id"])
+            if node:
+                chapter_done[node.chapter] = True
+
+        completed_chapters = [ch for ch in chapter_done]
+
+        # 找出当前可进入的阶段（第一个没有任何章节被完成的阶段）
+        current_stage_idx: int | None = None
+        for stage_idx, stage_chapters in enumerate(self.CHAPTER_ORDER):
+            if not any(chapter_done.get(ch) for ch in stage_chapters):
+                current_stage_idx = stage_idx
+                break
+
+        # 当前阶段的所有章节（可能是并行分支）
+        current_chapters = self.CHAPTER_ORDER[current_stage_idx] if current_stage_idx is not None else []
+
+        # 锁定章节：当前阶段之后所有阶段中的章节
+        locked_chapters: list[str] = []
+        if current_stage_idx is not None:
+            for stage_idx in range(current_stage_idx + 1, len(self.CHAPTER_ORDER)):
+                locked_chapters.extend(self.CHAPTER_ORDER[stage_idx])
+
+        return {
+            "completed_chapters": completed_chapters,
+            "current_chapter": current_chapters[0] if len(current_chapters) == 1 else None,
+            "current_chapters": current_chapters,
+            "locked_chapters": locked_chapters,
+            "total_stages": len(self.CHAPTER_ORDER),
+        }
+
     def get_live_state(self, session_id: str) -> dict:
         """获取当前实时人格状态"""
         session = self.get_session(session_id)
@@ -390,11 +474,14 @@ class SenrenMonitorService:
             reverse=True,
         )[:3]
 
+        chapter_progress = self._compute_chapter_progress(session)
+
         return {
             "session_id": session_id,
             "mode": session.mode,
             "question_count": len(session.choices_made),
             "current_route": session.current_route,
+            "chapter_progress": chapter_progress,
             "core_mu": session.state.core_mu,
             "core_sigma": session.state.core_sigma,
             "top_dimensions": [
@@ -414,6 +501,9 @@ class SenrenMonitorService:
         """获取选择路线图及已完成进度"""
         session = self.get_session(session_id)
         made_choice_ids = {c["choice_id"] for c in session.choices_made}
+        chapter_progress = self._compute_chapter_progress(session)
+        current_chapters = chapter_progress.get("current_chapters", [])
+        locked_set = set(chapter_progress["locked_chapters"])
 
         nodes = []
         for choice in ALL_CHOICES:
@@ -424,6 +514,10 @@ class SenrenMonitorService:
                     if c["choice_id"] == choice.choice_id:
                         user_option = c["option_key"]
                         break
+
+            # 章节锁定状态：章节在当前可进入阶段内则可操作
+            locked = choice.chapter in locked_set
+            is_current = choice.chapter in current_chapters
 
             nodes.append({
                 "choice_id": choice.choice_id,
@@ -438,6 +532,8 @@ class SenrenMonitorService:
                 ],
                 "completed": completed,
                 "user_option": user_option,
+                "locked": locked,
+                "is_current_chapter": is_current,
             })
 
         return {
@@ -445,6 +541,7 @@ class SenrenMonitorService:
             "total": len(ALL_CHOICES),
             "completed": len(made_choice_ids),
             "current_route": session.current_route,
+            "chapter_progress": chapter_progress,
         }
 
     def get_vn_scene(self, session_id: str) -> dict:

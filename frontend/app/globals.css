@@ -1365,6 +1365,19 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   backdrop-filter: blur(16px);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
 }
+.senren-chapter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+.senren-chapter-current {
+  border-color: rgba(201, 169, 110, 0.55) !important;
+  color: #e8d5a3 !important;
+}
+.senren-chapter-branch {
+  border-color: rgba(196, 75, 107, 0.45) !important;
+  color: #e8a0b3 !important;
+}
 .senren-vn-character {
   position: absolute;
   z-index: -1;

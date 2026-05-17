@@ -118,13 +118,6 @@ function sigmaToConfidence(sigma: number) {
   return clamp((1 - sigma / 1.5) * 100);
 }
 
-function optionSideLabel(questionType: string, score: number) {
-  if (questionType === "contrast_5") {
-    return score > 0 ? "偏向右侧" : score < 0 ? "偏向左侧" : "中间 / 看情况";
-  }
-  return score > 0 ? "趋向高侧" : score < 0 ? "趋向低侧" : "中性";
-}
-
 function generationLabel(mode?: string) {
   if (mode === "llm_rewrite") return "AI Rewrite";
   if (mode === "probe") return "AI Probe";
@@ -653,15 +646,9 @@ export function SessionClient() {
                       >
                         <span className="option-key">{option.key}</span>
                         <span className="min-w-0 flex-1">
-                          <span className="label-mini block">
-                            {optionSideLabel(question.question_type, option.score)}
-                          </span>
                           <span className="mt-1.5 block text-[1rem] leading-[1.65] text-[color:var(--ink-strong)] md:text-[1.05rem]">
                             {option.text}
                           </span>
-                        </span>
-                        <span className="num hidden self-center rounded-full border border-[color:var(--line-soft)] bg-[color:var(--bg-sunken)] px-2.5 py-1 text-[0.7rem] text-[color:var(--ink-muted)] transition group-hover:border-[color:var(--accent)] group-hover:text-[color:var(--accent-ink)] md:inline-flex">
-                          {formatSigned(option.score)}
                         </span>
                       </button>
                     ))}

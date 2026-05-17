@@ -523,6 +523,12 @@ def get_report(
     x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
 ) -> ReportResponse:
     _require_session_access(session_id, x_session_secret, request)
+    session = session_service.get_session(session_id)
+    if session.state.question_count < settings.min_questions_for_report:
+        raise HTTPException(
+            status_code=409,
+            detail=f"至少需要回答 {settings.min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
+        )
     try:
         return session_service.build_report(session_id)
     except KeyError as exc:
@@ -539,6 +545,12 @@ def generate_report(
     x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
 ) -> ReportResponse:
     _require_session_access(session_id, x_session_secret, request)
+    session = session_service.get_session(session_id)
+    if session.state.question_count < settings.min_questions_for_report:
+        raise HTTPException(
+            status_code=409,
+            detail=f"至少需要回答 {settings.min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
+        )
     try:
         return session_service.build_report(session_id, naming_style=payload.naming_style)
     except KeyError as exc:

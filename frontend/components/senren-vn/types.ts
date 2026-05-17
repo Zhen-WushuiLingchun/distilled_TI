@@ -21,6 +21,13 @@ export interface LiveState {
   character_affinity: Record<string, number>;
   recent_choices: RecentChoice[];
   can_generate_report: boolean;
+  chapter_progress?: {
+    completed_chapters: string[];
+    current_chapter: string | null;
+    current_chapters: string[];
+    locked_chapters: string[];
+    total_stages: number;
+  };
 }
 
 export interface PersonaData {

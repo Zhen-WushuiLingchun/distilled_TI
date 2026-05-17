@@ -134,7 +134,6 @@ export function StoryClient() {
   const [canGenerateReport, setCanGenerateReport] = useState(false);
   const [typedText, setTypedText] = useState("");
   const [typedDone, setTypedDone] = useState(false);
-  const [autoReveal, setAutoReveal] = useState(false);
   const [hideUI, setHideUI] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -207,7 +206,7 @@ export function StoryClient() {
     setTypedDone(false);
     if (!line) return;
     let cursor = 0;
-    const step = autoReveal ? 4 : 2;
+    const step = 2;
     const interval = window.setInterval(() => {
       cursor += step;
       if (cursor >= line.length) {
@@ -217,9 +216,9 @@ export function StoryClient() {
       } else {
         setTypedText(line.slice(0, cursor));
       }
-    }, autoReveal ? 18 : 26);
+    }, 26);
     return () => window.clearInterval(interval);
-  }, [scene?.scene_id, scene?.character_text, autoReveal]);
+  }, [scene?.scene_id, scene?.character_text]);
 
   useEffect(() => {
     const player = audioRef.current;
@@ -393,7 +392,6 @@ export function StoryClient() {
         </header>
 
         <div className="story-vn-controls">
-          <button type="button" onClick={() => setAutoReveal((value) => !value)}>{autoReveal ? "Auto On" : "Auto"}</button>
           <button type="button" onClick={() => setShowLog(true)}>Log</button>
           <button type="button" onClick={() => setHideUI((value) => !value)}>{hideUI ? "Show" : "Hide"}</button>
           <button type="button" onClick={() => setShowTemplates(true)}>Template</button>

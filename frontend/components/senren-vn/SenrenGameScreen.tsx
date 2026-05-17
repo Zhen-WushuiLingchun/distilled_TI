@@ -56,6 +56,7 @@ export function SenrenGameScreen({
   const backgroundUrl = resolveAssetUrl(scene.background_asset?.url || FALLBACK_BACKGROUND);
   const characterUrl = resolveAssetUrl(scene.character_asset?.url || FALLBACK_CHARACTER);
   const currentCount = liveState?.question_count ?? 0;
+  const cp = liveState?.chapter_progress;
 
   return (
     <div className={`senren-vn-stage ${hidden ? "is-senren-hidden" : ""}`} onClick={() => typing && onFinishTyping()}>
@@ -74,6 +75,18 @@ export function SenrenGameScreen({
               <span>{scene.ai_generated ? "DeepSeek Scene" : "Fallback Scene"}</span>
               <span>{mode === "local" ? "Local Game" : mode === "story" ? "Story" : "Monitor"}</span>
               <span>{currentCount} / 8</span>
+              {cp && (
+                <>
+                  <span className="senren-chapter-badge">
+                    {cp.completed_chapters.length}/{cp.total_stages} 章
+                  </span>
+                  {cp.current_chapter ? (
+                    <span className="senren-chapter-badge senren-chapter-current">{cp.current_chapter}</span>
+                  ) : cp.current_chapters.length > 1 ? (
+                    <span className="senren-chapter-badge senren-chapter-branch">分支选择中</span>
+                  ) : null}
+                </>
+              )}
             </div>
           </header>
 
