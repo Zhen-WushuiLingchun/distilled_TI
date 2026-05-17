@@ -141,7 +141,6 @@ export interface SenrenGameScreenProps {
   personas: Record<string, PersonaData>;
   displayedText: string;
   typing: boolean;
-  autoMode: boolean;
   hidden: boolean;
   submitting: boolean;
   error: string;
@@ -150,7 +149,6 @@ export interface SenrenGameScreenProps {
   showWorkbench: boolean;
   onFinishTyping: () => void;
   onSubmitChoice: (choice: VnChoice) => Promise<void> | void;
-  onToggleAuto: () => void;
   onSetHidden: (value: boolean) => void;
   onSetShowLog: (value: boolean) => void;
   onSetShowSkills: (value: boolean) => void;

@@ -297,7 +297,7 @@ class GalgameAssetService:
         payload: dict[str, Any] = {
             "prompt": full_prompt,
             "n": 1,
-            "size": "1536x864" if kind == "background" else "1024x1536",
+            "size": "1024x576" if kind == "background" else "576x1024",
         }
         if settings.galgame_asset_model:
             payload["model"] = settings.galgame_asset_model

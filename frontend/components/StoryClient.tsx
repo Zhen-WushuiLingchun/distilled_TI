@@ -367,6 +367,34 @@ export function StoryClient() {
     );
   }
 
+  if (!busy && !scene) {
+    return (
+      <main className="story-shell story-shell-vn">
+        <section className="story-loading-card">
+          <p className="eyebrow">Distilled TI / Story Mode</p>
+          <h1 className="mt-4 text-4xl">本章结束</h1>
+          <p className="mt-3 max-w-lg text-[color:var(--ink-muted)]">
+            当前故事分支已经完成。你可以查看本次旅程的人格报告，或者返回首页开始新的故事。
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!canGenerateReport}
+              onClick={() => void handleReport()}
+            >
+              {canGenerateReport ? "查看报告" : `还需 ${remainingUntilReport} 题`}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => router.push("/")}>
+              返回首页
+            </button>
+          </div>
+          {error ? <p className="mt-4 text-sm text-red-400">{error}</p> : null}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className={`story-shell story-shell-vn ${hideUI ? "is-ui-hidden" : ""}`}>
       <section className="story-vn-frame">

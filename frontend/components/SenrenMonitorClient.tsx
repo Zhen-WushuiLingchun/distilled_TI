@@ -31,7 +31,6 @@ export default function SenrenMonitorClient() {
   const [localGameInfo, setLocalGameInfo] = useState<LocalGameInfo | null>(null);
   const [displayedText, setDisplayedText] = useState("");
   const [typing, setTyping] = useState(false);
-  const [autoMode, setAutoMode] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
@@ -86,14 +85,6 @@ export default function SenrenMonitorClient() {
     // scene is included through stable scalar fields to avoid restarting typing on unrelated object identity changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene?.choice_id, scene?.character_text, scene?.narrator_text]);
-
-  useEffect(() => {
-    if (!autoMode || !typing || !scene) return;
-    const timeout = window.setTimeout(() => finishTyping(scene), 900);
-    return () => window.clearTimeout(timeout);
-    // finishTyping is a local helper; including it would restart the auto timer every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoMode, typing, scene]);
 
   async function bootstrap(sid: string, secret: string, storedMode: SenrenMode) {
     setLoading(true);
@@ -219,7 +210,6 @@ export default function SenrenMonitorClient() {
       personas={allPersonas}
       displayedText={displayedText}
       typing={typing}
-      autoMode={autoMode}
       hidden={hidden}
       submitting={submitting}
       error={error}
@@ -228,7 +218,6 @@ export default function SenrenMonitorClient() {
       showWorkbench={showWorkbench}
       onFinishTyping={() => finishTyping()}
       onSubmitChoice={submitChoice}
-      onToggleAuto={() => setAutoMode((value) => !value)}
       onSetHidden={setHidden}
       onSetShowLog={setShowLog}
       onSetShowSkills={setShowSkills}

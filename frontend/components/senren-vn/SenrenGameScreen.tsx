@@ -26,7 +26,6 @@ export function SenrenGameScreen({
   personas,
   displayedText,
   typing,
-  autoMode,
   hidden,
   submitting,
   error,
@@ -35,7 +34,6 @@ export function SenrenGameScreen({
   showWorkbench,
   onFinishTyping,
   onSubmitChoice,
-  onToggleAuto,
   onSetHidden,
   onSetShowLog,
   onSetShowSkills,
@@ -129,9 +127,6 @@ export function SenrenGameScreen({
           </section>
 
           <nav className="senren-vn-controls" onClick={(event) => event.stopPropagation()}>
-            <button className={autoMode ? "is-active" : ""} onClick={onToggleAuto}>
-              Auto
-            </button>
             <button onClick={() => onSetShowLog(true)}>Log</button>
             <button onClick={() => onSetHidden(true)}>Hide</button>
             <button onClick={() => onSetShowSkills(true)}>Skills</button>
