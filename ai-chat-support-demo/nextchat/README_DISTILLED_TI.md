@@ -21,6 +21,22 @@ DISTILLED_TI_ADMIN_TOKEN=
    `DEEPSEEK_API_KEY`, `DEEPSEEK_URL`, `CUSTOM_MODELS`, and `DEFAULT_MODEL`.
 4. Install and run:
 
+Recommended wrapper from the parent directory:
+
+```powershell
+cd ..
+.\start-nextchat-demo.ps1 -Port 3101 -Install
+```
+
+Linux:
+
+```bash
+cd ..
+PORT=3101 INSTALL=auto ./start-nextchat-demo.sh
+```
+
+Manual NextChat startup:
+
 ```powershell
 npm install --ignore-scripts --legacy-peer-deps --package-lock=false
 npm run dev

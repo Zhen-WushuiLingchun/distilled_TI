@@ -597,6 +597,8 @@ X-Context-API-Key: your_context_api_key
 
 Story Mode 的目标是让测量过程不再像问卷。用户看到的是视觉小说场景，而不是“非常同意/非常不同意”的心理题。
 
+当前 Story Mode 已按 `gal指南.txt` 改成 Unit/Event harness：每个会话先生成 `galgame_story_plan_v2`，包含 `character_config`、20 个 `Unit`、`Narration`/`Dialogue` 事件、`WaitForPlayerInput` 和 `EndCondition`。LLM 和 fallback 都必须围绕当前 Unit 续写，不能随意跳 tag、跳地点或复读上一句角色台词。自由文本会通过 “发送自由台词” 按钮提交，同时仍保留显式选项作为低置信度回退。
+
 ### Story Mode 怎么用
 
 1. 启动主前端和后端。
@@ -792,6 +794,20 @@ http://127.0.0.1:3100
 
 目录：[ai-chat-support-demo/nextchat](ai-chat-support-demo/nextchat/README_DISTILLED_TI.md)
 
+推荐启动：
+
+```powershell
+cd ai-chat-support-demo
+.\start-nextchat-demo.ps1 -Port 3101 -Install
+```
+
+Ubuntu / Linux：
+
+```bash
+cd ai-chat-support-demo
+PORT=3101 INSTALL=auto ./start-nextchat-demo.sh
+```
+
 安装：
 
 ```powershell
@@ -826,6 +842,8 @@ npx next dev -p 3101
 ```text
 http://127.0.0.1:3000/support-admin
 ```
+
+如果使用推荐脚本的 `-Port 3101`，后台页是 `http://127.0.0.1:3101/support-admin`。
 
 ### Context API 的输出边界
 
@@ -1042,9 +1060,9 @@ distilled TI/
 | `/` | Landing、注册、入口选择 |
 | `/session` | 标准答题 |
 | `/story` | Galgame / VN 模式 |
-| `/senren` | 本地游戏 / Senren 模式入口 |
-| `/senren/monitor` | 本地游戏监控视图 |
-| `/senren/history` | Senren 路线历史 |
+| `/senren` | 默认关闭；旧 Senren 本地模式会迁移为独立 demo，可用 `NEXT_PUBLIC_SENREN_ENABLED=true` 临时调试 |
+| `/senren/monitor` | 默认关闭；旧本地游戏监控视图 |
+| `/senren/history` | 默认关闭；旧 Senren 路线历史 |
 | `/report` | 当前报告 |
 | `/report/[sessionId]` | 历史报告 |
 | `/history` | 历史会话恢复 |
@@ -1231,7 +1249,7 @@ cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
 
 - `/session`：标准答题。
 - `/story`：Web Galgame Story Mode。
-- `/senren`：本地游戏/Senren 模式入口。
+- `/senren`：旧本地游戏/Senren 模式默认关闭；后续迁移为独立 demo。
 - `/history`、`/evolution`、`/profile`：长期历史、演化、用户邀请。
 - `/admin`：本机管理端。
 
@@ -1243,7 +1261,7 @@ cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
 2. 打开 `/`，用 invite + 邮箱注册。
 3. 打开 `/session`，答 2-3 题，确认能继续出题。
 4. 打开 `/story`，确认剧情不是问卷措辞，选项可推进。
-5. 打开 `/senren`，确认本地游戏模式入口可加载。
+5. 打开 `/senren`，确认旧 Senren 入口显示默认关闭提示；如需调试旧入口，设置 `NEXT_PUBLIC_SENREN_ENABLED=true` 后重新构建。
 6. Admin 执行 vector reindex：`templates`、`instances`、`sessions`、`galgame_turns`。
 7. Admin 查看 similar templates/sessions/galgame turns。
 8. Admin 查看 `vector_sync_failures`，期望为空。

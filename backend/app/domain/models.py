@@ -119,6 +119,7 @@ class SessionRecord(BaseModel):
     mode: str = "core"
     status: Literal["active", "discarded"] = "active"
     state: SessionState
+    galgame_story_plan: dict[str, object] = Field(default_factory=dict)
     user_id: str | None = None
     session_secret_hash: str = ""
     delete_token_hash: str = ""
@@ -376,6 +377,8 @@ class GalgameScene(BaseModel):
     character_asset: GalgameAssetReference | None = None
     audio_asset: GalgameAssetReference | None = None
     story_template_id: str | None = None
+    story_plan: dict[str, object] = Field(default_factory=dict)
+    current_scene_plan: dict[str, object] = Field(default_factory=dict)
     ai_generated: bool = False
     custom_input_enabled: bool = True
 

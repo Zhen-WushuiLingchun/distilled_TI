@@ -482,13 +482,23 @@ export function StoryClient() {
                   </div>
                   <button
                     type="button"
-                    disabled={busy || !selectedChoice}
+                    disabled={busy || !selectedChoice || !customText.trim()}
                     onClick={() => {
                       if (!selectedChoice) return;
                       void handleChoice(selectedChoice.option_key, customText);
                     }}
                   >
-                    {customText.trim() ? "以这句推进" : "以当前选择推进"}
+                    发送自由台词
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !selectedChoice}
+                    onClick={() => {
+                      if (!selectedChoice) return;
+                      void handleChoice(selectedChoice.option_key, "");
+                    }}
+                  >
+                    按当前选项推进
                   </button>
                 </div>
               </div>

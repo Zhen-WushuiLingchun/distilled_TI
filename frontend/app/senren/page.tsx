@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { SenrenDisabledNotice } from "@/components/SenrenDisabledNotice";
 import { SenrenLocalSetupModal } from "@/components/senren-vn/SenrenLocalSetupModal";
 import { SenrenTitleScreen } from "@/components/senren-vn/SenrenTitleScreen";
 import type { ApiErrorPayload, PersonaOverview, SenrenMode, ValidationResult } from "@/components/senren-vn/types";
+import { SENREN_ENABLED } from "@/lib/features";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
@@ -20,8 +22,13 @@ export default function SenrenLandingPage() {
   const [personaOverview, setPersonaOverview] = useState<PersonaOverview | null>(null);
 
   useEffect(() => {
+    if (!SENREN_ENABLED) return;
     void fetchPersonaOverview();
   }, []);
+
+  if (!SENREN_ENABLED) {
+    return <SenrenDisabledNotice />;
+  }
 
   async function fetchPersonaOverview() {
     try {

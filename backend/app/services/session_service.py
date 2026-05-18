@@ -854,18 +854,21 @@ class SessionService:
         if item is None:
             raise KeyError("current_item_not_found")
         turns = local_session_store.list_galgame_turns(session_id, limit=4)
-        story_template = self._select_galgame_story_template(item, session.user_id)
+        story_template = self._resolve_galgame_story_template(session, item, turns)
+        story_plan = self._ensure_galgame_story_plan(session, item, story_template)
+        current_scene_plan = self._galgame_current_scene_plan(story_plan, session.state.question_count + 1)
         dominant_dimension = max(session.state.core_mu.items(), key=lambda entry: abs(entry[1]))[0]
         uncertain_dimension = max(session.state.core_sigma.items(), key=lambda entry: entry[1])[0]
-        location = story_template.location if story_template else self._galgame_location(item)
+        location = str(story_plan.get("locked_location") or (story_template.location if story_template else self._galgame_location(item)))
         mood = self._galgame_mood(session, item)
-        speaker = story_template.speaker if story_template else self._galgame_speaker(item)
+        speaker = str(story_plan.get("locked_speaker") or (story_template.speaker if story_template else self._galgame_speaker(item)))
         fallback_scene = self._galgame_fallback_scene(
             session=session,
             item=item,
             location=location,
             speaker=speaker,
             story_template=story_template,
+            current_scene_plan=current_scene_plan,
         )
         title = fallback_scene["title"]
         narrator_text = fallback_scene["narrator_text"]
@@ -885,13 +888,16 @@ class SessionService:
                 memory_fragments=memory_fragments,
                 dominant_dimension=dominant_dimension,
                 uncertain_dimension=uncertain_dimension,
+                story_plan=story_plan,
             )
         )
+        if ai_scene and self._galgame_ai_scene_breaks_continuity(ai_scene, location, speaker, story_template):
+            ai_scene = None
         if ai_scene:
             title = self._public_scene_text(ai_scene.get("title"), title, item, max_length=80)
-            location = self._public_scene_text(ai_scene.get("location"), location, item, max_length=60)
             mood = self._public_scene_text(ai_scene.get("mood"), mood, item, max_length=32)
-            speaker = self._public_scene_text(ai_scene.get("speaker"), speaker, item, max_length=32)
+            if story_template is None:
+                speaker = self._public_scene_text(ai_scene.get("speaker"), speaker, item, max_length=32)
             narrator_text = self._public_scene_text(ai_scene.get("narrator_text"), narrator_text, item, max_length=420)
             character_text = self._public_scene_text(ai_scene.get("character_text"), character_text, item, max_length=420)
             choice_texts = ai_scene.get("choice_texts", {})
@@ -902,10 +908,16 @@ class SessionService:
                     location=location,
                     speaker=speaker,
                 )
-        background_key = str(ai_scene.get("background_key", ""))[:60] if ai_scene else (story_template.background_key if story_template else self._galgame_background_key(item))
-        background_prompt = str(ai_scene.get("background_prompt", ""))[:360] if ai_scene else (story_template.background_prompt if story_template else self._galgame_background_prompt(item))
-        character_key = str(ai_scene.get("character_key", ""))[:60] if ai_scene else (story_template.character_key if story_template else self._galgame_character_key(item))
-        character_prompt = str(ai_scene.get("character_prompt", ""))[:360] if ai_scene else (story_template.character_prompt if story_template else self._galgame_character_prompt(item))
+        if story_template:
+            background_key = story_template.background_key
+            background_prompt = story_template.background_prompt
+            character_key = story_template.character_key
+            character_prompt = story_template.character_prompt
+        else:
+            background_key = str(ai_scene.get("background_key", ""))[:60] if ai_scene else self._galgame_background_key(item)
+            background_prompt = str(ai_scene.get("background_prompt", ""))[:360] if ai_scene else self._galgame_background_prompt(item)
+            character_key = str(ai_scene.get("character_key", ""))[:60] if ai_scene else self._galgame_character_key(item)
+            character_prompt = str(ai_scene.get("character_prompt", ""))[:360] if ai_scene else self._galgame_character_prompt(item)
         background_asset, character_asset, audio_asset = galgame_asset_service.resolve_scene_assets(
             background_key=background_key,
             background_prompt=background_prompt,
@@ -935,6 +947,8 @@ class SessionService:
             character_asset=character_asset,
             audio_asset=audio_asset,
             story_template_id=story_template.template_id if story_template else None,
+            story_plan=story_plan,
+            current_scene_plan=current_scene_plan,
             ai_generated=bool(ai_scene),
         )
 
@@ -958,7 +972,7 @@ class SessionService:
             raise KeyError("scene_mismatch")
         choices = self._build_galgame_choices(item)
         inference = ai_service.classify_galgame_free_text(custom_text, choices)
-        story_template = self._select_galgame_story_template(item, session.user_id)
+        story_template = self._resolve_galgame_story_template(session, item)
         turn = GalgameTurn(
             turn_id=f"gal-{uuid4()}",
             session_id=session_id,
@@ -1035,10 +1049,40 @@ class SessionService:
         location: str,
         speaker: str,
         story_template: GalgameStoryTemplate | None,
+        current_scene_plan: dict[str, object] | None = None,
     ) -> dict[str, str]:
         title = f"Chapter {session.state.question_count + 1}: {location}"
         previous = local_session_store.list_galgame_turns(session.session_id, limit=1)
         last_trace = previous[-1].scene_text if previous else ""
+        unit = current_scene_plan.get("unit") if current_scene_plan else None
+        if isinstance(unit, dict):
+            scene_index = session.state.question_count + 1
+            title = str(unit.get("UnitName") or title)
+            events = unit.get("Events")
+            event_list = events if isinstance(events, list) else []
+            narration_seed = self._galgame_unit_event_content(event_list, "Narration")
+            dialogue_seed = self._galgame_unit_event_content(event_list, "Dialogue")
+            wait_seed = self._galgame_unit_event_content(event_list, "WaitForPlayerInput")
+            trace = last_trace[:90].strip()
+            if trace:
+                narrator_text = f"{location}还留着你上一次选择的回声：{trace}。{narration_seed}"
+            else:
+                narrator_text = f"{location}从一个尚未解决的安静节点展开。{narration_seed}"
+            line_variants = [
+                f"{speaker}没有打断这段停顿，只轻声说：“{dialogue_seed}”",
+                f"{speaker}短暂移开视线，又压低声音回应：“{dialogue_seed}”",
+                f"{speaker}指尖在桌沿轻轻敲了一下：“{dialogue_seed}”",
+                f"{speaker}没有催促你，只把话说得更慢：“{dialogue_seed}”",
+                f"{speaker}像是把问题重新推回场景本身：“{dialogue_seed}”",
+            ]
+            character_text = line_variants[(scene_index - 1) % len(line_variants)]
+            if wait_seed:
+                character_text = f"{character_text} {wait_seed}"
+            return {
+                "title": title,
+                "narrator_text": narrator_text,
+                "character_text": character_text,
+            }
         if session.state.question_count == 0:
             narrator_text = (
                 f"{location}的灯还亮着。窗外的风把走廊尽头的纸页吹得翻了一下，"
@@ -1062,6 +1106,34 @@ class SessionService:
             "narrator_text": narrator_text,
             "character_text": character_text,
         }
+
+    def _galgame_unit_event_content(self, events: list[object], event_type: str) -> str:
+        for event in events:
+            if not isinstance(event, dict) or event.get("Type") != event_type:
+                continue
+            content = str(event.get("Content") or event.get("InstructionToPlayer") or "").strip()
+            if content:
+                return content[:320]
+        if event_type == "Narration":
+            return "空气里有细小的变化，足够让下一句话显得更重要。"
+        if event_type == "Dialogue":
+            return "我想听听你真正打算怎么做。"
+        return "你可以直接写一句台词，也可以选择一个行动来推进。"
+
+    def _galgame_ai_scene_breaks_continuity(
+        self,
+        ai_scene: dict[str, object],
+        locked_location: str,
+        locked_speaker: str,
+        story_template: GalgameStoryTemplate | None,
+    ) -> bool:
+        location = str(ai_scene.get("location") or "").strip()
+        speaker = str(ai_scene.get("speaker") or "").strip()
+        if location and location != locked_location:
+            return True
+        if story_template is not None and speaker and speaker != locked_speaker:
+            return True
+        return False
 
     def _public_scene_text(
         self,
@@ -1131,6 +1203,35 @@ class SessionService:
         )
         return ranked[0]
 
+    def _resolve_galgame_story_template(
+        self,
+        session: SessionRecord,
+        item: ItemInstance,
+        turns: list[GalgameTurn] | None = None,
+    ) -> GalgameStoryTemplate | None:
+        plan_template_id = str(session.galgame_story_plan.get("story_template_id") or "")
+        if plan_template_id:
+            template = local_session_store.load_galgame_story_template(plan_template_id)
+            if template and self._galgame_story_template_visible(template, session.user_id):
+                return template
+        previous_turns = turns if turns is not None else local_session_store.list_galgame_turns(session.session_id, limit=1)
+        for turn in reversed(previous_turns):
+            if not turn.story_template_id:
+                continue
+            template = local_session_store.load_galgame_story_template(turn.story_template_id)
+            if template and self._galgame_story_template_visible(template, session.user_id):
+                return template
+        return self._select_galgame_story_template(item, session.user_id)
+
+    def _galgame_story_template_visible(
+        self,
+        template: GalgameStoryTemplate,
+        user_id: str | None,
+    ) -> bool:
+        if not template.active:
+            return False
+        return template.owner_user_id is None or (user_id is not None and template.owner_user_id == user_id)
+
     def _galgame_ai_payload(
         self,
         *,
@@ -1141,17 +1242,38 @@ class SessionService:
         memory_fragments: list[str],
         dominant_dimension: str,
         uncertain_dimension: str,
+        story_plan: dict[str, object] | None = None,
     ) -> dict[str, object]:
         recent_turns = local_session_store.list_galgame_turns(session.session_id, limit=8)
+        story_bible = story_plan or self._build_galgame_story_plan(session, item, story_template)
+        locked_location = str(story_bible.get("locked_location") or (story_template.location if story_template else self._galgame_location(item)))
+        locked_speaker = str(story_bible.get("locked_speaker") or (story_template.speaker if story_template else self._galgame_speaker(item)))
         last_branch = recent_turns[-1].scene_text if recent_turns else "开场"
         return {
             "generation_pattern": "AI-GAL style: theme + character setting + story history + player branch -> next playable visual-novel scene.",
             "theme": story_template.name if story_template else "校园关系与选择分支",
             "outline": story_template.description if story_template else "主角在校园关系网和社团事件中不断做选择，每一幕都让人物关系发生轻微变化。",
             "style": story_template.style_prompt if story_template else "自然、沉浸、有人物关系张力；台词要像角色在现场说话。",
+            "story_bible": story_bible,
+            "current_scene_plan": self._galgame_current_scene_plan(story_bible, session.state.question_count + 1),
+            "continuity_contract": {
+                "locked_location": locked_location,
+                "locked_speaker": locked_speaker,
+                "must_continue_same_mainline": True,
+                "do_not_teleport": True,
+                "do_not_introduce_unexplained_scene_change": True,
+                "measurement_item_is_private_seed_not_plot": True,
+            },
+            "script_format_contract": {
+                "follow_current_unit": True,
+                "use_unit_events_in_order": True,
+                "stop_at_wait_for_player_input": True,
+                "respect_end_condition": True,
+                "never_repeat_previous_character_line": True,
+            },
             "characters": [
                 {
-                    "name": story_template.speaker if story_template else self._galgame_speaker(item),
+                    "name": locked_speaker,
                     "role": "会推动这一幕分支的角色",
                     "portrait_prompt": story_template.character_prompt if story_template else self._galgame_character_prompt(item),
                 }
@@ -1187,6 +1309,239 @@ class SessionService:
                 "option_keys_must_match_choices": True,
             },
         }
+
+    def _ensure_galgame_story_plan(
+        self,
+        session: SessionRecord,
+        item: ItemInstance,
+        story_template: GalgameStoryTemplate | None,
+    ) -> dict[str, object]:
+        existing = session.galgame_story_plan
+        if existing and existing.get("version") == "galgame_story_plan_v2":
+            return existing
+        plan = self._build_galgame_story_plan(session=session, item=item, story_template=story_template)
+        session.galgame_story_plan = plan
+        session.updated_at = datetime.now(UTC)
+        local_session_store.save_session(session)
+        self._sessions[session.session_id] = session
+        return plan
+
+    def _build_galgame_story_plan(
+        self,
+        *,
+        session: SessionRecord,
+        item: ItemInstance,
+        story_template: GalgameStoryTemplate | None,
+        locked_location: str | None = None,
+        locked_speaker: str | None = None,
+        dominant_dimension: str | None = None,
+        uncertain_dimension: str | None = None,
+    ) -> dict[str, object]:
+        locked_location = locked_location or (story_template.location if story_template else self._galgame_location(item))
+        locked_speaker = locked_speaker or (story_template.speaker if story_template else self._galgame_speaker(item))
+        dominant_dimension = dominant_dimension or max(session.state.core_mu.items(), key=lambda entry: abs(entry[1]))[0]
+        uncertain_dimension = uncertain_dimension or max(session.state.core_sigma.items(), key=lambda entry: entry[1])[0]
+        acts = [
+            {
+                "range": [1, 5],
+                "arc_stage": "opening",
+                "episode_goal": "Establish the relationship, the shared place, and a small unresolved hook.",
+            },
+            {
+                "range": [6, 10],
+                "arc_stage": "complication",
+                "episode_goal": "Continue from earlier choices and make the existing conflict more specific.",
+            },
+            {
+                "range": [11, 15],
+                "arc_stage": "pressure",
+                "episode_goal": "Let prior decisions create visible consequences without changing the premise.",
+            },
+            {
+                "range": [16, 20],
+                "arc_stage": "reveal",
+                "episode_goal": "Pay off accumulated choices while preserving the same mainline continuity.",
+            },
+        ]
+        units = self._galgame_story_units(
+            story_template=story_template,
+            locked_location=locked_location,
+            locked_speaker=locked_speaker,
+        )
+        return {
+            "version": "galgame_story_plan_v2",
+            "mainline_id": story_template.template_id if story_template else f"session-{session.session_id}",
+            "story_template_id": story_template.template_id if story_template else None,
+            "mainline_title": story_template.name if story_template else "session original campus route",
+            "locked_location": locked_location,
+            "locked_speaker": locked_speaker,
+            "character_config": {
+                "AI_Name": locked_speaker,
+                "Player_Name": "Player",
+                "AI_Persona": (
+                    story_template.style_prompt
+                    if story_template
+                    else "You are a visual-novel character with consistent motives, memory, and boundaries. Stay in character."
+                ),
+            },
+            "script_system": {
+                "source": "gal-guide-unit-event-harness",
+                "supports": [
+                    "Narration:Preset",
+                    "Narration:Prompt",
+                    "Dialogue:Preset",
+                    "Dialogue:Prompt",
+                    "WaitForPlayerInput",
+                    "EndCondition:Linear",
+                    "EndCondition:FreeTime",
+                    "EndCondition:Branching",
+                ],
+                "rule": "Preset keeps continuity; Prompt adds variation; WaitForPlayerInput pauses every unit for player agency.",
+            },
+            "acts": acts,
+            "units": units,
+            "location_policy": "locked unless a future explicit transition scene is added to this plan",
+            "private_measurement_axis": {
+                "latent_axis": CORE_DIMENSION_LABELS.get(dominant_dimension, dominant_dimension),
+                "uncertain_axis": CORE_DIMENSION_LABELS.get(uncertain_dimension, uncertain_dimension),
+                "layer": item.layer,
+                "scenario_tags": item.scenario_tags,
+            },
+        }
+
+    def _galgame_story_units(
+        self,
+        *,
+        story_template: GalgameStoryTemplate | None,
+        locked_location: str,
+        locked_speaker: str,
+    ) -> list[dict[str, object]]:
+        scene_cg = story_template.background_key if story_template else "adaptive_story_background"
+        bgm_cycle = ["quiet-pulse", "thin-rain", "after-school", "low-tension", "night-window"]
+        time_cycle = ["after school", "late afternoon", "early evening", "nightfall", "rainy dusk"]
+        premise = story_template.description if story_template else "A small campus incident keeps changing shape as the player and the character talk through it."
+        beats = [
+            ("Opening_01", "未说出口的开场", "先建立地点、人物关系和一个不完整的线索。", "不要急着解释全部，只把一个可疑细节放到玩家面前。"),
+            ("Opening_02", "余光里的证据", "让玩家刚才的选择改变角色的态度。", "根据玩家上一句，表现出一点信任或戒备。"),
+            ("Opening_03", "第二个版本", "同一事件出现另一个说法。", "角色想确认玩家是否愿意继续追问。"),
+            ("Opening_04", "沉默的空格", "让玩家填补缺失信息。", "角色故意停顿，观察玩家会不会主动补全。"),
+            ("Opening_05", "第一次约定", "小目标成立，但关系仍不稳定。", "给出一个下一步，却保留未解决的顾虑。"),
+            ("Complication_06", "被改写的细节", "前面线索出现矛盾。", "角色发现一个细节对不上，想知道玩家是否会坚持原判断。"),
+            ("Complication_07", "不该出现的名字", "引入新的压力源，但不换地点。", "角色提到一个不方便公开的名字。"),
+            ("Complication_08", "借口与真话", "让谎言和善意混在一起。", "角色想保护某人，但也怕玩家误会。"),
+            ("Complication_09", "短暂的同盟", "玩家和角色形成临时合作。", "角色把一个小权限交给玩家，看他如何使用。"),
+            ("Complication_10", "门后的声音", "中段钩子升级。", "让场景内出现新的声音或动作，推动下一幕。"),
+            ("Pressure_11", "对峙前的整理", "整理已有信息并制造压力。", "角色要求玩家说清楚他的理由。"),
+            ("Pressure_12", "错过的消息", "过去的选择造成后果。", "角色看到一条迟来的消息，情绪出现波动。"),
+            ("Pressure_13", "不完整的道歉", "关系张力显性化。", "角色想道歉，但又不肯完全让步。"),
+            ("Pressure_14", "互相试探", "让双方都暴露一点真实动机。", "角色提出一个带风险的方案。"),
+            ("Pressure_15", "分岔前一秒", "准备进入关键分支。", "角色要求玩家在行动和等待之间做出明确倾向。"),
+            ("Reveal_16", "线索合拢", "前面碎片开始合并。", "角色发现玩家的判断可能比她预想的更接近真相。"),
+            ("Reveal_17", "真正害怕的事", "揭示角色核心顾虑。", "角色不再只谈事件，而谈自己为什么在意。"),
+            ("Reveal_18", "最后一次确认", "让玩家重新选择立场。", "角色把选择权交给玩家，但保留自己的判断。"),
+            ("Reveal_19", "结果之前", "结局前的余波。", "角色承认某个代价，等待玩家回应。"),
+            ("Reveal_20", "留下的余温", "收束本轮路线并留下可继续的接口。", "角色给出一个结论，但不把故事彻底关死。"),
+        ]
+        units: list[dict[str, object]] = []
+        for index, (unit_id, unit_name, fixed_goal, inner_prompt) in enumerate(beats, start=1):
+            next_unit_id = beats[index][0] if index < len(beats) else None
+            end_condition: dict[str, object]
+            if next_unit_id:
+                end_condition = {"Type": "Linear", "NextUnitID": next_unit_id}
+            else:
+                end_condition = {
+                    "Type": "FreeTime",
+                    "InstructionToPlayer": "你可以继续追问，也可以结束本轮故事。",
+                    "ExitPromptInInputBox": "今天先到这里吧。",
+                    "NextUnitID": None,
+                }
+            if index in {5, 10, 15} and next_unit_id:
+                end_condition = {
+                    "Type": "Branching",
+                    "Method": "PlayerChoice",
+                    "Branches": {
+                        "A": {"DisplayText": "继续追问细节", "NextUnitID": next_unit_id},
+                        "B": {"DisplayText": "先照顾眼前关系", "NextUnitID": next_unit_id},
+                    },
+                }
+            units.append(
+                {
+                    "UnitID": unit_id,
+                    "UnitName": unit_name,
+                    "SceneCG": scene_cg,
+                    "BGM": bgm_cycle[(index - 1) % len(bgm_cycle)],
+                    "Time": time_cycle[(index - 1) % len(time_cycle)],
+                    "Events": [
+                        {
+                            "Type": "Narration",
+                            "Mode": "Preset",
+                            "Content": f"{locked_location}里，事情没有跳到别处；它只是沿着上一句回应继续变形。",
+                        },
+                        {
+                            "Type": "Narration",
+                            "Mode": "Prompt",
+                            "Content": f"围绕'{premise}'续写一段氛围旁白，目标是：{fixed_goal}",
+                        },
+                        {
+                            "Type": "Dialogue",
+                            "Character": locked_speaker,
+                            "Mode": "Prompt",
+                            "Content": f"这是你的内心活动：{inner_prompt} 你要自然回应玩家上一轮的选择，不要复读旧台词。",
+                        },
+                        {
+                            "Type": "WaitForPlayerInput",
+                            "InstructionToPlayer": "你可以自己写一句台词，也可以从行动选项中选一个推进。",
+                        },
+                    ],
+                    "EndCondition": end_condition,
+                }
+            )
+        return units
+
+    def _galgame_current_scene_plan(self, story_plan: dict[str, object], scene_index: int) -> dict[str, object]:
+        unit: dict[str, object] | None = None
+        units = story_plan.get("units")
+        if isinstance(units, list) and units:
+            selected = units[min(max(scene_index - 1, 0), len(units) - 1)]
+            if isinstance(selected, dict):
+                unit = selected
+        acts = story_plan.get("acts")
+        if isinstance(acts, list):
+            for act in acts:
+                if not isinstance(act, dict):
+                    continue
+                bounds = act.get("range")
+                if (
+                    isinstance(bounds, list)
+                    and len(bounds) == 2
+                    and isinstance(bounds[0], int)
+                    and isinstance(bounds[1], int)
+                    and bounds[0] <= scene_index <= bounds[1]
+                ):
+                    plan = {
+                        "scene_index": scene_index,
+                        "arc_stage": act.get("arc_stage", "unknown"),
+                        "episode_goal": act.get("episode_goal", ""),
+                        "locked_location": story_plan.get("locked_location", ""),
+                        "locked_speaker": story_plan.get("locked_speaker", ""),
+                    }
+                    if unit is not None:
+                        plan["unit"] = unit
+                        plan["unit_id"] = unit.get("UnitID", "")
+                        plan["unit_name"] = unit.get("UnitName", "")
+                    return plan
+        plan = {
+            "scene_index": scene_index,
+            "arc_stage": "continuation",
+            "episode_goal": "Continue the same mainline without abrupt location or relationship jumps.",
+            "locked_location": story_plan.get("locked_location", ""),
+            "locked_speaker": story_plan.get("locked_speaker", ""),
+        }
+        if unit is not None:
+            plan["unit"] = unit
+            plan["unit_id"] = unit.get("UnitID", "")
+            plan["unit_name"] = unit.get("UnitName", "")
+        return plan
 
     def _galgame_background_key(self, item: ItemInstance) -> str:
         tags = set(item.scenario_tags)

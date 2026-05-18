@@ -135,6 +135,8 @@ export type GalgameScene = {
   character_asset?: GalgameAssetReference | null;
   audio_asset?: GalgameAssetReference | null;
   story_template_id?: string | null;
+  story_plan?: Record<string, unknown>;
+  current_scene_plan?: Record<string, unknown>;
   ai_generated: boolean;
   custom_input_enabled: boolean;
 };

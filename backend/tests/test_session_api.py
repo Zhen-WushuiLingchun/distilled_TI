@@ -202,6 +202,9 @@ def test_senren_vn_scene_is_ai_first_and_skill_driven(monkeypatch):
     assert scene["character_text"] == "先别急着解释，我想听你自己说。"
     assert scene["speaker"] == "芦花"
     assert scene["speaker_slug"] == "roka"
+    assert scene["location"] == captured_payload["continuity_contract"]["locked_location"]
+    assert captured_payload["story_bible"]["version"] == "senren_story_plan_v1"
+    assert captured_payload["current_scene_plan"]["choice_id"] == scene["choice_id"]
     assert captured_payload["skill_contract"]["mode"] == "ai_first_every_scene"
     assert captured_payload["primary_speaker"]["slug"] == "roka"
     assert "芦花" in captured_payload["characters"]
@@ -615,6 +618,73 @@ def test_galgame_scene_filters_ai_measurement_leaks(monkeypatch, tmp_path):
     assert "心理测试" not in visible_scene_text
     assert "option_key" not in visible_scene_text
     assert "测量" not in visible_scene_text
+
+
+def test_galgame_story_plan_locks_mainline_location_across_turns(monkeypatch, tmp_path):
+    captured_payloads = []
+
+    def fake_scene(scene_payload):
+        captured_payloads.append(scene_payload)
+        return {
+            "title": "AI tries to jump",
+            "location": "Unplanned remote moon base",
+            "mood": "steady",
+            "speaker": "Unplanned stranger",
+            "narrator_text": "The scene tries to move somewhere else.",
+            "character_text": "We should not actually teleport.",
+            "choice_texts": {
+                str(choice["option_key"]): f"Stay in plan with {choice['option_key']}"
+                for choice in scene_payload["choices"]
+            },
+            "background_key": "moon_base",
+            "background_prompt": "remote moon base, no humans, no text",
+            "character_key": "stranger",
+            "character_prompt": "unknown stranger visual novel sprite",
+        }
+
+    monkeypatch.setattr(ai_service, "generate_galgame_scene", fake_scene)
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path / "generated"))
+    start_response = public_client.post("/api/session/start", json={"mode": "story"})
+    payload = start_response.json()
+    headers = session_headers(payload["session_secret"])
+
+    scene_response = public_client.get(
+        f"/api/session/{payload['session_id']}/galgame/scene",
+        headers=headers,
+    )
+    assert scene_response.status_code == 200
+    first_scene = scene_response.json()
+    first_plan = first_scene["story_plan"]
+    assert first_plan["version"] == "galgame_story_plan_v2"
+    assert first_plan["character_config"]["AI_Name"] == first_plan["locked_speaker"]
+    assert len(first_plan["units"]) >= 20
+    assert first_scene["current_scene_plan"]["unit"]["UnitID"] == first_plan["units"][0]["UnitID"]
+    assert first_scene["location"] == first_plan["locked_location"]
+    assert first_scene["location"] != "Unplanned remote moon base"
+    assert first_scene["current_scene_plan"]["arc_stage"] == "opening"
+    assert captured_payloads[-1]["continuity_contract"]["locked_location"] == first_scene["location"]
+    assert captured_payloads[-1]["script_format_contract"]["stop_at_wait_for_player_input"] is True
+    assert captured_payloads[-1]["current_scene_plan"]["arc_stage"] == "opening"
+
+    response = public_client.post(
+        f"/api/session/{payload['session_id']}/galgame/respond",
+        json={
+            "item_id": first_scene["item_id"],
+            "scene_id": first_scene["scene_id"],
+            "option_key": first_scene["choices"][0]["option_key"],
+            "choice_text": first_scene["choices"][0]["text"],
+            "latency_ms": 1200,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    next_scene = response.json()["scene"]
+    assert next_scene is not None
+    assert next_scene["story_plan"]["mainline_id"] == first_plan["mainline_id"]
+    assert next_scene["location"] == first_plan["locked_location"]
+    assert next_scene["location"] != "Unplanned remote moon base"
+    assert next_scene["current_scene_plan"]["unit_id"] == first_plan["units"][1]["UnitID"]
+    assert next_scene["character_text"] != first_scene["character_text"]
 
 
 def test_invite_user_can_manage_private_galgame_story_templates(monkeypatch):

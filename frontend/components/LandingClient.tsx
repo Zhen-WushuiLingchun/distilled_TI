@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import { getCurrentUser, redeemInvite, requestLoginCode, verifyLoginCode } from "@/lib/api";
+import { SENREN_ENABLED } from "@/lib/features";
 import {
   clearUserAccess,
   getUserAccess,
@@ -334,7 +335,7 @@ export function LandingClient() {
             </button>
             <button
               type="button"
-              className="btn btn-ghost"
+              className={`btn btn-ghost ${SENREN_ENABLED ? "" : "hidden"}`}
               onClick={() => {
                 saveReportViewPreferences({ projectionMode, namingStyle });
                 router.push("/senren");
