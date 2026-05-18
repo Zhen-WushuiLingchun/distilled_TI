@@ -1,5 +1,25 @@
 # Development Log
 
+## 2026-05-19: Rebase Architecture Work Onto Latest Main
+
+### Completed
+
+- Merged the locally known latest `origin/main` baseline into `docs/assessment-core-architecture`.
+- Revalidated the unified `AssessmentSignal` changes against the newer backend and frontend code.
+- Removed production-build dependence on `next/font/google` by switching the main frontend to local system font stacks exposed through the existing CSS font variables.
+- Kept the frontend visual font roles (`--font-body`, `--font-mono`, `--font-display`) while avoiding build-time calls to Google Fonts.
+
+### Validation
+
+- Backend: `VECTOR_ENABLED=false GALGAME_AI_SCENE_ENABLED=false python -m pytest` passed with `84 passed`.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+
+### Notes
+
+- The local `.env` can enable live DeepSeek and SiliconFlow services for smoke testing, but regression tests should override external services off unless the task explicitly targets live provider acceptance.
+- `skills.zip` remains an unrelated untracked local file.
+
 ## 2026-05-19: AssessmentSignal Internal Core Entry
 
 ### Completed

@@ -61,6 +61,9 @@
   --foreground: var(--ink-strong);
   --muted: var(--ink-muted);
   --card: var(--bg-raised);
+  --font-body: "Inter", "Segoe UI", "Helvetica Neue", Arial, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-display: "Georgia", "Times New Roman", "Noto Serif SC", serif;
 }
 
 @theme inline {
