@@ -204,6 +204,19 @@ export type GalgameSceneResult = {
   workbench_checkpoint?: WorkbenchCheckpoint | null;
 };
 
+export type GalgameCharacterProfile = {
+  slug: string;
+  display_name: string;
+  source: "skill" | "builtin" | "random" | "free";
+  role: string;
+  impression: string;
+  tags: string[];
+  persona_prompt: string;
+  character_key: string;
+  character_prompt: string;
+  style_prompt: string;
+};
+
 export type GalgameStoryTemplate = {
   template_id: string;
   owner_user_id?: string | null;
@@ -741,10 +754,19 @@ export function deleteUserGalgameStoryTemplate(user: UserAccessBundle, templateI
   );
 }
 
-export function startSession(user?: UserAccessBundle | null, mode: "core" | "story" = "core") {
+export type StorySessionOptions = {
+  story_character_mode?: "random_skill" | "skill" | "free";
+  story_character_slug?: string | null;
+};
+
+export function listGalgameCharacterProfiles() {
+  return publicRequest<{ items: GalgameCharacterProfile[]; default_mode: string }>("/galgame/character-profiles");
+}
+
+export function startSession(user?: UserAccessBundle | null, mode: "core" | "story" = "core", options: StorySessionOptions = {}) {
   return publicRequest<SessionStartResponse>("/session/start", {
     method: "POST",
-    json: { mode },
+    json: { mode, ...options },
   }, user ? { user } : undefined);
 }
 

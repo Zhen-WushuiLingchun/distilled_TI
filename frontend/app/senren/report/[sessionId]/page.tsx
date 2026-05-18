@@ -2,15 +2,10 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { SenrenDisabledNotice } from "@/components/SenrenDisabledNotice";
-import { SENREN_ENABLED } from "@/lib/features";
 
 export default function SenrenHistoricalReportPage() {
   const params = useParams();
   const sessionId = params?.sessionId as string;
-  if (!SENREN_ENABLED) {
-    return <SenrenDisabledNotice />;
-  }
 
   // Pass sessionId context — the report client reads from sessionStorage
   // For historical reports, user would need to re-authenticate

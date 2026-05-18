@@ -156,8 +156,7 @@ class SenrenMonitorSession:
         self.game_path: str | None = None  # 本地游戏路径（local 模式）
         self.game_info: dict | None = None  # 游戏路径校验信息
         self.local_visual_assets: dict[str, list[str]] = {"backgrounds": [], "characters": [], "all": []}
-        self.local_asset_registry: dict[str, str | dict[str, str]] = {}
-        self.story_plan: dict[str, object] = {}
+        self.local_asset_registry: dict[str, str] = {}
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)
 
@@ -180,38 +179,6 @@ class SenrenMonitorService:
     def __init__(self):
         self._sessions: dict[str, SenrenMonitorSession] = {}
         self._scoring_engine = ScoringEngine()
-
-    def _build_story_plan(self) -> dict[str, object]:
-        return {
-            "version": "senren_story_plan_v1",
-            "mainline_id": "senren-common-route",
-            "mainline_title": "Senren local common route",
-            "location_policy": "follow the ordered choice tree; never jump outside the current choice node",
-            "chapters": [
-                {
-                    "choice_id": choice.choice_id,
-                    "chapter": choice.chapter,
-                    "location": choice.location,
-                    "characters": choice.characters,
-                    "scene_goal": choice.context[:180],
-                }
-                for choice in ALL_CHOICES
-            ],
-        }
-
-    def _current_story_plan_node(self, session: SenrenMonitorSession, choice_node: GameChoiceNode) -> dict[str, object]:
-        chapter_index = next(
-            (index + 1 for index, choice in enumerate(ALL_CHOICES) if choice.choice_id == choice_node.choice_id),
-            len(session.choices_made) + 1,
-        )
-        return {
-            "chapter_index": chapter_index,
-            "choice_id": choice_node.choice_id,
-            "chapter": choice_node.chapter,
-            "locked_location": choice_node.location,
-            "characters": choice_node.characters,
-            "scene_goal": choice_node.context,
-        }
 
     # ============================================================
     # Local visual assets
@@ -273,24 +240,11 @@ class SenrenMonitorService:
             "local_character_candidates": len(assets.get("characters", [])),
         }
 
-    def _hash_asset_token(self, session_id: str, asset_id: str, token: str) -> str:
-        return hashlib.sha256(f"asset:{session_id}:{asset_id}:{token}".encode("utf-8")).hexdigest()
-
-    def resolve_local_asset(self, session_id: str, asset_id: str, asset_token: str | None = None) -> Path:
+    def resolve_local_asset(self, session_id: str, asset_id: str) -> Path:
         session = self.get_session(session_id)
-        registry_entry = session.local_asset_registry.get(asset_id)
-        if not registry_entry:
+        raw_path = session.local_asset_registry.get(asset_id)
+        if not raw_path:
             raise KeyError("local_asset_not_found")
-        if isinstance(registry_entry, dict):
-            raw_path = registry_entry.get("path", "")
-            token_hash = registry_entry.get("token_hash", "")
-            if not asset_token or not secrets.compare_digest(
-                token_hash,
-                self._hash_asset_token(session_id, asset_id, asset_token),
-            ):
-                raise PermissionError("invalid_asset_token")
-        else:
-            raw_path = registry_entry
         asset_path = Path(raw_path).resolve()
         roots = self._local_asset_roots(session)
         if not asset_path.is_file() or asset_path.suffix.lower() not in LOCAL_IMAGE_SUFFIXES:
@@ -317,7 +271,6 @@ class SenrenMonitorService:
             owner_key=owner_key,
             user_id=user_id,
         )
-        session.story_plan = self._build_story_plan()
         self._sessions[session_id] = session
 
         return {
@@ -326,7 +279,6 @@ class SenrenMonitorService:
             "delete_token": delete_token,
             "state": session.state.model_dump(),
             "roadmap": self._build_roadmap(),
-            "story_plan": session.story_plan,
             "total_choices": len(get_all_mappings()),
         }
 
@@ -615,7 +567,6 @@ class SenrenMonitorService:
                 "character_text": "可以查看这次路线的报告，或者从头开始另一轮记录。",
                 "choices": [],
                 "ai_generated": False,
-                "story_plan": session.story_plan,
                 "background_asset": self._background_asset_ref(
                     session,
                     None,
@@ -636,7 +587,7 @@ class SenrenMonitorService:
             fallback_scene.update(
                 {
                     "title": str(ai_scene.get("title") or fallback_scene["title"]),
-                    "location": fallback_scene["location"],
+                    "location": str(ai_scene.get("location") or fallback_scene["location"]),
                     "mood": str(ai_scene.get("mood") or fallback_scene["mood"]),
                     "speaker": ai_speaker,
                     "speaker_slug": ai_speaker_identity["slug"] or fallback_scene.get("speaker_slug", ""),
@@ -693,8 +644,6 @@ class SenrenMonitorService:
             "characters": [item["display_name"] or item["source_name"] for item in character_identities],
             "source_characters": choice_node.characters,
             "character_identities": character_identities,
-            "story_plan": session.story_plan,
-            "current_scene_plan": self._current_story_plan_node(session, choice_node),
             "choices": [
                 {
                     "option_key": option.key,
@@ -727,7 +676,6 @@ class SenrenMonitorService:
         persona_enrichment = self._skill_enrichment(choice_node.characters)
         character_identities = self._character_identities(choice_node.characters)
         primary_speaker = self._primary_speaker_identity(choice_node.characters)
-        current_scene_plan = self._current_story_plan_node(session, choice_node)
         choices_payload = []
         for option in choice_node.options:
             mapping = get_mapping(choice_node.choice_id, option.key)
@@ -753,15 +701,6 @@ class SenrenMonitorService:
             "prompt": choice_node.prompt,
             "choices": choices_payload,
             "recent_choices": session.choices_made[-4:],
-            "story_bible": session.story_plan,
-            "current_scene_plan": current_scene_plan,
-            "continuity_contract": {
-                "locked_location": choice_node.location,
-                "locked_speaker": primary_speaker["display_name"] or primary_speaker["source_name"],
-                "must_follow_ordered_choice_tree": True,
-                "do_not_teleport": True,
-                "measurement_item_is_private_seed_not_plot": True,
-            },
             "skill_personas": persona_enrichment,
             "skill_contract": {
                 "enabled": True,
@@ -875,13 +814,10 @@ class SenrenMonitorService:
         return None
 
     def _register_local_asset(self, session: SenrenMonitorSession, kind: str, raw_path: str) -> str:
-        asset_id = f"{kind}-{secrets.token_urlsafe(12).replace('-', '').replace('_', '')[:16]}"
-        asset_token = secrets.token_urlsafe(24)
-        session.local_asset_registry[asset_id] = {
-            "path": raw_path,
-            "token_hash": self._hash_asset_token(session.session_id, asset_id, asset_token),
-        }
-        return f"/api/senren/monitor/{session.session_id}/asset/{asset_id}?token={asset_token}"
+        digest = hashlib.sha256(f"{session.session_secret}:{raw_path}".encode("utf-8")).hexdigest()[:16]
+        asset_id = f"{kind}-{digest}"
+        session.local_asset_registry[asset_id] = raw_path
+        return f"/api/senren/monitor/{session.session_id}/asset/{asset_id}"
 
     def _character_asset_root(self) -> Path:
         root = Path(settings.senren_character_asset_dir)

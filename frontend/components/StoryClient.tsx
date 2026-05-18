@@ -9,11 +9,13 @@ import {
   generateSessionReport,
   getGalgameScene,
   getSessionMap,
+  listGalgameCharacterProfiles,
   listUserGalgameStoryTemplates,
   respondGalgameScene,
   startSession,
   updateUserGalgameStoryTemplate,
   type GalgameScene,
+  type GalgameCharacterProfile,
   type GalgameStoryTemplate,
   type GalgameStoryTemplatePayload,
   type GalgameTextInference,
@@ -49,6 +51,8 @@ type TemplateFormState = {
   stylePrompt: string;
   scenarioTags: string;
 };
+
+type StoryCharacterMode = "random_skill" | "skill" | "free";
 
 const EMPTY_TEMPLATE_FORM: TemplateFormState = {
   name: "我的校园分支",
@@ -138,6 +142,11 @@ export function StoryClient() {
   const [showLog, setShowLog] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [resumeAccess, setResumeAccess] = useState<SessionAccessBundle | null>(null);
+  const [characterProfiles, setCharacterProfiles] = useState<GalgameCharacterProfile[]>([]);
+  const [storyCharacterMode, setStoryCharacterMode] = useState<StoryCharacterMode>("random_skill");
+  const [selectedCharacterSlug, setSelectedCharacterSlug] = useState("");
   const [templates, setTemplates] = useState<GalgameStoryTemplate[]>([]);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(EMPTY_TEMPLATE_FORM);
@@ -154,32 +163,20 @@ export function StoryClient() {
         setBusy(true);
         const currentUser = getUserAccess();
         setUser(currentUser);
-        let currentAccess = getActiveSessionAccess();
-        if (!currentAccess) {
-          clearFinalReportSnapshot();
-          const started = await startSession(currentUser, "story");
-          currentAccess = {
-            session_id: started.session_id,
-            session_secret: started.session_secret,
-            delete_token: started.delete_token,
-          };
-          saveActiveSessionAccess(currentAccess);
-          setState(started.state);
-          setRemainingUntilReport(started.min_questions_for_report);
-        }
-        const [nextScene, templatePayload] = await Promise.all([
-          getGalgameScene(currentAccess),
+        const currentAccess = getActiveSessionAccess();
+        const [profilePayload, templatePayload] = await Promise.all([
+          listGalgameCharacterProfiles().catch(() => ({ items: [], default_mode: "random_skill" })),
           currentUser ? listUserGalgameStoryTemplates(currentUser).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
         ]);
         if (cancelled) return;
-        setAccess(currentAccess);
-        setScene(nextScene);
+        setResumeAccess(currentAccess);
+        setCharacterProfiles(profilePayload.items);
         setTemplates(templatePayload.items);
-        setSelectedOptionKey(nextScene.choices.find((choice) => choice.tone === "ambivalent")?.option_key ?? nextScene.choices[0]?.option_key ?? "");
-        startedAtRef.current = performance.now();
+        setSelectedCharacterSlug(profilePayload.items.find((profile) => profile.source === "skill")?.slug ?? "");
+        setNeedsSetup(true);
         setError("");
       } catch (reason) {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : "剧情模式初始化失败。");
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "剧情配置初始化失败。");
       } finally {
         if (!cancelled) setBusy(false);
       }
@@ -244,6 +241,57 @@ export function StoryClient() {
     if (!currentUser) return;
     const payload = await listUserGalgameStoryTemplates(currentUser);
     setTemplates(payload.items);
+  }
+
+  async function loadStoryScene(currentAccess: SessionAccessBundle) {
+    const nextScene = await getGalgameScene(currentAccess);
+    setAccess(currentAccess);
+    setScene(nextScene);
+    setNeedsSetup(false);
+    setSelectedOptionKey(nextScene.choices.find((choice) => choice.tone === "ambivalent")?.option_key ?? nextScene.choices[0]?.option_key ?? "");
+    startedAtRef.current = performance.now();
+    setError("");
+  }
+
+  async function handleResumeStory() {
+    if (!resumeAccess) return;
+    try {
+      setBusy(true);
+      await loadStoryScene(resumeAccess);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "继续当前故事失败，可以重新开始一个故事。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartConfiguredStory() {
+    try {
+      setBusy(true);
+      clearFinalReportSnapshot();
+      const selectedSlug = storyCharacterMode === "skill" ? selectedCharacterSlug : null;
+      const started = await startSession(user, "story", {
+        story_character_mode: storyCharacterMode,
+        story_character_slug: selectedSlug,
+      });
+      const currentAccess = {
+        session_id: started.session_id,
+        session_secret: started.session_secret,
+        delete_token: started.delete_token,
+      };
+      saveActiveSessionAccess(currentAccess);
+      setResumeAccess(currentAccess);
+      setState(started.state);
+      setRemainingUntilReport(started.min_questions_for_report);
+      setCanGenerateReport(false);
+      setDialogueLog([]);
+      setLastInference(null);
+      await loadStoryScene(currentAccess);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "创建剧情会话失败。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleChoice(optionKey: string, textOverride?: string) {
@@ -354,14 +402,96 @@ export function StoryClient() {
     scene?.choices.find((choice) => choice.option_key === selectedOptionKey) ??
     scene?.choices[0] ??
     null;
+  const skillProfiles = characterProfiles.filter((profile) => profile.source === "skill");
+  const originalProfiles = characterProfiles.filter((profile) => profile.source === "builtin");
+  const selectedProfile = characterProfiles.find((profile) => profile.slug === selectedCharacterSlug) ?? skillProfiles[0] ?? characterProfiles[0] ?? null;
 
   if (busy && !scene) {
     return (
       <main className="story-shell story-shell-vn">
         <section className="story-loading-card">
           <p className="eyebrow">Distilled TI / Story Mode</p>
-          <h1 className="mt-4 text-4xl">正在生成第一幕</h1>
-          <p className="mt-3 text-[color:var(--ink-muted)]">正在为你生成一个可推进的校园分支。</p>
+          <h1 className="mt-4 text-4xl">{needsSetup ? "正在生成第一幕" : "正在准备剧情配置"}</h1>
+          <p className="mt-3 text-[color:var(--ink-muted)]">正在加载角色 skill、剧情模板和会话状态。</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!busy && !scene && needsSetup) {
+    return (
+      <main className="story-shell story-shell-vn">
+        <section className="story-loading-card max-w-5xl">
+          <p className="eyebrow">Distilled TI / Story Setup</p>
+          <h1 className="mt-4 text-4xl">选择这次故事的角色引擎</h1>
+          <p className="mt-3 max-w-3xl text-[color:var(--ink-muted)]">
+            Web Story 会先固定角色 profile，再生成 Unit/Event 大纲。你可以用留存 skill 获得更稳定的人设，也可以选择原创自由生成体验。
+          </p>
+
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            {[
+              ["random_skill", "随机 Skill 角色", "从留存角色 skill 中随机抽取，稳定但每局不同。"],
+              ["skill", "指定 Skill 角色", "手动选择一个角色，适合测试一致性和长期体验。"],
+              ["free", "原创自由生成", "使用原创 profile 池，不绑定既有角色。"],
+            ].map(([mode, title, description]) => (
+              <button
+                key={mode}
+                type="button"
+                className={`surface-sunken p-4 text-left transition ${storyCharacterMode === mode ? "ring-2 ring-[color:var(--accent)]" : ""}`}
+                onClick={() => setStoryCharacterMode(mode as StoryCharacterMode)}
+              >
+                <p className="label-mini">{title}</p>
+                <p className="mt-2 text-sm leading-6 text-[color:var(--ink-muted)]">{description}</p>
+              </button>
+            ))}
+          </div>
+
+          {storyCharacterMode === "skill" ? (
+            <div className="mt-5">
+              <label className="label-mini mb-2 block">选择角色 Skill</label>
+              <select
+                className="field"
+                value={selectedProfile?.slug ?? ""}
+                onChange={(event) => setSelectedCharacterSlug(event.target.value)}
+              >
+                {skillProfiles.map((profile) => (
+                  <option key={profile.slug} value={profile.slug}>
+                    {profile.display_name} / {profile.role || profile.slug}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            {(storyCharacterMode === "skill" ? [selectedProfile].filter(Boolean) : storyCharacterMode === "free" ? originalProfiles.slice(0, 2) : skillProfiles.slice(0, 2)).map((profile) => (
+              <article key={profile!.slug} className="surface-sunken p-4">
+                <p className="label-mini">{profile!.source === "skill" ? "Skill Profile" : "Original Profile"}</p>
+                <h2 className="mt-2 text-xl text-[color:var(--ink-strong)]">{profile!.display_name}</h2>
+                <p className="mt-2 text-sm leading-6 text-[color:var(--ink-muted)]">{profile!.impression || profile!.role}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {profile!.tags.slice(0, 6).map((tag) => (
+                    <span key={tag} className="chip">{tag}</span>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div className="mt-7 flex flex-wrap gap-3">
+            <button type="button" className="btn btn-primary" onClick={() => void handleStartConfiguredStory()}>
+              按此配置开始新故事
+            </button>
+            {resumeAccess ? (
+              <button type="button" className="btn btn-ghost" onClick={() => void handleResumeStory()}>
+                继续当前故事
+              </button>
+            ) : null}
+            <button type="button" className="btn btn-ghost" onClick={() => router.push("/")}>
+              返回首页
+            </button>
+          </div>
+          {error ? <p className="mt-4 text-sm text-red-400">{error}</p> : null}
         </section>
       </main>
     );

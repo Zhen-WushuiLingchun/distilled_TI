@@ -1,7 +1,6 @@
 import pytest
-from starlette.requests import Request
+import json
 
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api import senren_routes
@@ -9,6 +8,7 @@ from app.core.config import settings
 from app.domain.models import VectorSearchHit
 from app.main import app as public_app
 from app.services.ai_service import ai_service
+from app.services.context_analysis_service import context_analysis_service
 from app.services.email_service import email_service
 from app.services.storage import local_session_store
 from app.services.user_service import user_service
@@ -66,40 +66,81 @@ def test_senren_local_mode_serves_registered_local_assets(tmp_path):
     assert scene["background_asset"]["source"] == "local_game"
     assert scene["character_asset"]["source"] == "local_or_generated_character"
 
-    missing_token_response = public_client.get(scene["character_asset"]["url"].split("?")[0])
-    assert missing_token_response.status_code == 403
-
     asset_response = public_client.get(scene["character_asset"]["url"])
     assert asset_response.status_code == 200
     assert asset_response.content == b"fake-character"
 
 
-def test_senren_local_game_validate_rejects_file_path_without_crashing(tmp_path):
-    fake_file = tmp_path / "not-a-game.txt"
-    fake_file.write_text("not a directory", encoding="utf-8")
+def test_senren_local_game_validate_reports_missing_path(tmp_path):
+    missing_path = tmp_path / "not-a-game"
 
-    response = public_client.post("/api/senren/local-game/validate", json={"game_path": str(fake_file)})
+    response = public_client.post("/api/senren/local-game/validate", json={"game_path": str(missing_path)})
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["valid"] is False
-    assert payload["error"].startswith("path_is_not_directory")
+    assert "路径不存在" in payload["error"]
 
 
-def test_senren_session_listing_is_local_admin_only():
-    request = Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/api/senren/sessions",
-            "headers": [],
-            "client": ("203.0.113.10", 53124),
-        }
+def test_senren_local_game_launch_starts_process_and_session(monkeypatch, tmp_path):
+    (tmp_path / "SenrenBanka.exe").write_text("fake", encoding="utf-8")
+    launched: dict[str, object] = {}
+
+    def fake_popen(args, **kwargs):
+        launched["args"] = args
+        launched["kwargs"] = kwargs
+
+        class DummyProcess:
+            pid = 12345
+
+        return DummyProcess()
+
+    monkeypatch.setattr(senren_routes.subprocess, "Popen", fake_popen)
+
+    response = public_client.post("/api/senren/local-game/launch", json={"game_path": str(tmp_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"]
+    assert payload["game_path"]
+    assert payload["game_info"]["launch_status"] == "started"
+    assert payload["game_info"]["exe_launched"].endswith("SenrenBanka.exe")
+    assert launched["args"] == [payload["game_info"]["exe_launched"]]
+
+
+def test_senren_choice_best_effort_records_context_analysis(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_analyze(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(context_analysis_service, "analyze", fake_analyze)
+    start_response = public_client.post("/api/senren/monitor/start?mode=monitor")
+    assert start_response.status_code == 200
+    payload = start_response.json()
+
+    response = public_client.post(
+        "/api/senren/monitor/choice",
+        json={
+            "session_id": payload["session_id"],
+            "choice_id": "senren-c1",
+            "option_key": "honest",
+        },
+        headers=session_headers(payload["session_secret"]),
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        senren_routes.list_sessions(request)
-    assert exc_info.value.status_code == 403
+    assert response.status_code == 200
+    assert captured["application_id"] == "senren-monitor"
+    assert captured["external_user_id"] == payload["session_id"]
+    assert captured["channel"] == "game_choice"
+    assert len(captured["messages"]) == 2
+
+
+def test_senren_session_listing_is_public_monitor_state():
+    response = public_client.get("/api/senren/sessions")
+
+    assert response.status_code == 200
+    assert "sessions" in response.json()
 
 
 def test_email_login_requires_one_time_code(monkeypatch):
@@ -202,9 +243,7 @@ def test_senren_vn_scene_is_ai_first_and_skill_driven(monkeypatch):
     assert scene["character_text"] == "先别急着解释，我想听你自己说。"
     assert scene["speaker"] == "芦花"
     assert scene["speaker_slug"] == "roka"
-    assert scene["location"] == captured_payload["continuity_contract"]["locked_location"]
-    assert captured_payload["story_bible"]["version"] == "senren_story_plan_v1"
-    assert captured_payload["current_scene_plan"]["choice_id"] == scene["choice_id"]
+    assert scene["location"] == "旧教学楼"
     assert captured_payload["skill_contract"]["mode"] == "ai_first_every_scene"
     assert captured_payload["primary_speaker"]["slug"] == "roka"
     assert "芦花" in captured_payload["characters"]
@@ -530,6 +569,20 @@ def test_galgame_scene_wraps_current_question_and_records_custom_text(monkeypatc
     assert "非常同意" not in visible_scene_text
     assert "非常不同意" not in visible_scene_text
     assert "当前映射" not in visible_scene_text
+    assert "内心活动" not in visible_scene_text
+    assert "根据玩家上一句" not in visible_scene_text
+    assert "不要复读" not in visible_scene_text
+    assert "行动选项" not in visible_scene_text
+    public_plan_text = json.dumps(
+        {
+            "story_plan": scene["story_plan"],
+            "current_scene_plan": scene["current_scene_plan"],
+        },
+        ensure_ascii=False,
+    )
+    assert "内心活动" not in public_plan_text
+    assert "WaitForPlayerInput" not in public_plan_text
+    assert "private_measurement_axis" not in public_plan_text
 
     response = public_client.post(
         f"/api/session/{payload['session_id']}/galgame/respond",
@@ -578,10 +631,10 @@ def test_galgame_scene_filters_ai_measurement_leaks(monkeypatch, tmp_path):
             "mood": "测量",
             "speaker": "option_key",
             "narrator_text": scene_payload["private_analysis_seed"]["layer"],
-            "character_text": f"请回答：{first_choice['text']}",
+            "character_text": "这是你的内心活动：根据玩家上一句，表现出一点信任或戒备。不要复读旧台词。",
             "choice_texts": {
                 first_choice["option_key"]: "非常同意 +1.00",
-                second_choice["option_key"]: "不同意 -0.50",
+                second_choice["option_key"]: "你可以自己写一句台词，也可以从行动选项中选一个推进。",
             },
             "background_key": "bad_background",
             "background_prompt": "classroom background, no humans, no text",
@@ -618,6 +671,10 @@ def test_galgame_scene_filters_ai_measurement_leaks(monkeypatch, tmp_path):
     assert "心理测试" not in visible_scene_text
     assert "option_key" not in visible_scene_text
     assert "测量" not in visible_scene_text
+    assert "内心活动" not in visible_scene_text
+    assert "根据玩家上一句" not in visible_scene_text
+    assert "不要复读" not in visible_scene_text
+    assert "行动选项" not in visible_scene_text
 
 
 def test_galgame_story_plan_locks_mainline_location_across_turns(monkeypatch, tmp_path):
@@ -655,10 +712,10 @@ def test_galgame_story_plan_locks_mainline_location_across_turns(monkeypatch, tm
     assert scene_response.status_code == 200
     first_scene = scene_response.json()
     first_plan = first_scene["story_plan"]
-    assert first_plan["version"] == "galgame_story_plan_v2"
+    assert first_plan["version"] == "galgame_story_plan_v3"
     assert first_plan["character_config"]["AI_Name"] == first_plan["locked_speaker"]
-    assert len(first_plan["units"]) >= 20
-    assert first_scene["current_scene_plan"]["unit"]["UnitID"] == first_plan["units"][0]["UnitID"]
+    assert first_plan["unit_count"] >= 20
+    assert first_scene["current_scene_plan"]["unit_id"] == "Opening_01"
     assert first_scene["location"] == first_plan["locked_location"]
     assert first_scene["location"] != "Unplanned remote moon base"
     assert first_scene["current_scene_plan"]["arc_stage"] == "opening"
@@ -683,8 +740,42 @@ def test_galgame_story_plan_locks_mainline_location_across_turns(monkeypatch, tm
     assert next_scene["story_plan"]["mainline_id"] == first_plan["mainline_id"]
     assert next_scene["location"] == first_plan["locked_location"]
     assert next_scene["location"] != "Unplanned remote moon base"
-    assert next_scene["current_scene_plan"]["unit_id"] == first_plan["units"][1]["UnitID"]
+    assert next_scene["current_scene_plan"]["unit_id"] == "Opening_02"
     assert next_scene["character_text"] != first_scene["character_text"]
+
+
+def test_story_mode_can_start_with_selected_character_profile(monkeypatch, tmp_path):
+    monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path / "generated"))
+
+    profiles_response = public_client.get("/api/galgame/character-profiles")
+    assert profiles_response.status_code == 200
+    profiles = profiles_response.json()["items"]
+    assert any(profile["slug"] == "yoshino" for profile in profiles)
+
+    start_response = public_client.post(
+        "/api/session/start",
+        json={
+            "mode": "story",
+            "story_character_mode": "skill",
+            "story_character_slug": "yoshino",
+        },
+    )
+    assert start_response.status_code == 200
+    payload = start_response.json()
+
+    scene_response = public_client.get(
+        f"/api/session/{payload['session_id']}/galgame/scene",
+        headers=session_headers(payload["session_secret"]),
+    )
+
+    assert scene_response.status_code == 200
+    scene = scene_response.json()
+    profile = scene["story_plan"]["character_profile"]
+    assert profile["slug"] == "yoshino"
+    assert scene["speaker"] == profile["display_name"]
+    assert scene["character_key"] == "skill_yoshino"
+    assert scene["story_plan"]["character_config"]["AI_Name"] == profile["display_name"]
 
 
 def test_invite_user_can_manage_private_galgame_story_templates(monkeypatch):

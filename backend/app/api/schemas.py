@@ -13,6 +13,7 @@ from app.domain.models import (
     EmbeddingScoreBreakdown,
     GalgameChoice,
     GalgameAssetReference,
+    GalgameCharacterProfile,
     GalgameScene,
     GalgameStoryTemplate,
     GalgameTextInference,
@@ -41,6 +42,17 @@ from app.services.storage import local_session_store
 
 class StartSessionRequest(BaseModel):
     mode: str = "core"
+    story_character_mode: str | None = None
+    story_character_slug: str | None = None
+
+
+class GalgameCharacterProfileResponse(GalgameCharacterProfile):
+    pass
+
+
+class GalgameCharacterProfileListResponse(BaseModel):
+    items: list[GalgameCharacterProfileResponse] = Field(default_factory=list)
+    default_mode: str = "random_skill"
 
 
 class RedeemInviteRequest(BaseModel):

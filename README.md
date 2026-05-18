@@ -599,6 +599,14 @@ Story Mode 的目标是让测量过程不再像问卷。用户看到的是视觉
 
 当前 Story Mode 已按 `gal指南.txt` 改成 Unit/Event harness：每个会话先生成 `galgame_story_plan_v2`，包含 `character_config`、20 个 `Unit`、`Narration`/`Dialogue` 事件、`WaitForPlayerInput` 和 `EndCondition`。LLM 和 fallback 都必须围绕当前 Unit 续写，不能随意跳 tag、跳地点或复读上一句角色台词。自由文本会通过 “发送自由台词” 按钮提交，同时仍保留显式选项作为低置信度回退。
 
+进入 `/story` 后会先显示配置页，不会立刻开始答题。用户可以选择：
+
+- `随机 Skill 角色`：从 `skills/*/persona.md` 和 `meta.json` 留存角色库中随机抽取一个角色，适合更稳定的人设和语气。
+- `指定 Skill 角色`：手动选择一个角色，用于测试同一角色下的长期一致性。
+- `原创自由生成`：使用项目内置原创 profile 池，不绑定既有角色，更适合每局不同的体验。
+
+后端接口是 `GET /api/galgame/character-profiles` 和 `POST /api/session/start` 的 `story_character_mode/story_character_slug` 字段。Senren 本地模式已恢复为 `/senren`，用于本地千恋万花目录验证、启动监视、VN 场景、路线历史和报告；Web Story 继续复用角色 skill 数据，两条路径互不覆盖。
+
 ### Story Mode 怎么用
 
 1. 启动主前端和后端。
@@ -881,6 +889,7 @@ Context API 输出的是：
 | `POST` | `/api/user/galgame/story-templates` | 创建用户 Story 模板 |
 | `PUT` | `/api/user/galgame/story-templates/{template_id}` | 更新用户 Story 模板 |
 | `DELETE` | `/api/user/galgame/story-templates/{template_id}` | 删除用户 Story 模板 |
+| `GET` | `/api/galgame/character-profiles` | Web Story 可选角色 profile / skill 列表 |
 | `POST` | `/api/session/start` | 开始测量会话 |
 | `POST` | `/api/question/next` | 获取下一题 |
 | `POST` | `/api/response/submit` | 提交选择题回答 |
@@ -1060,9 +1069,9 @@ distilled TI/
 | `/` | Landing、注册、入口选择 |
 | `/session` | 标准答题 |
 | `/story` | Galgame / VN 模式 |
-| `/senren` | 默认关闭；旧 Senren 本地模式会迁移为独立 demo，可用 `NEXT_PUBLIC_SENREN_ENABLED=true` 临时调试 |
-| `/senren/monitor` | 默认关闭；旧本地游戏监控视图 |
-| `/senren/history` | 默认关闭；旧 Senren 路线历史 |
+| `/senren` | Senren 本地游戏入口，验证本地游戏目录并启动监视会话 |
+| `/senren/monitor` | Senren 本地游戏 VN 监视视图 |
+| `/senren/history` | Senren 路线历史 |
 | `/report` | 当前报告 |
 | `/report/[sessionId]` | 历史报告 |
 | `/history` | 历史会话恢复 |
@@ -1249,7 +1258,7 @@ cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
 
 - `/session`：标准答题。
 - `/story`：Web Galgame Story Mode。
-- `/senren`：旧本地游戏/Senren 模式默认关闭；后续迁移为独立 demo。
+- `/senren`：Senren 本地游戏模式；用于本地目录验证、启动游戏、选择监视和路线报告。
 - `/history`、`/evolution`、`/profile`：长期历史、演化、用户邀请。
 - `/admin`：本机管理端。
 
@@ -1261,7 +1270,7 @@ cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
 2. 打开 `/`，用 invite + 邮箱注册。
 3. 打开 `/session`，答 2-3 题，确认能继续出题。
 4. 打开 `/story`，确认剧情不是问卷措辞，选项可推进。
-5. 打开 `/senren`，确认旧 Senren 入口显示默认关闭提示；如需调试旧入口，设置 `NEXT_PUBLIC_SENREN_ENABLED=true` 后重新构建。
+5. 打开 `/senren`，输入本地千恋万花目录，确认验证、启动监视、`/senren/monitor` 和 `/senren/report` 可用。
 6. Admin 执行 vector reindex：`templates`、`instances`、`sessions`、`galgame_turns`。
 7. Admin 查看 similar templates/sessions/galgame turns。
 8. Admin 查看 `vector_sync_failures`，期望为空。

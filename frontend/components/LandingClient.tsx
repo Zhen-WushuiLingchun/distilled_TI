@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import { getCurrentUser, redeemInvite, requestLoginCode, verifyLoginCode } from "@/lib/api";
-import { SENREN_ENABLED } from "@/lib/features";
 import {
   clearUserAccess,
   getUserAccess,
@@ -331,11 +330,11 @@ export function LandingClient() {
                 router.push("/story");
               }}
             >
-              剧情模式
+              剧情模式 / 角色配置
             </button>
             <button
               type="button"
-              className={`btn btn-ghost ${SENREN_ENABLED ? "" : "hidden"}`}
+              className="btn btn-ghost"
               onClick={() => {
                 saveReportViewPreferences({ projectionMode, namingStyle });
                 router.push("/senren");

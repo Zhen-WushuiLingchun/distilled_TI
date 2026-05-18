@@ -14,6 +14,8 @@ from app.api.schemas import (
     ContextAnalysisRequest,
     ContextAnalysisResponse,
     GenerateUserInviteRequest,
+    GalgameCharacterProfileListResponse,
+    GalgameCharacterProfileResponse,
     GalgameStoryTemplateListResponse,
     GalgameStoryTemplateRequest,
     GalgameStoryTemplateResponse,
@@ -45,6 +47,7 @@ from app.api.schemas import (
 )
 from app.api.security import build_owner_key, is_local_request
 from app.core.config import settings
+from app.domain.galgame_character_profiles import list_story_character_profiles
 from app.domain.models import GalgameStoryTemplate
 from app.services.context_analysis_service import context_analysis_service
 from app.services.email_service import EmailDeliveryError, email_service
@@ -55,6 +58,16 @@ from app.services.user_service import user_service
 router = APIRouter()
 
 _CONTEXT_RISK_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "crisis": 4}
+
+
+@router.get("/galgame/character-profiles", response_model=GalgameCharacterProfileListResponse)
+def list_galgame_character_profiles() -> GalgameCharacterProfileListResponse:
+    return GalgameCharacterProfileListResponse(
+        items=[
+            GalgameCharacterProfileResponse(**profile.model_dump())
+            for profile in list_story_character_profiles()
+        ]
+    )
 
 
 def _require_session_access(session_id: str, session_secret: str | None, request: Request) -> None:
@@ -419,6 +432,8 @@ def start_session(
         mode=payload.mode,
         owner_key=build_owner_key(request),
         user_id=profile.user_id if profile else None,
+        story_character_mode=payload.story_character_mode,
+        story_character_slug=payload.story_character_slug,
     )
     return StartSessionResponse(
         session_id=session.session_id,
