@@ -694,6 +694,14 @@ Goals:
 
 External API can remain unchanged.
 
+Current status:
+
+- `AssessmentSignal` has been introduced as an internal domain model.
+- `ScoringEngine.apply_signal()` is the shared scoring-core entrypoint.
+- `ScoringEngine.apply_response()` remains as a compatibility wrapper that builds a signal before applying it.
+- Standard question submission, Story/Galgame response submission, and Senren choice submission now carry source-mode metadata into the scoring core.
+- Signal confidence is recorded on the internal signal, but update strength is not confidence-scaled yet.
+
 ### Phase 3: Route Story And Senren Through Signals
 
 Goals:

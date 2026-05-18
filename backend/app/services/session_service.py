@@ -29,6 +29,7 @@ from app.domain.models import (
     GalgameStoryTemplate,
     GalgameTextInference,
     GalgameTurn,
+    AssessmentSignalSourceMode,
     ItemInstance,
     ItemTemplate,
     ItemTemplateCreate,
@@ -628,10 +629,23 @@ class SessionService:
         option_key: str,
         latency_ms: int | None = None,
         runtime_ai_config: AIProviderConfig | None = None,
+        source_mode: AssessmentSignalSourceMode | None = None,
+        signal_confidence: float = 1.0,
+        signal_evidence: dict[str, object] | None = None,
     ) -> tuple[SessionRecord, ItemInstance | None]:
         session = self.get_session(session_id)
         item = self.get_item(item_id)
-        session.state = self._scoring_engine.apply_response(session.state, item, option_key, latency_ms)
+        resolved_source_mode: AssessmentSignalSourceMode = source_mode or ("story_choice" if session.mode == "story" else "standard_question")
+        session.state = self._scoring_engine.apply_response(
+            session.state,
+            item,
+            option_key,
+            latency_ms,
+            session_id=session_id,
+            source_mode=resolved_source_mode,
+            confidence=signal_confidence,
+            evidence=signal_evidence,
+        )
         session.updated_at = datetime.now(UTC)
         next_item: ItemInstance | None = None
         if session.state.question_count < settings.max_questions_per_session:

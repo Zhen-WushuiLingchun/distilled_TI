@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 
 QuestionLayer = Literal["core", "sub", "module", "probe", "entertainment"]
 QuestionType = Literal["likert_5", "contrast_5", "binary", "triple_choice", "situational_choice"]
+AssessmentSignalSourceMode = Literal[
+    "standard_question",
+    "story_choice",
+    "story_free_text",
+    "senren_choice",
+    "chat_context",
+]
 
 
 class QuestionOption(BaseModel):
@@ -67,6 +75,32 @@ class AnswerRecord(BaseModel):
     predicted_score: float
     residual: float
     latency_ms: int | None = None
+
+
+class AssessmentSignal(BaseModel):
+    """Normalized assessment input consumed by the shared scoring core."""
+
+    signal_id: str = Field(default_factory=lambda: f"sig-{uuid4()}")
+    session_id: str
+    source_mode: AssessmentSignalSourceMode
+    source_id: str
+    item_id: str
+    template_id: str
+    selected_option_key: str
+    observed_score: float
+    predicted_score: float | None = None
+    residual: float | None = None
+    dimension_weights: dict[str, float]
+    subdimension_weights: dict[str, float] = Field(default_factory=dict)
+    module_affinities: dict[str, float] = Field(default_factory=dict)
+    discrimination: float = 1.0
+    difficulty: float = 0.0
+    confidence: float = 1.0
+    evidence: dict[str, object] = Field(default_factory=dict)
+    latency_ms: int | None = None
+    adapter_version: str = "assessment_signal_v1"
+    diagnostic: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class GalgameTurn(BaseModel):

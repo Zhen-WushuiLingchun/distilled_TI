@@ -26,6 +26,44 @@ def test_submit_response_updates_mu_and_sigma():
     assert next_state.question_count == 1
 
 
+def test_assessment_signal_matches_legacy_response_update():
+    state = SessionState(
+        core_mu=make_zero_vector(0.0),
+        core_sigma=make_zero_vector(settings.default_sigma),
+        sub_mu=make_zero_subdimension_vector(0.0),
+        sub_sigma=make_zero_subdimension_vector(settings.default_sigma),
+        sub_counts={key: 0 for key in SUBDIMENSION_TO_PARENT},
+        module_scores=make_zero_module_vector(0.0),
+        module_counts={key: 0 for key in MODULE_KEYS},
+        dimension_counts=make_zero_vector(0),
+    )
+    item = build_seed_item_bank()[0]
+    engine = ScoringEngine()
+
+    signal = engine.build_signal_from_item_response(
+        session_id="session-demo",
+        state=state,
+        item=item,
+        selected_option_key="strongly_agree",
+        source_mode="standard_question",
+        confidence=1.0,
+    )
+    signal_state = engine.apply_signal(state, signal)
+    legacy_state = engine.apply_response(
+        state,
+        item,
+        "strongly_agree",
+        session_id="session-demo",
+        source_mode="standard_question",
+    )
+
+    assert signal.source_mode == "standard_question"
+    assert signal.confidence == 1.0
+    assert signal_state.core_mu == legacy_state.core_mu
+    assert signal_state.core_sigma == legacy_state.core_sigma
+    assert signal_state.answers == legacy_state.answers
+
+
 def test_unlocks_subdimensions_after_threshold():
     state = SessionState(
         core_mu=make_zero_vector(0.0),

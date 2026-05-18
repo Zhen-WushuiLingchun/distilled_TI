@@ -1,5 +1,34 @@
 # Development Log
 
+## 2026-05-19: AssessmentSignal Internal Core Entry
+
+### Completed
+
+- Added an internal `AssessmentSignal` domain model as the first implementation step of the unified assessment architecture.
+- Added `ScoringEngine.apply_signal()` as the shared Assessment Core entrypoint.
+- Kept `ScoringEngine.apply_response()` as a compatibility wrapper so existing API behavior stays stable while internally flowing through signals.
+- Routed current state-update paths through source-mode metadata:
+  - standard question answers use `standard_question`
+  - Story/Galgame choices use `story_choice`
+  - Story/Galgame free text uses `story_free_text`
+  - Senren game choices use `senren_choice`
+- Added a scoring regression test proving a standard-question `AssessmentSignal` produces the same state update as the legacy response path.
+- Updated `docs/architecture-assessment-core.md` with the current Phase 2 implementation status.
+
+### Validation
+
+- Backend: `python -m pytest` passed with `73 passed`.
+- Frontend: `npm run lint` passed.
+- Frontend: `npm run build` passed.
+- Frontend: `npm audit` reported `0 vulnerabilities`.
+
+### Not Completed Yet
+
+- `AssessmentSignal` is not persisted to a dedicated evidence table yet.
+- Signal confidence is carried by the internal model but does not scale scoring updates yet.
+- AI Chat context signals remain support/risk records and have not been connected to personality-state updates.
+- Senren frontend direct `fetch` calls still need to be consolidated into a typed API client.
+
 ## 2026-05-19: Unified Assessment Core Architecture Baseline
 
 ### Completed

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import {
@@ -399,11 +400,11 @@ export function StoryClient() {
     <main className={`story-shell story-shell-vn ${hideUI ? "is-ui-hidden" : ""}`}>
       <section className="story-vn-frame">
         <div className="story-vn-bg" data-background-key={scene?.background_key ?? "campus_window"}>
-          <img className="story-vn-bg-image" src={backgroundUrl} alt="" />
+          <Image className="story-vn-bg-image" src={backgroundUrl} alt="" fill sizes="100vw" priority />
         </div>
         <div className="story-vn-atmosphere" />
         <div className="story-vn-character" data-character-key={scene?.character_key ?? "desk_mate"} aria-hidden>
-          <img className="story-vn-sprite-image" src={characterUrl} alt="" />
+          <Image className="story-vn-sprite-image" src={characterUrl} alt="" fill sizes="(max-width: 900px) 56vw, 40vw" />
         </div>
         {scene?.audio_asset?.url ? <audio ref={audioRef} src={scene.audio_asset.url} loop /> : null}
 

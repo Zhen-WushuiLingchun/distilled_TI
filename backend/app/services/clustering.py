@@ -74,6 +74,9 @@ class ClusteringService:
         cluster_count = min(self._cluster_count, len(matrix))
         signature = self._build_signature(matrix, cluster_count)
         if signature == self._current_signature and self._model is not None:
+            versions = local_session_store.list_cluster_versions()
+            if not versions or versions[0].dataset_signature != signature:
+                self._persist_version(signature, len(dataset), cluster_count)
             return
         self._model = KMeans(n_clusters=cluster_count, random_state=42, n_init=10)
         self._model.fit(matrix)

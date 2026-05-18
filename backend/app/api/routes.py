@@ -501,6 +501,17 @@ def respond_galgame_scene(
             payload.item_id,
             resolved_option_key,
             payload.latency_ms,
+            source_mode="story_free_text" if payload.custom_text else "story_choice",
+            signal_confidence=text_inference.confidence if payload.custom_text else 0.75,
+            signal_evidence={
+                "scene_id": payload.scene_id,
+                "selected_option_key": payload.option_key,
+                "resolved_option_key": resolved_option_key,
+                "choice_text": payload.choice_text,
+                "custom_text_excerpt": payload.custom_text[:800] if payload.custom_text else None,
+                "inference_reason": text_inference.reason,
+                "classifier_source": text_inference.source,
+            },
         )
         next_scene = session_service.build_galgame_scene(session_id) if next_item else None
     except KeyError as exc:

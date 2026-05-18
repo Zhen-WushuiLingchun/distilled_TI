@@ -394,6 +394,17 @@ class SenrenMonitorService:
             state=session.state,
             item=item,
             selected_option_key=option_key,
+            session_id=session_id,
+            source_mode="senren_choice",
+            confidence=0.7,
+            evidence={
+                "choice_id": choice_id,
+                "option_text": option_text,
+                "context": choice_node.context if choice_node else "",
+                "location": choice_node.location if choice_node else "",
+                "characters": choice_node.characters if choice_node else [],
+                "scenario_tags": mapping.scenario_tags,
+            },
         )
 
         # 记录选择

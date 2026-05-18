@@ -11,7 +11,16 @@ from app.domain.dimensions import (
     SUBDIMENSION_LABELS,
     SUBDIMENSION_TO_PARENT,
 )
-from app.domain.models import AnswerRecord, ItemTemplate, SessionReport, SessionState, StructuralLabel, SupportRiskFlag
+from app.domain.models import (
+    AnswerRecord,
+    AssessmentSignal,
+    AssessmentSignalSourceMode,
+    ItemTemplate,
+    SessionReport,
+    SessionState,
+    StructuralLabel,
+    SupportRiskFlag,
+)
 from app.services.ai_service import AIProviderConfig, ai_service
 from app.services.clustering import clustering_service
 from app.services.reporting import build_module_insights, build_subdimension_insights, render_narrative_label
@@ -26,23 +35,59 @@ class ScoringEngine:
         dot_product = sum(state.core_mu.get(key, 0.0) * weight for key, weight in item.dimension_weights.items())
         return tanh(item.discrimination * (dot_product - item.difficulty))
 
-    def apply_response(
+    def predict_signal_score(self, state: SessionState, signal: AssessmentSignal) -> float:
+        dot_product = sum(state.core_mu.get(key, 0.0) * weight for key, weight in signal.dimension_weights.items())
+        return tanh(signal.discrimination * (dot_product - signal.difficulty))
+
+    def build_signal_from_item_response(
         self,
+        *,
+        session_id: str,
         state: SessionState,
         item: ItemTemplate,
         selected_option_key: str,
         latency_ms: int | None = None,
-    ) -> SessionState:
+        source_mode: AssessmentSignalSourceMode = "standard_question",
+        confidence: float = 1.0,
+        evidence: dict[str, object] | None = None,
+    ) -> AssessmentSignal:
         option_map = {option.key: option for option in item.options}
         selected_option = option_map[selected_option_key]
-        observed_score = selected_option.score
         predicted_score = self.predict_score(state, item)
-        residual = observed_score - predicted_score
+        observed_score = selected_option.score
+        return AssessmentSignal(
+            session_id=session_id,
+            source_mode=source_mode,
+            source_id=item.id,
+            item_id=item.id,
+            template_id=getattr(item, "template_id", item.id),
+            selected_option_key=selected_option_key,
+            observed_score=observed_score,
+            predicted_score=predicted_score,
+            residual=observed_score - predicted_score,
+            dimension_weights=item.dimension_weights,
+            subdimension_weights=item.subdimension_weights,
+            module_affinities=item.module_affinities,
+            discrimination=item.discrimination,
+            difficulty=item.difficulty,
+            confidence=clip(confidence, 0.0, 1.0),
+            evidence=evidence or {},
+            latency_ms=latency_ms,
+        )
+
+    def apply_signal(self, state: SessionState, signal: AssessmentSignal) -> SessionState:
+        observed_score = signal.observed_score
+        predicted_score = signal.predicted_score
+        if predicted_score is None:
+            predicted_score = self.predict_signal_score(state, signal)
+        residual = signal.residual
+        if residual is None:
+            residual = observed_score - predicted_score
 
         next_state = state.model_copy(deep=True)
         eta = settings.eta0 / sqrt(1 + max(state.question_count, 0) / settings.eta_decay)
 
-        for dimension, weight in item.dimension_weights.items():
+        for dimension, weight in signal.dimension_weights.items():
             current_mu = next_state.core_mu[dimension]
             updated_mu = current_mu + eta * residual * weight
             next_state.core_mu[dimension] = clip(updated_mu, -settings.score_clip, settings.score_clip)
@@ -53,7 +98,7 @@ class ScoringEngine:
             updated_sigma = current_sigma * (1 - shrink) + settings.sigma_drift
             next_state.core_sigma[dimension] = max(settings.min_sigma, updated_sigma)
 
-        for subdimension, weight in item.subdimension_weights.items():
+        for subdimension, weight in signal.subdimension_weights.items():
             parent_dimension = SUBDIMENSION_TO_PARENT[subdimension]
             parent_count = next_state.dimension_counts.get(parent_dimension, 0)
             if parent_count >= settings.subdimension_unlock_threshold:
@@ -65,7 +110,7 @@ class ScoringEngine:
                 current_sub_sigma = next_state.sub_sigma[subdimension]
                 next_state.sub_sigma[subdimension] = max(settings.min_sigma, current_sub_sigma * (1 - 0.06 * abs(weight)) + settings.sigma_drift)
 
-        for module_key, affinity in item.module_affinities.items():
+        for module_key, affinity in signal.module_affinities.items():
             next_state.module_counts[module_key] = next_state.module_counts.get(module_key, 0) + 1
             updated_module_score = next_state.module_scores.get(module_key, 0.0) + residual * affinity * 0.15
             next_state.module_scores[module_key] = clip(updated_module_score, -settings.score_clip, settings.score_clip)
@@ -73,16 +118,16 @@ class ScoringEngine:
                 next_state.active_modules.append(module_key)
 
         next_state.question_count += 1
-        next_state.recent_item_ids = (next_state.recent_item_ids + [getattr(item, "template_id", item.id)])[-8:]
+        next_state.recent_item_ids = (next_state.recent_item_ids + [signal.template_id])[-8:]
         next_state.answers.append(
             AnswerRecord(
-                item_id=item.id,
-                template_id=getattr(item, "template_id", item.id),
-                option_key=selected_option_key,
+                item_id=signal.item_id,
+                template_id=signal.template_id,
+                option_key=signal.selected_option_key,
                 mapped_score=observed_score,
                 predicted_score=predicted_score,
                 residual=residual,
-                latency_ms=latency_ms,
+                latency_ms=signal.latency_ms,
             )
         )
 
@@ -91,10 +136,34 @@ class ScoringEngine:
             next_state.zeta["consistency"] = clip(next_state.zeta["consistency"] - 0.05, 0.0, 1.0)
         else:
             next_state.zeta["consistency"] = clip(next_state.zeta["consistency"] + 0.02, 0.0, 1.0)
-        if latency_ms is not None and latency_ms < 1500:
+        if signal.latency_ms is not None and signal.latency_ms < 1500:
             next_state.zeta["fatigue"] = clip(next_state.zeta["fatigue"] + 0.05, 0.0, 1.0)
 
         return next_state
+
+    def apply_response(
+        self,
+        state: SessionState,
+        item: ItemTemplate,
+        selected_option_key: str,
+        latency_ms: int | None = None,
+        *,
+        session_id: str = "",
+        source_mode: AssessmentSignalSourceMode = "standard_question",
+        confidence: float = 1.0,
+        evidence: dict[str, object] | None = None,
+    ) -> SessionState:
+        signal = self.build_signal_from_item_response(
+            session_id=session_id,
+            state=state,
+            item=item,
+            selected_option_key=selected_option_key,
+            latency_ms=latency_ms,
+            source_mode=source_mode,
+            confidence=confidence,
+            evidence=evidence,
+        )
+        return self.apply_signal(state, signal)
 
     def build_support_risk_flags(self, state: SessionState) -> list[SupportRiskFlag]:
         flags: list[SupportRiskFlag] = []
