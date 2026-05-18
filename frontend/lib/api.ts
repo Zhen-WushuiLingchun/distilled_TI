@@ -592,6 +592,13 @@ export function redeemInvite(inviteCode: string, email: string) {
   });
 }
 
+export function login(email: string) {
+  return publicRequest<UserAccessBundle>("/auth/login", {
+    method: "POST",
+    json: { email },
+  });
+}
+
 export function claimInvite(user: UserAccessBundle, inviteCode: string) {
   return publicRequest<UserProfile>(
     "/user/invite/claim",

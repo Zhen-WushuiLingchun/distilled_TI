@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
-import { getCurrentUser, redeemInvite } from "@/lib/api";
+import { getCurrentUser, login, redeemInvite } from "@/lib/api";
 import {
   clearUserAccess,
   getUserAccess,
@@ -26,6 +26,10 @@ export function LandingClient() {
   const [registerEmail, setRegisterEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState("");
+  const [authTab, setAuthTab] = useState<"register" | "login">("register");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -72,6 +76,25 @@ export function LandingClient() {
       setInviteError(reason instanceof Error ? reason.message : "注册失败。");
     } finally {
       setInviteBusy(false);
+    }
+  }
+
+  async function handleLogin() {
+    if (!loginEmail.trim()) {
+      setLoginError("请输入注册邮箱。");
+      return;
+    }
+    try {
+      setLoginBusy(true);
+      setLoginError("");
+      const access = await login(loginEmail.trim());
+      saveUserAccess(access);
+      setUserAccess(access);
+      setLoginEmail("");
+    } catch (reason) {
+      setLoginError(reason instanceof Error ? reason.message : "登录失败。");
+    } finally {
+      setLoginBusy(false);
     }
   }
 
@@ -185,26 +208,63 @@ export function LandingClient() {
                   后续会话会绑定到这个随机 handle。你可以在历史页继续会话、查看报告档案，也可以清除本机凭证重新输入邀请码。
                 </p>
               ) : (
-                <div className="mt-4 grid gap-2">
-                  <input
-                    className="field"
-                    value={inviteCode}
-                    onChange={(event) => setInviteCode(event.target.value)}
-                    placeholder="请输入邀请者发给你的一次性邀请码"
-                  />
-                  <input
-                    className="field"
-                    type="email"
-                    value={registerEmail}
-                    onChange={(event) => setRegisterEmail(event.target.value)}
-                    placeholder="注册邮箱；一个邮箱只能注册一个匿名档案"
-                  />
-                  <button className="btn btn-primary" type="button" disabled={inviteBusy} onClick={() => void handleRedeemInvite()}>
-                    {inviteBusy ? "注册中…" : "注册并进入"}
-                  </button>
+                <div className="mt-4">
+                  <div className="mb-3 flex gap-1">
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${authTab === "register" ? "btn-primary" : "btn-ghost"}`}
+                      onClick={() => setAuthTab("register")}
+                    >
+                      注册
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${authTab === "login" ? "btn-primary" : "btn-ghost"}`}
+                      onClick={() => setAuthTab("login")}
+                    >
+                      登录
+                    </button>
+                  </div>
+                  {authTab === "register" ? (
+                    <div className="grid gap-2">
+                      <input
+                        className="field"
+                        value={inviteCode}
+                        onChange={(event) => setInviteCode(event.target.value)}
+                        placeholder="请输入邀请者发给你的一次性邀请码"
+                      />
+                      <input
+                        className="field"
+                        type="email"
+                        value={registerEmail}
+                        onChange={(event) => setRegisterEmail(event.target.value)}
+                        placeholder="注册邮箱；一个邮箱只能注册一个匿名档案"
+                      />
+                      <button className="btn btn-primary" type="button" disabled={inviteBusy} onClick={() => void handleRedeemInvite()}>
+                        {inviteBusy ? "注册中…" : "注册并进入"}
+                      </button>
+                      {inviteError ? <p className="mt-1 text-xs text-[color:var(--danger-ink)]">{inviteError}</p> : null}
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      <p className="text-[0.8rem] leading-5 text-[color:var(--ink-muted)]">
+                        已注册用户可直接通过邮箱登录，系统会发放新的设备凭证。
+                      </p>
+                      <input
+                        className="field"
+                        type="email"
+                        value={loginEmail}
+                        onChange={(event) => setLoginEmail(event.target.value)}
+                        placeholder="请输入注册时使用的邮箱"
+                      />
+                      <button className="btn btn-primary" type="button" disabled={loginBusy} onClick={() => void handleLogin()}>
+                        {loginBusy ? "登录中…" : "登录"}
+                      </button>
+                      {loginError ? <p className="mt-1 text-xs text-[color:var(--danger-ink)]">{loginError}</p> : null}
+                    </div>
+                  )}
                 </div>
               )}
-              {inviteError ? <p className="mt-2 text-xs text-[color:var(--danger-ink)]">{inviteError}</p> : null}
               {userAccess ? (
                 <button
                   className="mt-3 text-xs text-[color:var(--ink-faint)] underline underline-offset-4"

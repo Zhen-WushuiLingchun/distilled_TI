@@ -95,6 +95,29 @@ class UserService:
             recommendation_opt_in=profile.recommendation_opt_in,
         )
 
+    def login(self, email: str) -> UserAccessGrant:
+        """通过邮箱登录，返回新 user_secret（旧 secret 作废）。"""
+        normalized_email = self._normalize_email(email)
+        email_hash = self._hash_email(normalized_email)
+        profile = local_session_store.load_user_by_email_hash(email_hash)
+        if profile is None:
+            raise KeyError("email_not_found")
+        user_secret = secrets.token_urlsafe(32)
+        updated = profile.model_copy(
+            update={
+                "user_secret_hash": self._hash_token(user_secret),
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        local_session_store.save_user_profile(updated)
+        return UserAccessGrant(
+            user_id=updated.user_id,
+            user_secret=user_secret,
+            handle=updated.handle,
+            relationship_opt_in=updated.relationship_opt_in,
+            recommendation_opt_in=updated.recommendation_opt_in,
+        )
+
     def authenticate(self, user_id: str, user_secret: str | None) -> UserProfile:
         if not user_secret:
             raise PermissionError("user_secret_required")

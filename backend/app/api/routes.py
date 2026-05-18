@@ -20,6 +20,7 @@ from app.api.schemas import (
     GalgameRespondRequest,
     GalgameSceneResponse,
     GalgameSceneResultResponse,
+    LoginRequest,
     MapResponse,
     NextQuestionRequest,
     QuestionResponse,
@@ -160,6 +161,18 @@ def list_context_alerts(
             limit=max(1, min(limit, 100)),
         )
     )
+
+
+@router.post("/auth/login", response_model=UserAccessResponse)
+def login(payload: LoginRequest) -> UserAccessResponse:
+    """通过邮箱登录，返回新的 user_secret 用于后续认证。"""
+    try:
+        access = user_service.login(payload.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return UserAccessResponse(**access.model_dump())
 
 
 @router.post("/invite/redeem", response_model=UserAccessResponse)

@@ -48,6 +48,10 @@ class RedeemInviteRequest(BaseModel):
     email: str
 
 
+class LoginRequest(BaseModel):
+    email: str
+
+
 class ClaimInviteRequest(BaseModel):
     invite_code: str
 
