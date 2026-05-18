@@ -1,5 +1,36 @@
 # Development Log
 
+## 2026-05-19: Unified Assessment Core Architecture Baseline
+
+### Completed
+
+- Added `docs/architecture-assessment-core.md` as the baseline architecture document for the "one assessment core, multiple input adapters" direction.
+- Clarified the target layers:
+  - Assessment Core
+  - Input Adapters
+  - Application Services
+  - API Layer
+  - Frontend Experiences
+  - External Demo boundary
+- Defined the proposed `AssessmentSignal` concept as the missing normalization layer between standard questions, Story/Galgame, Senren, AI Chat context, and the shared scoring/reporting core.
+- Documented mode-specific rules and confidence policy:
+  - standard questions as high-confidence structured evidence
+  - Story/Galgame and Senren as medium-confidence contextual evidence
+  - AI Chat context as support/risk and longitudinal trend evidence by default
+- Documented the migration plan from current implementation toward unified signals, confidence-aware scoring, evidence-aware reports, frontend API consolidation, and isolated demo hardening.
+- Explicitly marked `ai-chat-support-demo/nextchat` as an external integration demo rather than the main product frontend.
+
+### Validation
+
+- Documentation-only change; no runtime code was changed for this entry.
+- Reviewed repository structure, backend service boundaries, frontend route/component layout, and existing architecture notes before writing the document.
+
+### Not Completed Yet
+
+- No `AssessmentSignal` model or database table has been implemented yet.
+- Existing direct Senren frontend `fetch` calls have not yet been consolidated into a typed API client.
+- Existing main-product and demo quality gates remain separate and should be documented in future implementation passes.
+
 ## 2026-05-16: Universal Context Support Signal API And Standalone Chat Demo
 
 ### Completed
