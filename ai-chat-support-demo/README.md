@@ -53,6 +53,18 @@ POST http://127.0.0.1:8000/api/context/analyze
 
 ## NextChat 入口
 
+推荐用脚本启动，避免每次手动记端口和依赖参数：
+
+```powershell
+.\start-nextchat-demo.ps1 -Port 3101 -Install
+```
+
+Ubuntu / Linux：
+
+```bash
+PORT=3101 INSTALL=auto ./start-nextchat-demo.sh
+```
+
 ```powershell
 cd .\nextchat
 npm install --ignore-scripts --legacy-peer-deps --package-lock=false

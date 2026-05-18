@@ -135,6 +135,8 @@ export type GalgameScene = {
   character_asset?: GalgameAssetReference | null;
   audio_asset?: GalgameAssetReference | null;
   story_template_id?: string | null;
+  story_plan?: Record<string, unknown>;
+  current_scene_plan?: Record<string, unknown>;
   ai_generated: boolean;
   custom_input_enabled: boolean;
 };
@@ -153,6 +155,13 @@ export type GalgameAssetStatus = {
   backend: string;
   base_url: string;
   model: string;
+  response_format: string;
+  quality: string;
+  watermark: boolean;
+  size_background: string;
+  size_character: string;
+  sequential_image_generation: string;
+  stream: boolean;
   public_url_prefix: string;
   background_count: number;
   character_count: number;
@@ -163,6 +172,7 @@ export type GalgameAssetStatus = {
   cleanup_enabled: boolean;
   sdwebui_available: boolean;
   comfyui_available: boolean;
+  cloud_configured: boolean;
 };
 
 export type GalgameTextInference = {
@@ -192,6 +202,19 @@ export type GalgameSceneResult = {
   scene: GalgameScene | null;
   text_inference?: GalgameTextInference | null;
   workbench_checkpoint?: WorkbenchCheckpoint | null;
+};
+
+export type GalgameCharacterProfile = {
+  slug: string;
+  display_name: string;
+  source: "skill" | "builtin" | "random" | "free";
+  role: string;
+  impression: string;
+  tags: string[];
+  persona_prompt: string;
+  character_key: string;
+  character_prompt: string;
+  style_prompt: string;
 };
 
 export type GalgameStoryTemplate = {
@@ -592,6 +615,28 @@ export function redeemInvite(inviteCode: string, email: string) {
   });
 }
 
+export type LoginChallengeResponse = {
+  challenge_id: string;
+  expires_at: string;
+  delivery: string;
+  message: string;
+  dev_code?: string | null;
+};
+
+export function requestLoginCode(email: string) {
+  return publicRequest<LoginChallengeResponse>("/auth/login", {
+    method: "POST",
+    json: { email },
+  });
+}
+
+export function verifyLoginCode(email: string, challengeId: string, code: string) {
+  return publicRequest<UserAccessBundle>("/auth/login/verify", {
+    method: "POST",
+    json: { email, challenge_id: challengeId, code },
+  });
+}
+
 export function claimInvite(user: UserAccessBundle, inviteCode: string) {
   return publicRequest<UserProfile>(
     "/user/invite/claim",
@@ -709,10 +754,19 @@ export function deleteUserGalgameStoryTemplate(user: UserAccessBundle, templateI
   );
 }
 
-export function startSession(user?: UserAccessBundle | null, mode: "core" | "story" = "core") {
+export type StorySessionOptions = {
+  story_character_mode?: "random_skill" | "skill" | "free";
+  story_character_slug?: string | null;
+};
+
+export function listGalgameCharacterProfiles() {
+  return publicRequest<{ items: GalgameCharacterProfile[]; default_mode: string }>("/galgame/character-profiles");
+}
+
+export function startSession(user?: UserAccessBundle | null, mode: "core" | "story" = "core", options: StorySessionOptions = {}) {
   return publicRequest<SessionStartResponse>("/session/start", {
     method: "POST",
-    json: { mode },
+    json: { mode, ...options },
   }, user ? { user } : undefined);
 }
 

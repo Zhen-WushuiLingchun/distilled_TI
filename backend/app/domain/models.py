@@ -119,6 +119,8 @@ class SessionRecord(BaseModel):
     mode: str = "core"
     status: Literal["active", "discarded"] = "active"
     state: SessionState
+    galgame_story_plan: dict[str, object] = Field(default_factory=dict)
+    galgame_character_profile: dict[str, object] = Field(default_factory=dict)
     user_id: str | None = None
     session_secret_hash: str = ""
     delete_token_hash: str = ""
@@ -376,6 +378,8 @@ class GalgameScene(BaseModel):
     character_asset: GalgameAssetReference | None = None
     audio_asset: GalgameAssetReference | None = None
     story_template_id: str | None = None
+    story_plan: dict[str, object] = Field(default_factory=dict)
+    current_scene_plan: dict[str, object] = Field(default_factory=dict)
     ai_generated: bool = False
     custom_input_enabled: bool = True
 
@@ -419,6 +423,19 @@ class GalgameStoryTemplate(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class GalgameCharacterProfile(BaseModel):
+    slug: str
+    display_name: str
+    source: Literal["skill", "builtin", "random", "free"] = "builtin"
+    role: str = ""
+    impression: str = ""
+    tags: list[str] = Field(default_factory=list)
+    persona_prompt: str = ""
+    character_key: str = ""
+    character_prompt: str = ""
+    style_prompt: str = ""
+
+
 class SessionAccessGrant(BaseModel):
     session_id: str
     session_secret: str
@@ -444,6 +461,15 @@ class UserAccessGrant(BaseModel):
     handle: str
     relationship_opt_in: bool = False
     recommendation_opt_in: bool = False
+
+
+class LoginChallenge(BaseModel):
+    challenge_id: str
+    email_hash: str
+    code_hash: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime
+    used_at: datetime | None = None
 
 
 class InviteCode(BaseModel):

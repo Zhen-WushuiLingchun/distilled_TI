@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     galgame_asset_base_url: str = "http://127.0.0.1:7860"
     galgame_asset_api_key: str = ""
     galgame_asset_model: str = ""
+    galgame_asset_response_format: str = "url"
+    galgame_asset_quality: str = ""
+    galgame_asset_watermark: bool = False
+    galgame_asset_size_background: str = "2K"
+    galgame_asset_size_character: str = "2K"
+    galgame_asset_sequential_image_generation: str = "disabled"
+    galgame_asset_stream: bool = False
     galgame_asset_public_dir: str = "frontend/public/generated/galgame"
     galgame_asset_public_url_prefix: str = "/generated/galgame"
     galgame_asset_timeout_seconds: float = 45.0
@@ -82,17 +89,28 @@ class Settings(BaseSettings):
     galgame_audio_asset_enabled: bool = False
     galgame_turn_vector_top_k: int = 5
     galgame_free_text_inference_min_confidence: float = 0.42
+    galgame_min_turns_for_report: int = 20
+    galgame_max_turns_per_session: int = 80
     senren_character_asset_dir: str = ".local/senren-character-assets"
     invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
     invite_bootstrap_max_uses: int = 1
     invite_default_max_uses: int = 1000
     user_invite_max_uses: int = 1
     registered_session_ttl_days: int = 3650
+    auth_login_code_ttl_minutes: int = 10
+    auth_login_code_return_in_response: bool = False
+    email_provider: str = "none"
+    email_from: str = ""
+    email_timeout_seconds: float = 10.0
+    resend_api_key: str = ""
+    resend_base_url: str = "https://api.resend.com"
     relationship_recommendations_enabled: bool = True
     context_analysis_api_key: str = ""
+    context_analysis_allow_unauth_local: bool = False
     context_analysis_recent_message_limit: int = 30
     context_analysis_store_raw_messages: bool = False
     senren_monitor_enabled: bool = True
+    senren_local_game_allow_remote: bool = False
     senren_min_choices_for_report: int = 8
 
 

@@ -552,11 +552,14 @@ export function AdminClient() {
                     </p>
                   </div>
                   <span className="chip">
-                    {assetStatus?.backend ?? "unknown"} / {assetStatus?.sdwebui_available ? "SD online" : "SD offline"}
+                    {assetStatus?.backend ?? "unknown"} / {assetStatus?.cloud_configured ? "cloud ready" : assetStatus?.sdwebui_available ? "SD online" : "offline"}
                   </span>
                 </div>
                 <p className="num mt-2 text-[0.76rem] text-[color:var(--ink-faint)]">
                   enabled {String(assetStatus?.generation_enabled ?? false)} · bg {assetStatus?.background_count ?? 0} · char {assetStatus?.character_count ?? 0} · {assetStatus?.base_url ?? "-"}
+                </p>
+                <p className="num mt-1 text-[0.76rem] text-[color:var(--ink-faint)]">
+                  model {assetStatus?.model || "-"} · size {assetStatus?.size_background || "-"} / {assetStatus?.size_character || "-"} · format {assetStatus?.response_format || "-"} · stream {String(assetStatus?.stream ?? false)}
                 </p>
                 <p className="num mt-1 text-[0.76rem] text-[color:var(--ink-faint)]">
                   cache {assetStatus?.cache_total_count ?? 0}/{assetStatus?.cache_max_files ?? 0} files · {(((assetStatus?.cache_total_bytes ?? 0) / 1024 / 1024)).toFixed(1)} MB · max age {assetStatus?.cache_max_age_days ?? 0}d

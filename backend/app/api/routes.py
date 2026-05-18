@@ -14,12 +14,17 @@ from app.api.schemas import (
     ContextAnalysisRequest,
     ContextAnalysisResponse,
     GenerateUserInviteRequest,
+    GalgameCharacterProfileListResponse,
+    GalgameCharacterProfileResponse,
     GalgameStoryTemplateListResponse,
     GalgameStoryTemplateRequest,
     GalgameStoryTemplateResponse,
     GalgameRespondRequest,
     GalgameSceneResponse,
     GalgameSceneResultResponse,
+    LoginChallengeResponse,
+    LoginRequest,
+    LoginVerifyRequest,
     MapResponse,
     NextQuestionRequest,
     QuestionResponse,
@@ -40,10 +45,12 @@ from app.api.schemas import (
     UserRecommendationResponse,
     WorkbenchEvidenceResponse,
 )
-from app.api.security import build_owner_key
+from app.api.security import build_owner_key, is_local_request
 from app.core.config import settings
+from app.domain.galgame_character_profiles import list_story_character_profiles
 from app.domain.models import GalgameStoryTemplate
 from app.services.context_analysis_service import context_analysis_service
+from app.services.email_service import EmailDeliveryError, email_service
 from app.services.session_service import session_service
 from app.services.storage import local_session_store
 from app.services.user_service import user_service
@@ -51,6 +58,16 @@ from app.services.user_service import user_service
 router = APIRouter()
 
 _CONTEXT_RISK_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "crisis": 4}
+
+
+@router.get("/galgame/character-profiles", response_model=GalgameCharacterProfileListResponse)
+def list_galgame_character_profiles() -> GalgameCharacterProfileListResponse:
+    return GalgameCharacterProfileListResponse(
+        items=[
+            GalgameCharacterProfileResponse(**profile.model_dump())
+            for profile in list_story_character_profiles()
+        ]
+    )
 
 
 def _require_session_access(session_id: str, session_secret: str | None, request: Request) -> None:
@@ -86,10 +103,12 @@ def _require_user(user_id: str | None, user_secret: str | None):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
-def _require_context_analysis_access(api_key: str | None) -> None:
+def _require_context_analysis_access(api_key: str | None, request: Request) -> None:
     expected = settings.context_analysis_api_key.strip()
     if not expected:
-        return
+        if settings.context_analysis_allow_unauth_local and is_local_request(request):
+            return
+        raise HTTPException(status_code=401, detail="context_analysis_api_key_not_configured")
     if not api_key or not secrets.compare_digest(api_key, expected):
         raise HTTPException(status_code=401, detail="context_analysis_api_key_required")
 
@@ -102,9 +121,10 @@ def health() -> dict[str, str]:
 @router.post("/context/analyze", response_model=ContextAnalysisResponse)
 def analyze_context(
     payload: ContextAnalysisRequest,
+    request: Request,
     x_context_api_key: str | None = Header(default=None, alias="X-Context-API-Key"),
 ) -> ContextAnalysisResponse:
-    _require_context_analysis_access(x_context_api_key)
+    _require_context_analysis_access(x_context_api_key, request)
     try:
         return context_analysis_service.analyze(
             application_id=payload.application_id,
@@ -127,11 +147,12 @@ def analyze_context(
 def list_context_analyses(
     application_id: str,
     external_user_id: str,
+    request: Request,
     conversation_id: str | None = None,
     limit: int = 20,
     x_context_api_key: str | None = Header(default=None, alias="X-Context-API-Key"),
 ) -> ContextAnalysisHistoryResponse:
-    _require_context_analysis_access(x_context_api_key)
+    _require_context_analysis_access(x_context_api_key, request)
     return ContextAnalysisHistoryResponse(
         items=local_session_store.list_context_analysis_records(
             application_id=application_id,
@@ -144,12 +165,13 @@ def list_context_analyses(
 
 @router.get("/context/alerts", response_model=ContextAnalysisHistoryResponse)
 def list_context_alerts(
+    request: Request,
     application_id: str | None = None,
     min_risk: str = "medium",
     limit: int = 50,
     x_context_api_key: str | None = Header(default=None, alias="X-Context-API-Key"),
 ) -> ContextAnalysisHistoryResponse:
-    _require_context_analysis_access(x_context_api_key)
+    _require_context_analysis_access(x_context_api_key, request)
     normalized_min_risk = min_risk.strip().lower()
     if normalized_min_risk not in _CONTEXT_RISK_ORDER:
         raise HTTPException(status_code=422, detail="invalid_min_risk")
@@ -160,6 +182,43 @@ def list_context_alerts(
             limit=max(1, min(limit, 100)),
         )
     )
+
+
+@router.post("/auth/login", response_model=LoginChallengeResponse)
+def login(payload: LoginRequest, request: Request) -> LoginChallengeResponse:
+    """通过邮箱登录，返回新的 user_secret 用于后续认证。"""
+    try:
+        challenge, code = user_service.request_login_code(payload.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    include_dev_code = settings.auth_login_code_return_in_response and is_local_request(request)
+    if not include_dev_code:
+        try:
+            email_service.send_login_code(payload.email, code, challenge.expires_at)
+        except EmailDeliveryError as exc:
+            raise HTTPException(status_code=503, detail="login_email_delivery_failed") from exc
+    return LoginChallengeResponse(
+        challenge_id=challenge.challenge_id,
+        expires_at=challenge.expires_at.isoformat(),
+        delivery="dev_response" if include_dev_code else "email",
+        message="login_code_returned_for_local_development" if include_dev_code else "login_code_challenge_created",
+        dev_code=code if include_dev_code else None,
+    )
+
+
+@router.post("/auth/login/verify", response_model=UserAccessResponse)
+def verify_login(payload: LoginVerifyRequest) -> UserAccessResponse:
+    try:
+        access = user_service.verify_login_code(payload.email, payload.challenge_id, payload.code)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return UserAccessResponse(**access.model_dump())
 
 
 @router.post("/invite/redeem", response_model=UserAccessResponse)
@@ -373,6 +432,8 @@ def start_session(
         mode=payload.mode,
         owner_key=build_owner_key(request),
         user_id=profile.user_id if profile else None,
+        story_character_mode=payload.story_character_mode,
+        story_character_slug=payload.story_character_slug,
     )
     return StartSessionResponse(
         session_id=session.session_id,
@@ -380,6 +441,8 @@ def start_session(
         delete_token=access.delete_token,
         state=session.state,
         question=QuestionResponse.from_item(item),
+        min_questions_for_report=session_service.min_questions_for_report(session),
+        max_questions_per_session=session_service.max_questions_per_session(session),
         workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
 
@@ -420,8 +483,8 @@ def submit_response(
     return SubmitResponseResponse(
         session_id=session.session_id,
         state=session.state,
-        can_generate_report=session.state.question_count >= settings.min_questions_for_report,
-        remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
+        can_generate_report=session_service.can_generate_report(session),
+        remaining_until_report=session_service.remaining_until_report(session),
         next_question=QuestionResponse.from_item(next_item) if next_item else None,
         workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
@@ -508,8 +571,8 @@ def respond_galgame_scene(
     return GalgameSceneResultResponse(
         session_id=session.session_id,
         state=session.state,
-        can_generate_report=session.state.question_count >= settings.min_questions_for_report,
-        remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
+        can_generate_report=session_service.can_generate_report(session),
+        remaining_until_report=session_service.remaining_until_report(session),
         scene=next_scene,
         text_inference=text_inference,
         workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
@@ -524,10 +587,11 @@ def get_report(
 ) -> ReportResponse:
     _require_session_access(session_id, x_session_secret, request)
     session = session_service.get_session(session_id)
-    if session.state.question_count < settings.min_questions_for_report:
+    if not session_service.can_generate_report(session):
+        min_questions_for_report = session_service.min_questions_for_report(session)
         raise HTTPException(
             status_code=409,
-            detail=f"至少需要回答 {settings.min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
+            detail=f"至少需要回答 {min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
         )
     try:
         return session_service.build_report(session_id)
@@ -546,10 +610,11 @@ def generate_report(
 ) -> ReportResponse:
     _require_session_access(session_id, x_session_secret, request)
     session = session_service.get_session(session_id)
-    if session.state.question_count < settings.min_questions_for_report:
+    if not session_service.can_generate_report(session):
+        min_questions_for_report = session_service.min_questions_for_report(session)
         raise HTTPException(
             status_code=409,
-            detail=f"至少需要回答 {settings.min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
+            detail=f"至少需要回答 {min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
         )
     try:
         return session_service.build_report(session_id, naming_style=payload.naming_style)

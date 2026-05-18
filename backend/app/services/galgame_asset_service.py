@@ -72,6 +72,13 @@ class GalgameAssetService:
             "backend": settings.galgame_asset_backend,
             "base_url": settings.galgame_asset_base_url,
             "model": settings.galgame_asset_model,
+            "response_format": settings.galgame_asset_response_format,
+            "quality": settings.galgame_asset_quality,
+            "watermark": settings.galgame_asset_watermark,
+            "size_background": settings.galgame_asset_size_background,
+            "size_character": settings.galgame_asset_size_character,
+            "sequential_image_generation": settings.galgame_asset_sequential_image_generation,
+            "stream": settings.galgame_asset_stream,
             "public_url_prefix": settings.galgame_asset_public_url_prefix,
             "background_count": self._generated_count("background"),
             "character_count": self._generated_count("character"),
@@ -82,6 +89,7 @@ class GalgameAssetService:
             "cleanup_enabled": settings.galgame_asset_cleanup_enabled,
             "sdwebui_available": self._probe("sdwebui"),
             "comfyui_available": self._probe("comfyui"),
+            "cloud_configured": self._cloud_configured(),
         }
 
     def generate_image_asset(
@@ -243,6 +251,9 @@ class GalgameAssetService:
         if backend == "sdwebui":
             self._generate_sdwebui_image(kind, prompt, output_path, cache_key)
             return
+        if backend in {"volcengine", "volcengine_seedream", "seedream"}:
+            self._generate_volcengine_seedream_image(kind, prompt, output_path)
+            return
         if backend in {"openai_images", "openai-image", "image_api"}:
             self._generate_openai_image(kind, prompt, output_path)
             return
@@ -297,7 +308,8 @@ class GalgameAssetService:
         payload: dict[str, Any] = {
             "prompt": full_prompt,
             "n": 1,
-            "size": "1024x576" if kind == "background" else "576x1024",
+            "size": self._image_size(kind),
+            "response_format": settings.galgame_asset_response_format or "b64_json",
         }
         if settings.galgame_asset_model:
             payload["model"] = settings.galgame_asset_model
@@ -321,6 +333,63 @@ class GalgameAssetService:
                 image_response.raise_for_status()
                 self._save_generated_image(kind, output_path, image_response.content)
                 return
+        raise ValueError("image_api_missing_image")
+
+    def _generate_volcengine_seedream_image(self, kind: str, prompt: str, output_path: Path) -> None:
+        if not settings.galgame_asset_api_key.strip():
+            raise ValueError("volcengine_seedream_api_key_required")
+        if not settings.galgame_asset_model.strip():
+            raise ValueError("volcengine_seedream_model_required")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = self._volcengine_seedream_payload(kind, prompt)
+        headers = {
+            "Authorization": f"Bearer {settings.galgame_asset_api_key.strip()}",
+            "Content-Type": "application/json",
+        }
+        with httpx.Client(timeout=settings.galgame_asset_timeout_seconds, follow_redirects=False) as client:
+            response = client.post(
+                f"{settings.galgame_asset_base_url.rstrip('/')}/images/generations",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            self._save_image_api_result(kind, client, data, output_path)
+
+    def _volcengine_seedream_payload(self, kind: str, prompt: str) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": settings.galgame_asset_model,
+            "prompt": self._image_prompt(kind, prompt),
+            "n": 1,
+            "size": self._image_size(kind),
+            "response_format": settings.galgame_asset_response_format or "b64_json",
+            "watermark": settings.galgame_asset_watermark,
+            "sequential_image_generation": settings.galgame_asset_sequential_image_generation or "disabled",
+            "stream": settings.galgame_asset_stream,
+        }
+        if settings.galgame_asset_quality:
+            payload["quality"] = settings.galgame_asset_quality
+        return payload
+
+    def _save_image_api_result(
+        self,
+        kind: str,
+        client: httpx.Client,
+        data: dict[str, Any],
+        output_path: Path,
+    ) -> None:
+        items = data.get("data") if isinstance(data, dict) else None
+        if not items:
+            raise ValueError("image_api_empty_data")
+        first = items[0]
+        if isinstance(first, dict) and first.get("b64_json"):
+            self._save_generated_image(kind, output_path, base64.b64decode(str(first["b64_json"]).split(",", 1)[-1]))
+            return
+        if isinstance(first, dict) and first.get("url"):
+            image_response = client.get(str(first["url"]))
+            image_response.raise_for_status()
+            self._save_generated_image(kind, output_path, image_response.content)
+            return
         raise ValueError("image_api_missing_image")
 
     def _save_generated_image(self, kind: str, output_path: Path, content: bytes) -> None:
@@ -457,6 +526,20 @@ class GalgameAssetService:
             "seed": seed,
             "sampler_name": "DPM++ 2M Karras",
         }
+
+    def _image_size(self, kind: str) -> str:
+        if kind == "background":
+            return settings.galgame_asset_size_background or "1024x576"
+        return settings.galgame_asset_size_character or "576x1024"
+
+    def _cloud_configured(self) -> bool:
+        backend = settings.galgame_asset_backend.lower()
+        return bool(
+            backend in {"volcengine", "volcengine_seedream", "seedream", "openai_images", "openai-image", "image_api"}
+            and settings.galgame_asset_base_url.strip()
+            and settings.galgame_asset_api_key.strip()
+            and settings.galgame_asset_model.strip()
+        )
 
     def _image_prompt(self, kind: str, prompt: str) -> str:
         if kind == "background":
