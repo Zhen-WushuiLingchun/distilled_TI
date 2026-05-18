@@ -158,13 +158,24 @@ Public 侧还允许匿名注册用户管理自己的剧情模板：
 
 Story Mode 的资产解析在 `backend/app/services/galgame_asset_service.py`。
 
-默认行为：
+默认安全行为：
 
-- `GALGAME_ASSET_GENERATION_ENABLED=false`
+- `GALGAME_ASSET_GENERATION_ENABLED=false` 时不调用任何生图 provider
 - 背景回退到 `frontend/public/galgame-assets/backgrounds/*.svg`
 - 立绘回退到 `frontend/public/galgame-assets/sprites/*.svg`
 - 音频默认只返回 disabled；如果 `GALGAME_AUDIO_ASSET_ENABLED=true`，使用 `frontend/public/galgame-assets/audio/ambient-room.wav`
 - 前端 `/story` 只读 scene 返回的 `background_asset / character_asset / audio_asset`，不自己猜素材路径
+
+完整联调默认推荐火山 Ark Seedream，适合无 GPU 部署：
+
+```powershell
+$env:GALGAME_ASSET_GENERATION_ENABLED="true"
+$env:GALGAME_ASSET_BACKEND="volcengine_seedream"
+$env:GALGAME_ASSET_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
+$env:GALGAME_ASSET_MODEL="doubao-seedream-5-0-260128"
+$env:GALGAME_ASSET_SIZE_BACKGROUND="2K"
+$env:GALGAME_ASSET_SIZE_CHARACTER="2K"
+```
 
 可选 SD WebUI 生成：
 
@@ -184,7 +195,7 @@ Admin 操作接口：
 - `POST /api/admin/galgame/assets/generate`
 - `POST /api/admin/galgame/story-templates/{template_id}/assets`
 
-生成后的图片写到 `frontend/public/generated/galgame`，该目录被 `.gitignore` 忽略。已生成 PNG 会优先于 fallback 被 `/story` 使用；`GALGAME_ASSET_GENERATION_ENABLED` 只控制缺图时是否自动生成。背景 prompt 强制走视觉小说背景、no humans/no text；角色 prompt 走非色情半身立绘。角色 PNG 会做一次保守的角落背景连通域抠底，让 SD WebUI 产出的纯色背景更接近透明 sprite。生成失败只回退本地素材，不阻塞剧情。
+生成后的图片写到 `frontend/public/generated/galgame`，该目录被 `.gitignore` 忽略。已生成 PNG 会优先于 fallback 被 `/story` 使用；`GALGAME_ASSET_GENERATION_ENABLED` 只控制缺图时是否自动生成。背景 prompt 强制走视觉小说背景、no humans/no text；角色 prompt 走非色情半身立绘。SD WebUI 角色 PNG 会做一次保守的角落背景连通域抠底，让纯色背景更接近透明 sprite。生成失败只回退本地素材，不阻塞剧情。当前仍是项目级 cache，生产化应按用户/会话隔离目录并设置 quota。
 
 2026-05-12 本地验收记录：Windows 本机 SD WebUI `http://127.0.0.1:7860` 可用，模型为 `anything-v5-PrtRE.safetensors`；Admin 手动生成接口成功产出 4 张背景和 4 张角色图，`/story` 浏览器验收中 Debug 面板显示 `generated / generated`。
 
@@ -977,8 +988,8 @@ AI 目前主要用于：
 2. 自动异常判定
 3. 后台任务队列和自动重试
 4. 生产级密钥管理
-5. 自由文本分类的离线校准集和成对比较评分器
-6. 真实图片/角色/音频素材生成与管理
+5. 自由文本分类的大样本人工标注校准和质量报表
+6. 生产级图片/角色/音频素材资产隔离、配额、生命周期和一致性工作流
 
 ## 8. 能不能识别瞎答题、伪造答题
 

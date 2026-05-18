@@ -20,15 +20,38 @@
 
 ## 本地运行
 
-```bash
+先从仓库根目录复制配置模板：
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+# 或零外部 key 烟测：
+# Copy-Item backend\.env.minimal.example backend\.env
+```
+
+安装依赖：
+
+```powershell
 python -m pip install -e .[dev]
-uvicorn app.main:app --reload
+```
+
+启动 Public API：
+
+```powershell
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+启动 Admin API：
+
+```powershell
+python -m uvicorn app.admin_main:app --reload --host 127.0.0.1 --port 8001
 ```
 
 默认地址：
 
-- Swagger UI: `http://127.0.0.1:8000/docs`
-- ReDoc: `http://127.0.0.1:8000/redoc`
+- Public Swagger UI: `http://127.0.0.1:8000/docs`
+- Admin Swagger UI: `http://127.0.0.1:8001/docs`
+
+完整配置、密钥数量、Qdrant、火山 Ark、SD WebUI、Resend 和智能体验收流程见仓库根目录 [README.md](../README.md)。
 
 ## AI 接口说明
 
@@ -38,6 +61,7 @@ uvicorn app.main:app --reload
   - `model`
   - `base_url`
   - `api_key`
+- 也可以把 `AI_*` 写到 `backend/.env` 后运行 `python scripts\ai_acceptance.py --save`，脚本会测试并保存到 SQLite。
 - 报告接口会优先调用已配置模型生成中文摘要。
 - 如果未配置模型或调用失败，会自动降级为后端生成的 deterministic 文案。
 
@@ -45,7 +69,7 @@ uvicorn app.main:app --reload
 
 - 默认答到 `20` 题后开放正式报告。
 - 会话可继续一直答题，当前上限是 `10000`。
-- 用户可以在前端主动结束并删除会话，不做长期保存。
+- 注册用户会话会绑定匿名 `user_id` 并按 `REGISTERED_SESSION_TTL_DAYS` 长期保留；未注册会话仍按短 TTL 清理。
 - 活跃会话会同步写入本地 SQLite：`distilled_ti_local.db`
 
 ## 题库与约束
