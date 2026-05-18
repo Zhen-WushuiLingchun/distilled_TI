@@ -199,7 +199,7 @@ export function SessionClient() {
     async function bootstrap() {
       try {
         setBusy(true);
-        const storedAccess = getActiveSessionAccess();
+        const storedAccess = getActiveSessionAccess("core");
         if (storedAccess) {
           const summary = await getSessionSummary(storedAccess);
           if (cancelled) return;
@@ -219,7 +219,7 @@ export function SessionClient() {
             session_secret: started.session_secret,
             delete_token: started.delete_token,
           };
-          saveActiveSessionAccess(nextAccess);
+          saveActiveSessionAccess(nextAccess, "core");
           setAccess(nextAccess);
           setState(started.state);
           setQuestion(started.question);
@@ -231,7 +231,7 @@ export function SessionClient() {
         questionStartRef.current = performance.now();
       } catch (reason) {
         if (cancelled) return;
-        clearActiveSessionAccess();
+        clearActiveSessionAccess("core");
         setAccess(null);
         setQuestion(null);
         setState(null);
@@ -420,7 +420,7 @@ export function SessionClient() {
       setBusy(true);
       const latency = Math.round(performance.now() - questionStartRef.current);
       const response = await submitAnswer(access, question.id, optionKey, latency);
-      saveActiveSessionAccess(access);
+      saveActiveSessionAccess(access, "core");
       setState(response.state);
       setQuestion(response.next_question);
       setCanGenerateReport(response.can_generate_report);
@@ -445,7 +445,7 @@ export function SessionClient() {
     try {
       setBusy(true);
       await deleteSession(access);
-      clearActiveSessionAccess();
+      clearActiveSessionAccess("core");
       clearFinalReportSnapshot();
       router.push("/");
     } catch (reason) {
@@ -466,9 +466,15 @@ export function SessionClient() {
       ]);
       saveFinalReportSnapshot({
         mode: "finalized",
+        sourceMode: "core",
         sessionId: access.session_id,
+        access,
+        returnPath: "/session",
         report,
         map,
+        namingStyle: preferences.namingStyle,
+        projectionMode: preferences.projectionMode,
+        generatedAt: new Date().toISOString(),
       });
       router.push("/report");
     } catch (reason) {

@@ -744,6 +744,50 @@ def test_galgame_story_plan_locks_mainline_location_across_turns(monkeypatch, tm
     assert next_scene["character_text"] != first_scene["character_text"]
 
 
+def test_galgame_report_unlock_does_not_truncate_story(monkeypatch, tmp_path):
+    monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path / "generated"))
+    monkeypatch.setattr(settings, "galgame_min_turns_for_report", 8)
+    monkeypatch.setattr(settings, "galgame_max_turns_per_session", 8)
+    start_response = public_client.post("/api/session/start", json={"mode": "story"})
+    assert start_response.status_code == 200
+    payload = start_response.json()
+    assert payload["min_questions_for_report"] == 8
+    headers = session_headers(payload["session_secret"])
+
+    scene_response = public_client.get(
+        f"/api/session/{payload['session_id']}/galgame/scene",
+        headers=headers,
+    )
+    assert scene_response.status_code == 200
+    scene = scene_response.json()
+    assert scene["story_plan"]["unit_count"] >= 20
+
+    body = None
+    for _index in range(8):
+        response = public_client.post(
+            f"/api/session/{payload['session_id']}/galgame/respond",
+            json={
+                "item_id": scene["item_id"],
+                "scene_id": scene["scene_id"],
+                "option_key": scene["choices"][0]["option_key"],
+                "choice_text": scene["choices"][0]["text"],
+                "latency_ms": 1200,
+            },
+            headers=headers,
+        )
+        assert response.status_code == 200
+        body = response.json()
+        scene = body["scene"]
+        assert scene is not None
+
+    assert body is not None
+    assert body["state"]["question_count"] == 8
+    assert body["can_generate_report"] is True
+    assert body["remaining_until_report"] == 0
+    assert body["scene"]["current_scene_plan"]["scene_index"] == 9
+
+
 def test_story_mode_can_start_with_selected_character_profile(monkeypatch, tmp_path):
     monkeypatch.setattr(ai_service, "generate_galgame_scene", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path / "generated"))

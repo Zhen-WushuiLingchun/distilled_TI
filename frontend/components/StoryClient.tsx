@@ -163,7 +163,7 @@ export function StoryClient() {
         setBusy(true);
         const currentUser = getUserAccess();
         setUser(currentUser);
-        const currentAccess = getActiveSessionAccess();
+        const currentAccess = getActiveSessionAccess("story");
         const [profilePayload, templatePayload] = await Promise.all([
           listGalgameCharacterProfiles().catch(() => ({ items: [], default_mode: "random_skill" })),
           currentUser ? listUserGalgameStoryTemplates(currentUser).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
@@ -279,7 +279,7 @@ export function StoryClient() {
         session_secret: started.session_secret,
         delete_token: started.delete_token,
       };
-      saveActiveSessionAccess(currentAccess);
+      saveActiveSessionAccess(currentAccess, "story");
       setResumeAccess(currentAccess);
       setState(started.state);
       setRemainingUntilReport(started.min_questions_for_report);
@@ -342,7 +342,18 @@ export function StoryClient() {
         generateSessionReport(access, preferences.namingStyle),
         getSessionMap(access, preferences.projectionMode),
       ]);
-      saveFinalReportSnapshot({ access, report, map });
+      saveFinalReportSnapshot({
+        mode: "finalized",
+        sourceMode: "story",
+        sessionId: access.session_id,
+        access,
+        returnPath: "/story",
+        report,
+        map,
+        namingStyle: preferences.namingStyle,
+        projectionMode: preferences.projectionMode,
+        generatedAt: new Date().toISOString(),
+      });
       router.push("/report");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "生成报告失败。");

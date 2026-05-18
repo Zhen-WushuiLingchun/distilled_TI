@@ -441,6 +441,8 @@ def start_session(
         delete_token=access.delete_token,
         state=session.state,
         question=QuestionResponse.from_item(item),
+        min_questions_for_report=session_service.min_questions_for_report(session),
+        max_questions_per_session=session_service.max_questions_per_session(session),
         workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
 
@@ -481,8 +483,8 @@ def submit_response(
     return SubmitResponseResponse(
         session_id=session.session_id,
         state=session.state,
-        can_generate_report=session.state.question_count >= settings.min_questions_for_report,
-        remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
+        can_generate_report=session_service.can_generate_report(session),
+        remaining_until_report=session_service.remaining_until_report(session),
         next_question=QuestionResponse.from_item(next_item) if next_item else None,
         workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
     )
@@ -569,8 +571,8 @@ def respond_galgame_scene(
     return GalgameSceneResultResponse(
         session_id=session.session_id,
         state=session.state,
-        can_generate_report=session.state.question_count >= settings.min_questions_for_report,
-        remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
+        can_generate_report=session_service.can_generate_report(session),
+        remaining_until_report=session_service.remaining_until_report(session),
         scene=next_scene,
         text_inference=text_inference,
         workbench_checkpoint=session_service.build_workbench_checkpoint(session.session_id),
@@ -585,10 +587,11 @@ def get_report(
 ) -> ReportResponse:
     _require_session_access(session_id, x_session_secret, request)
     session = session_service.get_session(session_id)
-    if session.state.question_count < settings.min_questions_for_report:
+    if not session_service.can_generate_report(session):
+        min_questions_for_report = session_service.min_questions_for_report(session)
         raise HTTPException(
             status_code=409,
-            detail=f"至少需要回答 {settings.min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
+            detail=f"至少需要回答 {min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
         )
     try:
         return session_service.build_report(session_id)
@@ -607,10 +610,11 @@ def generate_report(
 ) -> ReportResponse:
     _require_session_access(session_id, x_session_secret, request)
     session = session_service.get_session(session_id)
-    if session.state.question_count < settings.min_questions_for_report:
+    if not session_service.can_generate_report(session):
+        min_questions_for_report = session_service.min_questions_for_report(session)
         raise HTTPException(
             status_code=409,
-            detail=f"至少需要回答 {settings.min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
+            detail=f"至少需要回答 {min_questions_for_report} 题才能生成报告（当前: {session.state.question_count} 题）",
         )
     try:
         return session_service.build_report(session_id, naming_style=payload.naming_style)

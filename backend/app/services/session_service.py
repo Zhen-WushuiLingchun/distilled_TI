@@ -155,6 +155,34 @@ class SessionService:
         grant = self._bind_access_grant(record, self._mint_access_grant(), owner_key)
         return record, next_item, grant
 
+    def min_questions_for_report(self, session: SessionRecord) -> int:
+        if session.mode == "story":
+            return max(settings.galgame_min_turns_for_report, 1)
+        return settings.min_questions_for_report
+
+    def max_questions_per_session(self, session: SessionRecord) -> int:
+        if session.mode == "story":
+            return max(
+                settings.galgame_max_turns_per_session,
+                self.min_questions_for_report(session),
+                self._galgame_story_unit_count(session),
+            )
+        return settings.max_questions_per_session
+
+    def can_generate_report(self, session: SessionRecord) -> bool:
+        return session.state.question_count >= self.min_questions_for_report(session)
+
+    def remaining_until_report(self, session: SessionRecord) -> int:
+        return max(self.min_questions_for_report(session) - session.state.question_count, 0)
+
+    def _galgame_story_unit_count(self, session: SessionRecord) -> int:
+        units = session.galgame_story_plan.get("units") if isinstance(session.galgame_story_plan, dict) else None
+        return len(units) if isinstance(units, list) else 0
+
+    def _galgame_story_has_next_scene(self, session: SessionRecord) -> bool:
+        unit_count = self._galgame_story_unit_count(session)
+        return not unit_count or session.state.question_count < unit_count
+
     def get_session(self, session_id: str, force_reload: bool = False) -> SessionRecord:
         self.cleanup_expired()
         if not force_reload and session_id in self._sessions:
@@ -279,7 +307,7 @@ class SessionService:
                 {
                     "session_id": record.session_id,
                     "question_count": record.state.question_count,
-                    "can_generate_report": record.state.question_count >= settings.min_questions_for_report,
+                    "can_generate_report": self.can_generate_report(record),
                     "cluster_name": cluster_name,
                     "narrative_label": narrative_label,
                     "core_mu": core_mu,
@@ -363,7 +391,7 @@ class SessionService:
         runtime_ai_config: AIProviderConfig | None = None,
     ) -> ItemTemplate:
         active_ai_config = runtime_ai_config or ai_service.get_config()
-        if session.state.question_count >= settings.max_questions_per_session:
+        if session.state.question_count >= self.max_questions_per_session(session):
             raise ValueError("item_bank_exhausted")
 
         coverage_counts = {key: 0 for key in CORE_DIMENSION_KEYS}
@@ -403,7 +431,7 @@ class SessionService:
             if active_ai_config is not None and item.allow_rewrite:
                 rewrite_gap = max(0.0, settings.ai_rewrite_target_ratio - recent_llm_ratio)
                 phase_bonus += settings.ai_rewrite_priority_bonus * (0.45 + rewrite_gap)
-            if session.state.question_count < settings.min_questions_for_report:
+            if session.state.question_count < self.min_questions_for_report(session):
                 if item.layer == "core":
                     phase_bonus += 0.3
                 if item.is_anchor:
@@ -414,11 +442,11 @@ class SessionService:
                         for key in item.subdimension_weights
                         if session.state.dimension_counts.get(SUBDIMENSION_TO_PARENT[key], 0) >= settings.subdimension_unlock_threshold
                     ]
-                    if ready_subs and session.state.question_count >= max(settings.min_questions_for_report - 8, 8):
+                    if ready_subs and session.state.question_count >= max(self.min_questions_for_report(session) - 8, 8):
                         phase_bonus += 0.7
                     if ready_subs and not session.state.unlocked_subdimensions:
                         phase_bonus += 0.55
-                if item.layer == "module" and session.state.question_count >= max(settings.min_questions_for_report - 5, 12):
+                if item.layer == "module" and session.state.question_count >= max(self.min_questions_for_report(session) - 5, 12):
                     phase_bonus += 0.45
             else:
                 if item.layer == "sub":
@@ -465,7 +493,7 @@ class SessionService:
         first_question = settings.ai_probe_first_question if active_ai_config is not None else 6
         if session.state.question_count < first_question:
             return False
-        if session.state.question_count >= settings.max_questions_per_session:
+        if session.state.question_count >= self.max_questions_per_session(session):
             return False
         probe_count = sum(
             session.state.sub_counts.get(key, 0)
@@ -482,7 +510,7 @@ class SessionService:
         else:
             if session.state.question_count < 12 and probe_count >= 1:
                 return False
-            if 12 <= session.state.question_count < settings.min_questions_for_report and probe_count >= 2:
+            if 12 <= session.state.question_count < self.min_questions_for_report(session) and probe_count >= 2:
                 return False
         if self._recent_probe_ratio(session, 12) < settings.ai_probe_target_ratio and active_ai_config is not None:
             recent_window = 2
@@ -640,7 +668,10 @@ class SessionService:
         session.state = self._scoring_engine.apply_response(session.state, item, option_key, latency_ms)
         session.updated_at = datetime.now(UTC)
         next_item: ItemInstance | None = None
-        if session.state.question_count < settings.max_questions_per_session:
+        can_continue = session.state.question_count < self.max_questions_per_session(session)
+        if session.mode == "story":
+            can_continue = can_continue and self._galgame_story_has_next_scene(session)
+        if can_continue:
             next_item = self._generate_next_instance(session, runtime_ai_config)
         else:
             session.current_item_id = None
@@ -656,7 +687,7 @@ class SessionService:
         naming_style: str | None = None,
     ) -> SessionReport:
         session = self.get_session(session_id)
-        if session.state.question_count < settings.min_questions_for_report:
+        if not self.can_generate_report(session):
             raise ValueError("report_not_ready")
         clustering_service.refresh(list(self._sessions.values()))
         return self._scoring_engine.build_report(
@@ -668,7 +699,7 @@ class SessionService:
 
     def build_map(self, session_id: str, projection_mode: str = "auto") -> dict[str, object]:
         session = self.get_session(session_id)
-        if session.state.question_count < settings.min_questions_for_report:
+        if not self.can_generate_report(session):
             raise ValueError("report_not_ready")
         point_x, point_y = clustering_service.project_state(session.state, projection_mode)
         cluster_name, _narrative_label, _cluster_confidence = clustering_service.cluster_for_state(session.state)
@@ -767,10 +798,10 @@ class SessionService:
         return SessionSummary(
             session_id=session.session_id,
             question_count=session.state.question_count,
-            min_questions_for_report=settings.min_questions_for_report,
-            max_questions_per_session=settings.max_questions_per_session,
-            can_generate_report=session.state.question_count >= settings.min_questions_for_report,
-            remaining_until_report=max(settings.min_questions_for_report - session.state.question_count, 0),
+            min_questions_for_report=self.min_questions_for_report(session),
+            max_questions_per_session=self.max_questions_per_session(session),
+            can_generate_report=self.can_generate_report(session),
+            remaining_until_report=self.remaining_until_report(session),
             current_item_id=session.current_item_id,
             current_template_id=session.current_template_id,
             state=session.state,
@@ -1857,21 +1888,22 @@ class SessionService:
         previous_milestone = max((milestone for milestone in milestones if milestone <= question_count), default=None)
         next_milestone = min((milestone for milestone in milestones if milestone > question_count), default=None)
         previous_floor = previous_milestone or 0
-        milestone_ceiling = next_milestone or previous_milestone or max(milestones or (settings.min_questions_for_report,))
+        report_target = self.min_questions_for_report(session)
+        milestone_ceiling = next_milestone or previous_milestone or max(milestones or (report_target,))
         if milestone_ceiling == previous_floor:
             milestone_progress = 100.0
         else:
             milestone_progress = self._percent((question_count - previous_floor) / (milestone_ceiling - previous_floor))
 
-        report_ready = question_count >= settings.min_questions_for_report
-        remaining_until_report = max(settings.min_questions_for_report - question_count, 0)
-        report_progress = 100.0 if report_ready else self._percent(question_count / max(settings.min_questions_for_report, 1))
+        report_ready = self.can_generate_report(session)
+        remaining_until_report = self.remaining_until_report(session)
+        report_progress = 100.0 if report_ready else self._percent(question_count / max(report_target, 1))
         snapshot_due_now = question_count in set(milestones)
 
         return WorkbenchCheckpoint(
             question_count=question_count,
             report_ready=report_ready,
-            report_target=settings.min_questions_for_report,
+            report_target=report_target,
             remaining_until_report=remaining_until_report,
             report_progress_percent=round(report_progress, 1),
             previous_milestone=previous_milestone,

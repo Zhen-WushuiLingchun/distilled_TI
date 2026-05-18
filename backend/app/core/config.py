@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     galgame_audio_asset_enabled: bool = False
     galgame_turn_vector_top_k: int = 5
     galgame_free_text_inference_min_confidence: float = 0.42
+    galgame_min_turns_for_report: int = 20
+    galgame_max_turns_per_session: int = 80
     senren_character_asset_dir: str = ".local/senren-character-assets"
     invite_bootstrap_code: str = "DISTILLED-TI-LOCAL"
     invite_bootstrap_max_uses: int = 1

@@ -25,33 +25,67 @@ import {
   saveReportViewPreferences,
   type NamingStyle,
   type ProjectionMode,
+  type SessionAccessBundle,
+  type SessionMode,
 } from "@/lib/runtime-store";
 
 type ReportClientProps = {
   sessionId?: string;
 };
 
+type FinalReportSnapshot = {
+  mode?: string;
+  sourceMode?: SessionMode;
+  sessionId?: string;
+  access?: SessionAccessBundle;
+  returnPath?: string;
+  report: SessionReport;
+  map: SessionMap;
+  namingStyle?: NamingStyle;
+  projectionMode?: ProjectionMode;
+  generatedAt?: string;
+};
+
 export function ReportClient({ sessionId }: ReportClientProps) {
   const router = useRouter();
-  const snapshot = getFinalReportSnapshot<{
-    mode?: string;
-    sessionId: string;
-    report: SessionReport;
-    map: SessionMap;
-  }>();
-  const activeAccess = getActiveSessionAccess();
-  const [report, setReport] = useState<SessionReport | null>(() => (!sessionId ? snapshot?.report ?? null : null));
-  const [map, setMap] = useState<SessionMap | null>(() => (!sessionId ? snapshot?.map ?? null : null));
+  const rawSnapshot = getFinalReportSnapshot<FinalReportSnapshot>();
+  const snapshotMatchesRoute = Boolean(
+    rawSnapshot?.report && (!sessionId || rawSnapshot.sessionId === sessionId || rawSnapshot.report.session_id === sessionId)
+  );
+  const snapshot = snapshotMatchesRoute ? rawSnapshot : null;
+  const snapshotSourceMode = snapshot?.sourceMode ?? "core";
+  const primaryAccess = getActiveSessionAccess(snapshotSourceMode);
+  const fallbackAccess = sessionId && snapshotSourceMode !== "core" ? getActiveSessionAccess("core") : null;
+  const matchingActiveAccess =
+    primaryAccess && (!sessionId || primaryAccess.session_id === sessionId)
+      ? primaryAccess
+      : fallbackAccess && fallbackAccess.session_id === sessionId
+        ? fallbackAccess
+        : null;
+  const snapshotAccess =
+    snapshot?.access && (!sessionId || snapshot.access.session_id === sessionId) ? snapshot.access : null;
+  const resolvedAccess = matchingActiveAccess ?? snapshotAccess;
+  const resolvedSessionId = resolvedAccess?.session_id ?? "";
+  const resolvedSessionSecret = resolvedAccess?.session_secret ?? "";
+  const resolvedDeleteToken = resolvedAccess?.delete_token ?? "";
+  const returnPath = snapshot?.returnPath ?? (snapshotSourceMode === "story" ? "/story" : "/session");
+  const continueLabel = snapshotSourceMode === "story" ? "继续剧情模式" : "继续工作台模式";
+  const [report, setReport] = useState<SessionReport | null>(() => snapshot?.report ?? null);
+  const [map, setMap] = useState<SessionMap | null>(() => snapshot?.map ?? null);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
-  const [projectionMode, setProjectionMode] = useState<ProjectionMode>(() => getReportViewPreferences().projectionMode);
-  const [namingStyle, setNamingStyle] = useState<NamingStyle>(() => getReportViewPreferences().namingStyle);
+  const [projectionMode, setProjectionMode] = useState<ProjectionMode>(
+    () => snapshot?.projectionMode ?? getReportViewPreferences().projectionMode
+  );
+  const [namingStyle, setNamingStyle] = useState<NamingStyle>(
+    () => snapshot?.namingStyle ?? getReportViewPreferences().namingStyle
+  );
   const [shareProfile, setShareProfile] = useState<UserProfile | null>(null);
   const [shareStatus, setShareStatus] = useState("");
   const reportRef = useRef(report);
   const mapRef = useRef(map);
-  const hasMatchingAccess = activeAccess && (!sessionId || activeAccess.session_id === sessionId);
-  const resolvedAccess = hasMatchingAccess ? activeAccess : null;
+  const skipInitialReportRefreshRef = useRef(Boolean(snapshot?.report));
+  const skipInitialMapRefreshRef = useRef(Boolean(snapshot?.map));
   const finalizedView = !sessionId && snapshot?.mode === "finalized";
   const displayError =
     error ||
@@ -78,8 +112,16 @@ export function ReportClient({ sessionId }: ReportClientProps) {
 
   useEffect(() => {
     let cancelled = false;
-    if (!resolvedAccess) return;
-    const access = resolvedAccess;
+    if (!resolvedSessionId || !resolvedSessionSecret || !resolvedDeleteToken) return;
+    if (skipInitialReportRefreshRef.current) {
+      skipInitialReportRefreshRef.current = false;
+      return;
+    }
+    const access: SessionAccessBundle = {
+      session_id: resolvedSessionId,
+      session_secret: resolvedSessionSecret,
+      delete_token: resolvedDeleteToken,
+    };
 
     async function refreshReportOnly() {
       try {
@@ -102,12 +144,20 @@ export function ReportClient({ sessionId }: ReportClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [resolvedAccess, namingStyle]);
+  }, [resolvedSessionId, resolvedSessionSecret, resolvedDeleteToken, namingStyle]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!resolvedAccess) return;
-    const access = resolvedAccess;
+    if (!resolvedSessionId || !resolvedSessionSecret || !resolvedDeleteToken) return;
+    if (skipInitialMapRefreshRef.current) {
+      skipInitialMapRefreshRef.current = false;
+      return;
+    }
+    const access: SessionAccessBundle = {
+      session_id: resolvedSessionId,
+      session_secret: resolvedSessionSecret,
+      delete_token: resolvedDeleteToken,
+    };
 
     async function refreshMapOnly() {
       try {
@@ -130,12 +180,12 @@ export function ReportClient({ sessionId }: ReportClientProps) {
     return () => {
       cancelled = true;
     };
-  }, [resolvedAccess, projectionMode]);
+  }, [resolvedSessionId, resolvedSessionSecret, resolvedDeleteToken, projectionMode]);
 
   async function handleDelete() {
     if (!resolvedAccess) return;
     await deleteSession(resolvedAccess);
-    clearActiveSessionAccess();
+    clearActiveSessionAccess(snapshotSourceMode);
     clearFinalReportSnapshot();
     router.push("/");
   }
@@ -206,9 +256,9 @@ export function ReportClient({ sessionId }: ReportClientProps) {
             <button
               type="button"
               className="btn btn-ghost mt-7"
-              onClick={() => router.push("/session")}
+              onClick={() => router.push(returnPath)}
             >
-              返回继续答题
+              {continueLabel}
             </button>
           </div>
         </div>
@@ -368,7 +418,10 @@ export function ReportClient({ sessionId }: ReportClientProps) {
             <div className="mt-8 flex flex-wrap gap-2.5">
               {finalizedView ? (
                 <>
-                  <button type="button" className="btn btn-primary" onClick={handleCloseFinalReport}>
+                  <button type="button" className="btn btn-primary" onClick={() => router.push(returnPath)}>
+                    {continueLabel}
+                  </button>
+                  <button type="button" className="btn btn-ghost" onClick={handleCloseFinalReport}>
                     关闭最终报告
                   </button>
                   <button type="button" className="btn btn-danger" onClick={() => void handleDelete()}>
@@ -377,8 +430,8 @@ export function ReportClient({ sessionId }: ReportClientProps) {
                 </>
               ) : (
                 <>
-                  <button type="button" className="btn btn-primary" onClick={() => router.push("/session")}>
-                    继续答题细化画像
+                  <button type="button" className="btn btn-primary" onClick={() => router.push(returnPath)}>
+                    {continueLabel}
                   </button>
                   <button type="button" className="btn btn-danger" onClick={() => void handleDelete()}>
                     结束并删除本次会话
