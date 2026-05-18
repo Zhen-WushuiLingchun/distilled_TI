@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 
-import { getCurrentUser, login, redeemInvite } from "@/lib/api";
+import { getCurrentUser, redeemInvite, requestLoginCode, verifyLoginCode } from "@/lib/api";
 import {
   clearUserAccess,
   getUserAccess,
@@ -28,6 +28,9 @@ export function LandingClient() {
   const [inviteError, setInviteError] = useState("");
   const [authTab, setAuthTab] = useState<"register" | "login">("register");
   const [loginEmail, setLoginEmail] = useState("");
+  const [loginChallengeId, setLoginChallengeId] = useState("");
+  const [loginCode, setLoginCode] = useState("");
+  const [loginDevCode, setLoginDevCode] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState("");
 
@@ -87,10 +90,24 @@ export function LandingClient() {
     try {
       setLoginBusy(true);
       setLoginError("");
-      const access = await login(loginEmail.trim());
+      if (!loginChallengeId) {
+        const challenge = await requestLoginCode(loginEmail.trim());
+        setLoginChallengeId(challenge.challenge_id);
+        setLoginDevCode(challenge.dev_code ?? "");
+        setLoginError(challenge.dev_code ? `本地开发验证码：${challenge.dev_code}` : "验证码已创建，请查看邮箱。");
+        return;
+      }
+      if (!loginCode.trim()) {
+        setLoginError("请输入邮箱验证码。");
+        return;
+      }
+      const access = await verifyLoginCode(loginEmail.trim(), loginChallengeId, loginCode.trim());
       saveUserAccess(access);
       setUserAccess(access);
       setLoginEmail("");
+      setLoginChallengeId("");
+      setLoginCode("");
+      setLoginDevCode("");
     } catch (reason) {
       setLoginError(reason instanceof Error ? reason.message : "登录失败。");
     } finally {
@@ -254,11 +271,25 @@ export function LandingClient() {
                         className="field"
                         type="email"
                         value={loginEmail}
-                        onChange={(event) => setLoginEmail(event.target.value)}
+                        onChange={(event) => {
+                          setLoginEmail(event.target.value);
+                          setLoginChallengeId("");
+                          setLoginCode("");
+                          setLoginDevCode("");
+                        }}
                         placeholder="请输入注册时使用的邮箱"
                       />
+                      {loginChallengeId ? (
+                        <input
+                          className="field"
+                          inputMode="numeric"
+                          value={loginCode}
+                          onChange={(event) => setLoginCode(event.target.value)}
+                          placeholder={loginDevCode ? `本地开发验证码：${loginDevCode}` : "请输入邮箱验证码"}
+                        />
+                      ) : null}
                       <button className="btn btn-primary" type="button" disabled={loginBusy} onClick={() => void handleLogin()}>
-                        {loginBusy ? "登录中…" : "登录"}
+                        {loginBusy ? "登录中..." : loginChallengeId ? "验证并登录" : "获取验证码"}
                       </button>
                       {loginError ? <p className="mt-1 text-xs text-[color:var(--danger-ink)]">{loginError}</p> : null}
                     </div>

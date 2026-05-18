@@ -1,15 +1,23 @@
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import app
 from app.services.storage import local_session_store
 
 
 client = TestClient(app)
+API_KEY = "test-context-key"
 
 
-def test_context_analysis_flags_crisis_language_and_persists_record():
+def context_headers() -> dict[str, str]:
+    return {"X-Context-API-Key": API_KEY}
+
+
+def test_context_analysis_flags_crisis_language_and_persists_record(monkeypatch):
+    monkeypatch.setattr(settings, "context_analysis_api_key", API_KEY)
     response = client.post(
         "/api/context/analyze",
+        headers=context_headers(),
         json={
             "application_id": "chat-demo",
             "external_user_id": "user-hash-001",
@@ -43,15 +51,33 @@ def test_context_analysis_flags_crisis_language_and_persists_record():
     alerts = client.get(
         "/api/context/alerts",
         params={"application_id": "chat-demo", "min_risk": "high"},
+        headers=context_headers(),
     )
     assert alerts.status_code == 200
     alert_items = alerts.json()["items"]
     assert any(item["analysis_id"] == payload["analysis_id"] for item in alert_items)
 
 
-def test_context_analysis_requires_consent_basis():
+def test_context_analysis_rejects_missing_api_key(monkeypatch):
+    monkeypatch.setattr(settings, "context_analysis_api_key", API_KEY)
     response = client.post(
         "/api/context/analyze",
+        json={
+            "application_id": "chat-demo",
+            "external_user_id": "user-hash-missing-key",
+            "conversation_id": "thread-missing-key",
+            "consent_basis": "demo user terms allow safety support analysis",
+            "messages": [{"role": "user", "content": "today is difficult"}],
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_context_analysis_requires_consent_basis(monkeypatch):
+    monkeypatch.setattr(settings, "context_analysis_api_key", API_KEY)
+    response = client.post(
+        "/api/context/analyze",
+        headers=context_headers(),
         json={
             "application_id": "chat-demo",
             "external_user_id": "user-hash-002",

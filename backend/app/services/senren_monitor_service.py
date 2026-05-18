@@ -156,7 +156,7 @@ class SenrenMonitorSession:
         self.game_path: str | None = None  # 本地游戏路径（local 模式）
         self.game_info: dict | None = None  # 游戏路径校验信息
         self.local_visual_assets: dict[str, list[str]] = {"backgrounds": [], "characters": [], "all": []}
-        self.local_asset_registry: dict[str, str] = {}
+        self.local_asset_registry: dict[str, str | dict[str, str]] = {}
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)
 
@@ -240,11 +240,24 @@ class SenrenMonitorService:
             "local_character_candidates": len(assets.get("characters", [])),
         }
 
-    def resolve_local_asset(self, session_id: str, asset_id: str) -> Path:
+    def _hash_asset_token(self, session_id: str, asset_id: str, token: str) -> str:
+        return hashlib.sha256(f"asset:{session_id}:{asset_id}:{token}".encode("utf-8")).hexdigest()
+
+    def resolve_local_asset(self, session_id: str, asset_id: str, asset_token: str | None = None) -> Path:
         session = self.get_session(session_id)
-        raw_path = session.local_asset_registry.get(asset_id)
-        if not raw_path:
+        registry_entry = session.local_asset_registry.get(asset_id)
+        if not registry_entry:
             raise KeyError("local_asset_not_found")
+        if isinstance(registry_entry, dict):
+            raw_path = registry_entry.get("path", "")
+            token_hash = registry_entry.get("token_hash", "")
+            if not asset_token or not secrets.compare_digest(
+                token_hash,
+                self._hash_asset_token(session_id, asset_id, asset_token),
+            ):
+                raise PermissionError("invalid_asset_token")
+        else:
+            raw_path = registry_entry
         asset_path = Path(raw_path).resolve()
         roots = self._local_asset_roots(session)
         if not asset_path.is_file() or asset_path.suffix.lower() not in LOCAL_IMAGE_SUFFIXES:
@@ -814,10 +827,13 @@ class SenrenMonitorService:
         return None
 
     def _register_local_asset(self, session: SenrenMonitorSession, kind: str, raw_path: str) -> str:
-        digest = hashlib.sha256(f"{session.session_secret}:{raw_path}".encode("utf-8")).hexdigest()[:16]
-        asset_id = f"{kind}-{digest}"
-        session.local_asset_registry[asset_id] = raw_path
-        return f"/api/senren/monitor/{session.session_id}/asset/{asset_id}"
+        asset_id = f"{kind}-{secrets.token_urlsafe(12).replace('-', '').replace('_', '')[:16]}"
+        asset_token = secrets.token_urlsafe(24)
+        session.local_asset_registry[asset_id] = {
+            "path": raw_path,
+            "token_hash": self._hash_asset_token(session.session_id, asset_id, asset_token),
+        }
+        return f"/api/senren/monitor/{session.session_id}/asset/{asset_id}?token={asset_token}"
 
     def _character_asset_root(self) -> Path:
         root = Path(settings.senren_character_asset_dir)

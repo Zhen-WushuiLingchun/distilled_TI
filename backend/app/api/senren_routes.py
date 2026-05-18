@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from app.api.security import require_local_admin
 from app.core.config import settings
 from app.domain.senren_choice_tree import ALL_CHOICES, ALL_ROUTES, get_choice_by_id
 from app.domain.senren_dimension_mapping import (
@@ -31,6 +32,11 @@ def _require_session(session_id: str, session_secret: str | None):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _require_local_game_access(request: Request) -> None:
+    if not settings.senren_local_game_allow_remote:
+        require_local_admin(request)
 
 
 # ============================================================
@@ -129,19 +135,29 @@ def get_vn_scene(
 def get_monitor_asset(
     session_id: str,
     asset_id: str,
+    token: str | None = None,
+    x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
 ) -> FileResponse:
     """Serve a registered local/generated VN asset for the active session.
 
     The asset id is only created by the scene endpoint and is resolved against
     the session's approved game directory or ignored local character asset dirs.
     """
+    if x_session_secret:
+        _require_session(session_id, x_session_secret)
     try:
-        asset_path = senren_monitor_service.resolve_local_asset(session_id, asset_id)
+        asset_path = senren_monitor_service.resolve_local_asset(session_id, asset_id, asset_token=token)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    return FileResponse(asset_path)
+    return FileResponse(
+        asset_path,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/roadmap")
@@ -258,8 +274,9 @@ def get_character_affinity(
 # ============================================================
 
 @router.get("/sessions")
-def list_sessions() -> dict:
+def list_sessions(request: Request) -> dict:
     """列出所有监视会话"""
+    require_local_admin(request)
     return {"sessions": senren_monitor_service.list_sessions()}
 
 
@@ -311,7 +328,19 @@ VALID_GAME_DIRS = ["data", "savedata"]
 
 def _validate_game_path(game_path: str) -> dict:
     """校验本地千恋万花安装目录"""
-    path = Path(game_path)
+    try:
+        path = Path(game_path).expanduser().resolve()
+    except (OSError, RuntimeError) as exc:
+        return {
+            "valid": False,
+            "error": f"invalid_path: {exc}",
+            "found_files": [],
+            "missing_files": VALID_GAME_FILES,
+            "found_dirs": [],
+            "skill_count": _senren_skill_count(),
+            "asset_summary": _senren_asset_summary(None),
+            "integration_mode": "manual_companion_vn",
+        }
     if not path.exists():
         return {
             "valid": False,
@@ -321,6 +350,18 @@ def _validate_game_path(game_path: str) -> dict:
             "found_dirs": [],
             "skill_count": _senren_skill_count(),
             "asset_summary": _senren_asset_summary(game_path),
+            "integration_mode": "manual_companion_vn",
+        }
+
+    if not path.is_dir():
+        return {
+            "valid": False,
+            "error": f"path_is_not_directory: {path}",
+            "found_files": [],
+            "missing_files": VALID_GAME_FILES,
+            "found_dirs": [],
+            "skill_count": _senren_skill_count(),
+            "asset_summary": _senren_asset_summary(None),
             "integration_mode": "manual_companion_vn",
         }
 
@@ -398,11 +439,12 @@ def _senren_asset_summary(game_path: str | None = None) -> dict:
 
 
 @router.post("/local-game/validate")
-def validate_local_game(payload: dict) -> dict:
+def validate_local_game(payload: dict, request: Request) -> dict:
     """校验本地千恋万花路径
 
     请求体: {"game_path": "D:/games/千恋万花"}
     """
+    _require_local_game_access(request)
     game_path = payload.get("game_path", "")
     if not game_path:
         raise HTTPException(status_code=422, detail="game_path 为必填")
@@ -418,6 +460,7 @@ def start_local_game_monitor(
 
     请求体: {"game_path": "D:/games/千恋万花", "mode": "local"}
     """
+    _require_local_game_access(request)
     game_path = payload.get("game_path", "")
     if not game_path:
         raise HTTPException(status_code=422, detail="game_path 为必填")

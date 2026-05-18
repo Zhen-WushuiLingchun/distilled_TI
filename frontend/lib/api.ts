@@ -153,6 +153,13 @@ export type GalgameAssetStatus = {
   backend: string;
   base_url: string;
   model: string;
+  response_format: string;
+  quality: string;
+  watermark: boolean;
+  size_background: string;
+  size_character: string;
+  sequential_image_generation: string;
+  stream: boolean;
   public_url_prefix: string;
   background_count: number;
   character_count: number;
@@ -163,6 +170,7 @@ export type GalgameAssetStatus = {
   cleanup_enabled: boolean;
   sdwebui_available: boolean;
   comfyui_available: boolean;
+  cloud_configured: boolean;
 };
 
 export type GalgameTextInference = {
@@ -592,10 +600,25 @@ export function redeemInvite(inviteCode: string, email: string) {
   });
 }
 
-export function login(email: string) {
-  return publicRequest<UserAccessBundle>("/auth/login", {
+export type LoginChallengeResponse = {
+  challenge_id: string;
+  expires_at: string;
+  delivery: string;
+  message: string;
+  dev_code?: string | null;
+};
+
+export function requestLoginCode(email: string) {
+  return publicRequest<LoginChallengeResponse>("/auth/login", {
     method: "POST",
     json: { email },
+  });
+}
+
+export function verifyLoginCode(email: string, challengeId: string, code: string) {
+  return publicRequest<UserAccessBundle>("/auth/login/verify", {
+    method: "POST",
+    json: { email, challenge_id: challengeId, code },
   });
 }
 

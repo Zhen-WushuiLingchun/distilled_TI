@@ -52,6 +52,20 @@ class LoginRequest(BaseModel):
     email: str
 
 
+class LoginChallengeResponse(BaseModel):
+    challenge_id: str
+    expires_at: str
+    delivery: str = "email"
+    message: str
+    dev_code: str | None = None
+
+
+class LoginVerifyRequest(BaseModel):
+    email: str
+    challenge_id: str
+    code: str
+
+
 class ClaimInviteRequest(BaseModel):
     invite_code: str
 
@@ -256,6 +270,13 @@ class GalgameAssetStatusResponse(BaseModel):
     backend: str
     base_url: str
     model: str = ""
+    response_format: str = ""
+    quality: str = ""
+    watermark: bool = False
+    size_background: str = ""
+    size_character: str = ""
+    sequential_image_generation: str = ""
+    stream: bool = False
     public_url_prefix: str
     background_count: int = 0
     character_count: int = 0
@@ -266,6 +287,7 @@ class GalgameAssetStatusResponse(BaseModel):
     cleanup_enabled: bool = False
     sdwebui_available: bool = False
     comfyui_available: bool = False
+    cloud_configured: bool = False
 
 
 class GalgameAssetGenerateRequest(BaseModel):

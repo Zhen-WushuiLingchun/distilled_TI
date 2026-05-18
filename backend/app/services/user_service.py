@@ -6,12 +6,13 @@ import hashlib
 import math
 import re
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from app.core.config import settings
 from app.domain.models import (
     InviteCode,
+    LoginChallenge,
     SessionRecord,
     UserAccessGrant,
     UserProfile,
@@ -36,6 +37,9 @@ class UserService:
 
     def _hash_email(self, email: str) -> str:
         return hashlib.sha256(f"email:{email}".encode("utf-8")).hexdigest()
+
+    def _hash_login_code(self, challenge_id: str, code: str) -> str:
+        return self._hash_token(f"login:{challenge_id}:{code.strip()}")
 
     def _new_handle(self) -> str:
         adjectives = ("ash", "cedar", "mint", "paper", "river", "field", "orbit", "lumen")
@@ -95,13 +99,48 @@ class UserService:
             recommendation_opt_in=profile.recommendation_opt_in,
         )
 
-    def login(self, email: str) -> UserAccessGrant:
-        """通过邮箱登录，返回新 user_secret（旧 secret 作废）。"""
+    def request_login_code(self, email: str) -> tuple[LoginChallenge, str]:
         normalized_email = self._normalize_email(email)
         email_hash = self._hash_email(normalized_email)
         profile = local_session_store.load_user_by_email_hash(email_hash)
         if profile is None:
             raise KeyError("email_not_found")
+        local_session_store.delete_expired_login_challenges()
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        now = datetime.now(UTC)
+        challenge = LoginChallenge(
+            challenge_id=f"login-{uuid4()}",
+            email_hash=email_hash,
+            code_hash="",
+            created_at=now,
+            expires_at=now + timedelta(minutes=max(1, settings.auth_login_code_ttl_minutes)),
+        )
+        challenge = challenge.model_copy(update={"code_hash": self._hash_login_code(challenge.challenge_id, code)})
+        local_session_store.save_login_challenge(challenge)
+        return challenge, code
+
+    def verify_login_code(self, email: str, challenge_id: str, code: str) -> UserAccessGrant:
+        normalized_email = self._normalize_email(email)
+        email_hash = self._hash_email(normalized_email)
+        challenge = local_session_store.load_login_challenge(challenge_id.strip())
+        now = datetime.now(UTC)
+        if challenge is None:
+            raise PermissionError("login_challenge_not_found")
+        if challenge.email_hash != email_hash:
+            raise PermissionError("login_challenge_email_mismatch")
+        if challenge.used_at is not None:
+            raise PermissionError("login_challenge_used")
+        if challenge.expires_at <= now:
+            raise PermissionError("login_challenge_expired")
+        if not secrets.compare_digest(challenge.code_hash, self._hash_login_code(challenge.challenge_id, code)):
+            raise PermissionError("invalid_login_code")
+        profile = local_session_store.load_user_by_email_hash(email_hash)
+        if profile is None:
+            raise KeyError("email_not_found")
+        local_session_store.mark_login_challenge_used(challenge, now)
+        return self._issue_user_secret(profile)
+
+    def _issue_user_secret(self, profile: UserProfile) -> UserAccessGrant:
         user_secret = secrets.token_urlsafe(32)
         updated = profile.model_copy(
             update={
@@ -117,6 +156,9 @@ class UserService:
             relationship_opt_in=updated.relationship_opt_in,
             recommendation_opt_in=updated.recommendation_opt_in,
         )
+
+    def login(self, email: str) -> UserAccessGrant:
+        raise PermissionError("email_login_requires_code")
 
     def authenticate(self, user_id: str, user_secret: str | None) -> UserProfile:
         if not user_secret:

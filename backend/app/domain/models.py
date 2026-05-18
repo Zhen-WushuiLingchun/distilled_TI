@@ -446,6 +446,15 @@ class UserAccessGrant(BaseModel):
     recommendation_opt_in: bool = False
 
 
+class LoginChallenge(BaseModel):
+    challenge_id: str
+    email_hash: str
+    code_hash: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime
+    used_at: datetime | None = None
+
+
 class InviteCode(BaseModel):
     code: str
     created_by_user_id: str | None = None

@@ -159,6 +159,71 @@ def test_galgame_asset_service_manual_generation_is_reused_when_auto_disabled(mo
     assert background.url == generated.url
 
 
+def test_galgame_asset_service_can_use_volcengine_seedream_backend(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    class _GenerationResponse:
+        content = b""
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"url": "https://example.com/generated.png"}]}
+
+    class _ImageResponse:
+        content = b"fake-png"
+
+        def raise_for_status(self):
+            return None
+
+    def _post(_client, url, headers=None, json=None):
+        captured["url"] = url
+        captured["headers"] = headers or {}
+        captured["json"] = json or {}
+        return _GenerationResponse()
+
+    def _get(_client, url):
+        captured["image_url"] = url
+        return _ImageResponse()
+
+    monkeypatch.setattr(settings, "galgame_asset_backend", "volcengine_seedream")
+    monkeypatch.setattr(settings, "galgame_asset_base_url", "https://ark.cn-beijing.volces.com/api/v3")
+    monkeypatch.setattr(settings, "galgame_asset_api_key", "ark-secret")
+    monkeypatch.setattr(settings, "galgame_asset_model", "doubao-seedream-5-0-260128")
+    monkeypatch.setattr(settings, "galgame_asset_response_format", "url")
+    monkeypatch.setattr(settings, "galgame_asset_size_background", "2K")
+    monkeypatch.setattr(settings, "galgame_asset_sequential_image_generation", "disabled")
+    monkeypatch.setattr(settings, "galgame_asset_stream", False)
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "galgame_asset_cleanup_enabled", False)
+    monkeypatch.setattr(httpx.Client, "post", _post)
+    monkeypatch.setattr(httpx.Client, "get", _get)
+
+    asset = galgame_asset_service.generate_image_asset(
+        kind="background",
+        key="cloud-corridor",
+        prompt="old school corridor at sunset, no humans",
+        force=True,
+    )
+
+    assert asset.source == "generated"
+    assert asset.status == "ready"
+    assert (tmp_path / "background" / "cloud-corridor.png").read_bytes() == b"fake-png"
+    assert captured["url"] == "https://ark.cn-beijing.volces.com/api/v3/images/generations"
+    payload = captured["json"]
+    assert isinstance(payload, dict)
+    assert payload["model"] == "doubao-seedream-5-0-260128"
+    assert payload["size"] == "2K"
+    assert payload["response_format"] == "url"
+    assert payload["sequential_image_generation"] == "disabled"
+    assert payload["stream"] is False
+    assert captured["image_url"] == "https://example.com/generated.png"
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert headers["Authorization"] == "Bearer ark-secret"
+
+
 def test_galgame_asset_cleanup_removes_oldest_files(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path))
     for index in range(3):

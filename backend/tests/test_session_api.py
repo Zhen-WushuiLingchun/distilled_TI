@@ -1,9 +1,15 @@
+import pytest
+from starlette.requests import Request
+
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.api import senren_routes
 from app.core.config import settings
 from app.domain.models import VectorSearchHit
 from app.main import app as public_app
 from app.services.ai_service import ai_service
+from app.services.email_service import email_service
 from app.services.storage import local_session_store
 from app.services.user_service import user_service
 from app.services.vector_indexer import vector_indexer
@@ -60,9 +66,105 @@ def test_senren_local_mode_serves_registered_local_assets(tmp_path):
     assert scene["background_asset"]["source"] == "local_game"
     assert scene["character_asset"]["source"] == "local_or_generated_character"
 
+    missing_token_response = public_client.get(scene["character_asset"]["url"].split("?")[0])
+    assert missing_token_response.status_code == 403
+
     asset_response = public_client.get(scene["character_asset"]["url"])
     assert asset_response.status_code == 200
     assert asset_response.content == b"fake-character"
+
+
+def test_senren_local_game_validate_rejects_file_path_without_crashing(tmp_path):
+    fake_file = tmp_path / "not-a-game.txt"
+    fake_file.write_text("not a directory", encoding="utf-8")
+
+    response = public_client.post("/api/senren/local-game/validate", json={"game_path": str(fake_file)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is False
+    assert payload["error"].startswith("path_is_not_directory")
+
+
+def test_senren_session_listing_is_local_admin_only():
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/senren/sessions",
+            "headers": [],
+            "client": ("203.0.113.10", 53124),
+        }
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        senren_routes.list_sessions(request)
+    assert exc_info.value.status_code == 403
+
+
+def test_email_login_requires_one_time_code(monkeypatch):
+    monkeypatch.setattr(settings, "auth_login_code_return_in_response", True)
+    invite_code = create_test_invite()
+    email = "login-code-user@example.com"
+    redeem_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": invite_code, "email": email},
+    )
+    assert redeem_response.status_code == 200
+
+    challenge_response = public_client.post("/api/auth/login", json={"email": email})
+    assert challenge_response.status_code == 200
+    challenge = challenge_response.json()
+    assert "user_secret" not in challenge
+    assert challenge["challenge_id"].startswith("login-")
+    assert challenge["dev_code"]
+
+    invalid_response = public_client.post(
+        "/api/auth/login/verify",
+        json={"email": email, "challenge_id": challenge["challenge_id"], "code": "000000"},
+    )
+    assert invalid_response.status_code == 403
+
+    verify_response = public_client.post(
+        "/api/auth/login/verify",
+        json={"email": email, "challenge_id": challenge["challenge_id"], "code": challenge["dev_code"]},
+    )
+    assert verify_response.status_code == 200
+    assert verify_response.json()["user_secret"]
+
+    replay_response = public_client.post(
+        "/api/auth/login/verify",
+        json={"email": email, "challenge_id": challenge["challenge_id"], "code": challenge["dev_code"]},
+    )
+    assert replay_response.status_code == 403
+
+
+def test_email_login_sends_code_when_dev_echo_disabled(monkeypatch):
+    sent: dict[str, str] = {}
+
+    def fake_send_login_code(to_email: str, code: str, expires_at) -> None:
+        sent["to_email"] = to_email
+        sent["code"] = code
+        sent["expires_at"] = expires_at.isoformat()
+
+    monkeypatch.setattr(settings, "auth_login_code_return_in_response", False)
+    monkeypatch.setattr(email_service, "send_login_code", fake_send_login_code)
+    invite_code = create_test_invite()
+    email = "login-email-delivery@example.com"
+    redeem_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": invite_code, "email": email},
+    )
+    assert redeem_response.status_code == 200
+
+    challenge_response = public_client.post("/api/auth/login", json={"email": email})
+
+    assert challenge_response.status_code == 200
+    challenge = challenge_response.json()
+    assert challenge["delivery"] == "email"
+    assert challenge["dev_code"] is None
+    assert sent["to_email"] == email
+    assert len(sent["code"]) == 6
 
 
 def test_senren_vn_scene_is_ai_first_and_skill_driven(monkeypatch):
