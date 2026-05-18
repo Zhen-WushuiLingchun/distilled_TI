@@ -1,5 +1,10 @@
 .page {
+  box-sizing: border-box;
+  height: 100vh;
   min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 36px;
   background:
     radial-gradient(
@@ -9,6 +14,12 @@
     ),
     linear-gradient(135deg, #0b1115 0%, #172016 48%, #2b2118 100%);
   color: #f5efe3;
+}
+
+.shell {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding-bottom: 56px;
 }
 
 .hero {
@@ -116,6 +127,67 @@
 
 .error {
   color: #ffd3d3;
+}
+
+.cardsHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 28px 0 12px;
+}
+
+.cardsHeader h2 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 36px);
+}
+
+.cardsHeader span {
+  color: rgba(245, 239, 227, 0.68);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 1px solid rgba(245, 239, 227, 0.12);
+  border-radius: 18px;
+  background: rgba(12, 18, 19, 0.46);
+}
+
+.pager button {
+  min-width: 42px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(245, 239, 227, 0.18);
+  border-radius: 999px;
+  background: rgba(245, 239, 227, 0.1);
+  color: #f5efe3;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.pager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.pageButtons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.pager .activePage {
+  background: #c8a664;
+  color: #172016;
 }
 
 .list {
@@ -232,11 +304,23 @@
 
   .hero,
   .toolbar,
-  .meta {
+  .meta,
+  .cardsHeader,
+  .pager {
     grid-template-columns: 1fr;
   }
 
   .hero {
     flex-direction: column;
+  }
+
+  .cardsHeader,
+  .pager {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pageButtons {
+    justify-content: flex-start;
   }
 }

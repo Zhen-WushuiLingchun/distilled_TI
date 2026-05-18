@@ -16,7 +16,11 @@ def build_owner_key(request: Request) -> str | None:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def require_local_admin(request: Request) -> None:
+def is_local_request(request: Request) -> bool:
     host = request.client.host if request.client else ""
-    if host not in {"127.0.0.1", "::1", "localhost", "testclient"}:
+    return host in {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def require_local_admin(request: Request) -> None:
+    if not is_local_request(request):
         raise HTTPException(status_code=403, detail="admin_local_only")

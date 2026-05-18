@@ -16,6 +16,7 @@ from app.domain.models import (
     InviteCode,
     ItemInstance,
     ItemTemplate,
+    LoginChallenge,
     SessionHistoryEntry,
     SessionRecord,
     UserProfile,
@@ -176,6 +177,25 @@ class LocalSessionStore:
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_profiles_email_hash
                 ON user_profiles(email_hash)
                 WHERE email_hash IS NOT NULL
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS login_challenges (
+                    challenge_id TEXT PRIMARY KEY,
+                    email_hash TEXT NOT NULL,
+                    code_hash TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used_at TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_login_challenges_email_hash
+                ON login_challenges(email_hash, expires_at)
                 """
             )
             connection.execute(
@@ -817,6 +837,62 @@ class LocalSessionStore:
                 (limit,),
             ).fetchall()
         return [UserProfile.model_validate_json(row[0]) for row in rows]
+
+    def save_login_challenge(self, challenge: LoginChallenge) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO login_challenges (
+                    challenge_id,
+                    email_hash,
+                    code_hash,
+                    payload_json,
+                    created_at,
+                    expires_at,
+                    used_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(challenge_id) DO UPDATE SET
+                    code_hash = excluded.code_hash,
+                    payload_json = excluded.payload_json,
+                    expires_at = excluded.expires_at,
+                    used_at = excluded.used_at
+                """,
+                (
+                    challenge.challenge_id,
+                    challenge.email_hash,
+                    challenge.code_hash,
+                    challenge.model_dump_json(),
+                    challenge.created_at.isoformat(),
+                    challenge.expires_at.isoformat(),
+                    challenge.used_at.isoformat() if challenge.used_at else None,
+                ),
+            )
+
+    def load_login_challenge(self, challenge_id: str) -> LoginChallenge | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM login_challenges WHERE challenge_id = ?",
+                (challenge_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return LoginChallenge.model_validate_json(row[0])
+
+    def mark_login_challenge_used(self, challenge: LoginChallenge, used_at: datetime | None = None) -> LoginChallenge:
+        used = used_at or datetime.now(UTC)
+        updated = challenge.model_copy(update={"used_at": used})
+        self.save_login_challenge(updated)
+        return updated
+
+    def delete_expired_login_challenges(self, now: datetime | None = None) -> int:
+        cutoff = now or datetime.now(UTC)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM login_challenges WHERE expires_at <= ? OR used_at IS NOT NULL",
+                (cutoff.isoformat(),),
+            )
+            return cursor.rowcount
 
     def save_invite_code(self, invite: InviteCode) -> None:
         with self._connect() as connection:

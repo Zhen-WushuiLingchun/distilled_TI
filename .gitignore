@@ -41,10 +41,14 @@ ai-chat-support-demo/nextchat/coverage/
 .env
 .env.*
 !.env.example
+!backend/.env.minimal.example
+!frontend/.env.local.example
+!ai-chat-support-demo/.env.example
 !ai-chat-support-demo/nextchat/.env.template
 backend/.env
 backend/.env.*
 !backend/.env.example
+!backend/.env.minimal.example
 
 # Local secrets and vector state
 local-secrets.*

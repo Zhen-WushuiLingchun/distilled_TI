@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
+from app.domain.models import ContextAnalysisMessage
 from app.domain.senren_choice_tree import ALL_CHOICES, ALL_ROUTES, get_choice_by_id
 from app.domain.senren_dimension_mapping import (
     CHARACTER_PROFILES,
@@ -17,6 +21,7 @@ from app.domain.senren_dimension_mapping import (
     get_mapping,
     get_mapping_for_choice,
 )
+from app.services.context_analysis_service import context_analysis_service
 from app.services.senren_monitor_service import senren_monitor_service
 
 router = APIRouter(prefix="/api/senren")
@@ -71,7 +76,7 @@ def submit_choice(
     request: Request,
     x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
 ) -> dict:
-    """提交一个游戏选择
+    """提交一个游戏选择，并通过 Context API 进行人格测量
 
     请求体:
     {
@@ -90,11 +95,44 @@ def submit_choice(
     _require_session(session_id, x_session_secret)
 
     try:
-        return senren_monitor_service.submit_game_choice(session_id, choice_id, option_key)
+        result = senren_monitor_service.submit_game_choice(session_id, choice_id, option_key)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # 通过 Context API 进行人格测量分析
+    choice_recorded = result.get("choice_recorded", {})
+    choice_context = choice_recorded.get("context", "")
+    option_text = choice_recorded.get("option_text", "")
+    location = choice_recorded.get("location", "")
+    characters = choice_recorded.get("characters", [])
+
+    try:
+        context_analysis_service.analyze(
+            application_id="senren-monitor",
+            external_user_id=session_id,
+            conversation_id=f"{session_id}-choices",
+            messages=[
+                ContextAnalysisMessage(
+                    role="assistant",
+                    content=f"[千恋万花游戏场景] 地点: {location}。角色: {', '.join(characters) if characters else '无'}。情境: {choice_context}",
+                ),
+                ContextAnalysisMessage(
+                    role="user",
+                    content=f"玩家选择了: {option_text}",
+                ),
+            ],
+            consent_basis="user participating in Senren Banka personality monitor",
+            channel="game_choice",
+            locale="zh-CN",
+            persist=True,
+            persist_messages=False,
+        )
+    except Exception:
+        pass  # Context API 分析失败不影响主流程
+
+    return result
 
 
 # ============================================================
@@ -472,6 +510,107 @@ def get_local_game_info(
         "game_info": game_info,
         "choices_made": len(session.choices_made),
         "current_route": session.current_route,
+    }
+
+
+_KIRIKIRI_EXE_NAMES = [
+    "SenrenBanka.exe",
+    "千恋＊万花.exe",
+    "千恋万花.exe",
+    "krkr.exe",
+    "kirikiri.exe",
+    "kirikiroid2.exe",
+]
+
+
+def _find_game_exe(game_path: str) -> str | None:
+    """在游戏目录中查找可执行文件"""
+    root = Path(game_path)
+    if not root.exists():
+        return None
+    # 优先精确匹配
+    for name in _KIRIKIRI_EXE_NAMES:
+        candidate = root / name
+        if candidate.is_file():
+            return str(candidate)
+    # 退而求其次，查找任意 exe
+    for item in root.iterdir():
+        if item.is_file() and item.suffix.lower() == ".exe":
+            return str(item)
+    return None
+
+
+@router.post("/local-game/launch")
+def launch_local_game(
+    payload: dict,
+    request: Request,
+) -> dict:
+    """启动本地千恋万花游戏并开始监视
+
+    请求体: {"game_path": "D:/games/千恋万花"}
+    """
+    game_path = payload.get("game_path", "")
+    if not game_path:
+        raise HTTPException(status_code=422, detail="game_path 为必填")
+
+    validation = _validate_game_path(game_path)
+    if not validation["valid"]:
+        raise HTTPException(status_code=422, detail=validation["hint"])
+
+    exe_path = _find_game_exe(game_path)
+    if not exe_path:
+        raise HTTPException(
+            status_code=422,
+            detail=f"在 {game_path} 中未找到游戏可执行文件。请确认目录中包含 SenrenBanka.exe 或千恋＊万花.exe。",
+        )
+
+    # 启动监视会话
+    result = senren_monitor_service.start_session(
+        mode="local",
+        owner_key=request.client.host if request.client else "",
+    )
+    session = senren_monitor_service.get_session(result["session_id"])
+    session.game_path = str(Path(game_path).absolute())
+    session.game_info = validation
+    local_assets = senren_monitor_service.attach_local_visual_assets(session, session.game_path)
+
+    # 启动游戏进程
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(
+                [exe_path],
+                cwd=str(Path(exe_path).parent),
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            subprocess.Popen(
+                [exe_path],
+                cwd=str(Path(exe_path).parent),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        session.game_info = {
+            **validation,
+            "exe_launched": exe_path,
+            "launch_status": "started",
+        }
+    except Exception as exc:
+        session.game_info = {
+            **validation,
+            "exe_launched": exe_path,
+            "launch_status": f"failed: {exc}",
+        }
+
+    return {
+        **result,
+        "game_path": session.game_path,
+        "game_info": session.game_info,
+        "exe_launched": exe_path,
     }
 
 

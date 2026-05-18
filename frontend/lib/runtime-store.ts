@@ -4,6 +4,8 @@ export type SessionAccessBundle = {
   delete_token: string;
 };
 
+export type SessionMode = "core" | "story";
+
 export type UserAccessBundle = {
   user_id: string;
   user_secret: string;
@@ -21,20 +23,39 @@ export type ReportViewPreferences = {
 };
 
 const SESSION_ACCESS_KEY = "distilled-ti-active-session-access";
+const SESSION_ACCESS_BY_MODE_KEY = "distilled-ti-active-session-access-by-mode";
 const USER_ACCESS_KEY = "distilled-ti-user-access";
 const FINAL_REPORT_KEY = "distilled-ti-final-report-snapshot";
 const REPORT_PREFS_KEY = "distilled-ti-report-view-preferences";
+
+type SessionAccessByMode = Partial<Record<SessionMode, SessionAccessBundle>>;
 
 function canUseStorage() {
   return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
 }
 
-export function saveActiveSessionAccess(access: SessionAccessBundle) {
-  if (!canUseStorage()) return;
-  window.sessionStorage.setItem(SESSION_ACCESS_KEY, JSON.stringify(access));
+function getSessionAccessByMode(): SessionAccessByMode {
+  if (!canUseStorage()) return {};
+  const raw = window.sessionStorage.getItem(SESSION_ACCESS_BY_MODE_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as SessionAccessByMode;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
-export function getActiveSessionAccess(): SessionAccessBundle | null {
+function saveSessionAccessByMode(accessByMode: SessionAccessByMode) {
+  if (!canUseStorage()) return;
+  if (!Object.values(accessByMode).some(Boolean)) {
+    window.sessionStorage.removeItem(SESSION_ACCESS_BY_MODE_KEY);
+    return;
+  }
+  window.sessionStorage.setItem(SESSION_ACCESS_BY_MODE_KEY, JSON.stringify(accessByMode));
+}
+
+function readLegacyActiveSessionAccess(): SessionAccessBundle | null {
   if (!canUseStorage()) return null;
   const raw = window.sessionStorage.getItem(SESSION_ACCESS_KEY);
   if (!raw) return null;
@@ -45,9 +66,44 @@ export function getActiveSessionAccess(): SessionAccessBundle | null {
   }
 }
 
-export function clearActiveSessionAccess() {
+export function saveActiveSessionAccess(access: SessionAccessBundle, mode: SessionMode = "core") {
   if (!canUseStorage()) return;
-  window.sessionStorage.removeItem(SESSION_ACCESS_KEY);
+  const accessByMode = getSessionAccessByMode();
+  accessByMode[mode] = access;
+  saveSessionAccessByMode(accessByMode);
+  if (mode === "core") {
+    window.sessionStorage.setItem(SESSION_ACCESS_KEY, JSON.stringify(access));
+  }
+}
+
+export function getActiveSessionAccess(mode?: SessionMode): SessionAccessBundle | null {
+  if (!canUseStorage()) return null;
+  if (mode) {
+    const accessByMode = getSessionAccessByMode();
+    const scopedAccess = accessByMode[mode];
+    if (scopedAccess) return scopedAccess;
+    if (mode !== "core") return null;
+  }
+  return readLegacyActiveSessionAccess();
+}
+
+export function clearActiveSessionAccess(mode?: SessionMode) {
+  if (!canUseStorage()) return;
+  if (!mode) {
+    window.sessionStorage.removeItem(SESSION_ACCESS_KEY);
+    window.sessionStorage.removeItem(SESSION_ACCESS_BY_MODE_KEY);
+    return;
+  }
+  const accessByMode = getSessionAccessByMode();
+  const removedSessionId = accessByMode[mode]?.session_id;
+  delete accessByMode[mode];
+  saveSessionAccessByMode(accessByMode);
+  if (mode === "core") {
+    const legacyAccess = readLegacyActiveSessionAccess();
+    if (!removedSessionId || legacyAccess?.session_id === removedSessionId) {
+      window.sessionStorage.removeItem(SESSION_ACCESS_KEY);
+    }
+  }
 }
 
 export function saveUserAccess(access: UserAccessBundle) {
