@@ -321,7 +321,7 @@ export function LandingClient() {
             </p>
           </div>
 
-          <div className="mt-auto flex flex-col gap-3 pt-7 sm:flex-row">
+          <div className="mt-auto flex flex-col gap-3 pt-7 sm:flex-row sm:flex-wrap">
             <button
               type="button"
               className="btn btn-primary"
@@ -331,6 +331,16 @@ export function LandingClient() {
               }}
             >
               剧情模式
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                saveReportViewPreferences({ projectionMode, namingStyle });
+                router.push("/senren");
+              }}
+            >
+              本地游戏模式
             </button>
             <button
               type="button"
