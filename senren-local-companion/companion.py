@@ -119,6 +119,34 @@ def _plain_text_excerpt(raw: str) -> str:
     return text[:REMOTE_ERROR_EXCERPT_LIMIT]
 
 
+def _remote_error_detail(body: str, content_type: str) -> str:
+    if "json" in content_type.lower():
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            return _plain_text_excerpt(body)
+        if isinstance(parsed, dict):
+            detail = parsed.get("detail") or parsed.get("error") or parsed.get("message")
+            if isinstance(detail, str):
+                return detail[:REMOTE_ERROR_EXCERPT_LIMIT]
+            return json.dumps(parsed, ensure_ascii=False)[:REMOTE_ERROR_EXCERPT_LIMIT]
+    return _plain_text_excerpt(body)
+
+
+def _remote_error_hint(status_code: int, detail: str) -> str:
+    if detail == "login_email_delivery_failed":
+        return "服务端邮件服务发送失败；检查 EMAIL_PROVIDER、EMAIL_FROM、RESEND_API_KEY、Resend 域名验证和服务端日志。"
+    if detail == "email_not_found":
+        return "这个邮箱还没有注册账号；请先在网站用邀请码注册。"
+    if detail in {"invalid_login_code", "login_challenge_not_found", "login_challenge_expired"}:
+        return "验证码无效或已过期；请重新获取验证码。"
+    if status_code == 401:
+        return "登录凭证缺失或已失效；请重新获取验证码登录。"
+    if status_code == 403:
+        return "权限不足或 session secret 不匹配；请重新登录或重新开始服务器记录。"
+    return "检查登录状态、API 地址、服务端日志和反向代理规则。"
+
+
 def _looks_like_cloudflare_challenge(status_code: int, content_type: str, body: str) -> bool:
     haystack = f"{content_type}\n{body[:6000]}".lower()
     if status_code not in {403, 429, 503}:
@@ -172,6 +200,9 @@ def default_config() -> dict:
         "handle": "",
         "active_session_id": "",
         "active_session_secret": "",
+        "pending_login_email": "",
+        "pending_login_challenge_id": "",
+        "pending_login_expires_at": "",
     }
 
 
@@ -507,7 +538,7 @@ def remote_request(method: str, path: str, payload: dict | None = None, *, inclu
     except error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="ignore")
         content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
-        detail = _plain_text_excerpt(body)
+        detail = _remote_error_detail(body, content_type)
         if _looks_like_cloudflare_challenge(exc.code, content_type, body):
             raise RemoteRequestError(
                 "cloudflare_challenge",
@@ -528,7 +559,7 @@ def remote_request(method: str, path: str, payload: dict | None = None, *, inclu
             status_code=exc.code,
             url=url,
             detail=detail,
-            hint="检查登录状态、API 地址、服务端日志和反向代理规则。",
+            hint=_remote_error_hint(exc.code, detail),
         ) from exc
     except RemoteRequestError:
         raise
@@ -785,7 +816,16 @@ HTML = r"""<!doctype html>
     button.secondary { background:#f8f2e7; color:var(--ink); border:1px solid var(--line); }
     button:disabled { opacity:.45; cursor:not-allowed; }
     .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
-    .status { white-space:pre-wrap; border-radius:12px; padding:12px; background:#f7f2e8; color:var(--muted); font-family: ui-monospace, Consolas, monospace; font-size:12px; }
+    .status { white-space:normal; border-radius:12px; padding:12px; background:#f7f2e8; color:var(--muted); font-size:14px; }
+    .status:empty { display:none; }
+    .status-card { display:grid; gap:5px; }
+    .status-title { font-weight:800; color:var(--ink); }
+    .status-card.success .status-title { color:var(--accent); }
+    .status-card.error .status-title { color:var(--danger); }
+    .status-card.warn .status-title { color:var(--warn); }
+    .status-detail { margin-top:6px; }
+    .status-detail summary { cursor:pointer; color:var(--muted); font-size:12px; }
+    .status-detail pre { white-space:pre-wrap; overflow:auto; max-height:180px; margin:8px 0 0; padding:10px; border-radius:10px; background:#fffaf0; font-family: ui-monospace, Consolas, monospace; font-size:12px; }
     .choice { display:block; width:100%; margin:8px 0; text-align:left; background:#fff; color:var(--ink); border:1px solid var(--line); }
     .choice.active { border-color:var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
     .pill { border:1px solid var(--line); border-radius:999px; padding:5px 9px; color:var(--muted); font-size:12px; background:#fffaf0; }
@@ -894,6 +934,7 @@ HTML = r"""<!doctype html>
 <script>
 let roadmap = [];
 let challengeId = "";
+let pendingLoginEmail = "";
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -914,13 +955,52 @@ function setText(id, data) {
   document.getElementById(id).textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
 }
 
+function setStatus(id, title, message = "", type = "info", detail = null) {
+  const root = document.getElementById(id);
+  root.textContent = "";
+  const card = document.createElement("div");
+  card.className = `status-card ${type}`;
+  const titleEl = document.createElement("div");
+  titleEl.className = "status-title";
+  titleEl.textContent = title;
+  card.appendChild(titleEl);
+  if (message) {
+    const msgEl = document.createElement("div");
+    msgEl.textContent = message;
+    card.appendChild(msgEl);
+  }
+  if (detail) {
+    const details = document.createElement("details");
+    details.className = "status-detail";
+    const summary = document.createElement("summary");
+    summary.textContent = "技术详情";
+    const pre = document.createElement("pre");
+    pre.textContent = typeof detail === "string" ? detail : JSON.stringify(detail, null, 2);
+    details.appendChild(summary);
+    details.appendChild(pre);
+    card.appendChild(details);
+  }
+  root.appendChild(card);
+}
+
+function errorTitle(payload) {
+  if (payload?.detail_excerpt === "login_email_delivery_failed") return "验证码邮件发送失败";
+  if (payload?.detail_excerpt === "email_not_found") return "这个邮箱尚未注册";
+  if (payload?.detail_excerpt === "invalid_login_code") return "验证码不正确";
+  if (payload?.detail_excerpt === "login_challenge_expired") return "验证码已过期";
+  if (payload?.error === "cloudflare_challenge") return "API 被 Cloudflare 拦截";
+  if (payload?.error === "remote_request_failed") return "连接服务器失败";
+  return "操作失败";
+}
+
 function formatError(err) {
   if (err?.payload) return err.payload;
   return {error: "client_error", message: err?.message || String(err)};
 }
 
 function showError(id, err) {
-  setText(id, formatError(err));
+  const payload = formatError(err);
+  setStatus(id, errorTitle(payload), payload.hint || payload.message || "请稍后重试。", "error", payload);
 }
 
 async function loadConfig() {
@@ -928,20 +1008,29 @@ async function loadConfig() {
   siteUrl.value = cfg.site_url || "";
   apiBaseUrl.value = cfg.api_base_url || "";
   gamePath.value = cfg.game_path || "";
-  setText("authStatus", cfg.handle ? `已保存账号：${cfg.handle}` : "尚未登录。");
+  pendingLoginEmail = cfg.pending_login_email || "";
+  challengeId = cfg.pending_login_challenge_id || "";
+  if (!email.value && pendingLoginEmail) email.value = pendingLoginEmail;
+  if (cfg.handle) {
+    setStatus("authStatus", "已登录", `当前账号：${cfg.handle}`, "success");
+  } else if (challengeId) {
+    setStatus("authStatus", "验证码已发送", "请查看邮箱，收到验证码后直接填写并点击“验证登录”。", "warn");
+  } else {
+    setStatus("authStatus", "尚未登录", "请填写邮箱并获取验证码。", "warn");
+  }
 }
 
 async function saveServerConfig(options = {}) {
   const cfg = await api("/api/local/config", {method:"POST", body:{site_url:siteUrl.value, api_base_url:apiBaseUrl.value, game_path:gamePath.value}});
-  if (!options.silent) setText("authStatus", {saved:true, site_url:cfg.site_url, api_base_url:cfg.api_base_url});
+  if (!options.silent) setStatus("authStatus", "服务器地址已保存", "可以继续获取邮箱验证码。", "success");
   return cfg;
 }
 
 async function testRemoteApi() {
-  setText("authStatus", "正在测试远端 API...");
+  setStatus("authStatus", "正在测试 API", "正在连接服务器，请稍候...");
   try {
     const data = await api("/api/local/remote-health");
-    setText("authStatus", data);
+    setStatus("authStatus", "API 连接正常", "服务器可访问，账号登录和选择同步可以继续。", "success", data);
   } catch (err) {
     showError("authStatus", err);
   }
@@ -949,23 +1038,20 @@ async function testRemoteApi() {
 
 async function requestLoginCode() {
   if (!email.value.trim()) {
-    setText("authStatus", "请先填写登录邮箱。");
+    setStatus("authStatus", "请先填写登录邮箱", "邮箱用于接收一次性验证码。", "warn");
     return;
   }
-  setText("authStatus", "正在保存地址并发送验证码...");
+  setStatus("authStatus", "正在发送验证码", "正在请求服务器发送邮件，请稍候...");
   try {
     await saveServerConfig({silent:true});
     const data = await api("/api/local/auth/login", {method:"POST", body:{email:email.value.trim()}});
     challengeId = data.challenge_id || "";
-    setText("authStatus", data.dev_code ? {
-      status: "本地开发验证码已生成",
-      dev_code: data.dev_code,
-      challenge_id: challengeId,
-    } : {
-      status: "验证码已发送，请查看邮箱。",
-      email: email.value.trim(),
-      challenge_id: challengeId,
-    });
+    pendingLoginEmail = email.value.trim();
+    if (data.dev_code) {
+      setStatus("authStatus", "本地开发验证码已生成", `验证码：${data.dev_code}`, "success");
+    } else {
+      setStatus("authStatus", "验证码已发送", `已发送到 ${pendingLoginEmail}。如果 1-2 分钟内没收到，请检查垃圾邮件；仍未收到则需要管理员查看 Resend 投递日志。`, "success");
+    }
   } catch (err) {
     showError("authStatus", err);
   }
@@ -973,41 +1059,59 @@ async function requestLoginCode() {
 
 async function verifyLoginCode() {
   if (!challengeId) {
-    setText("authStatus", "请先点击“获取验证码”。");
+    setStatus("authStatus", "请先获取验证码", "如果刚刷新过页面，请重新点击“获取验证码”。", "warn");
     return;
   }
-  setText("authStatus", "正在验证登录...");
+  if (!code.value.trim()) {
+    setStatus("authStatus", "请填写验证码", "验证码在邮件里，通常为 6 位数字。", "warn");
+    return;
+  }
+  setStatus("authStatus", "正在验证登录", "正在检查验证码，请稍候...");
   try {
-    const data = await api("/api/local/auth/verify", {method:"POST", body:{email:email.value.trim(), challenge_id:challengeId, code:code.value.trim()}});
-    setText("authStatus", data);
+    const data = await api("/api/local/auth/verify", {method:"POST", body:{email:(email.value.trim() || pendingLoginEmail), challenge_id:challengeId, code:code.value.trim()}});
+    challengeId = "";
+    pendingLoginEmail = "";
+    code.value = "";
+    setStatus("authStatus", "登录成功", `当前账号：${data.handle || data.user_id || "已验证"}`, "success");
   } catch (err) {
     showError("authStatus", err);
   }
 }
 
 async function loadMe() {
-  setText("authStatus", "正在测试账号...");
+  setStatus("authStatus", "正在测试账号", "正在检查本地保存的登录凭证...");
   try {
     const data = await api("/api/local/me");
-    setText("authStatus", data);
+    setStatus("authStatus", "账号有效", `当前账号：${data.handle || data.user_id || "已登录"}`, "success");
   } catch (err) {
     showError("authStatus", err);
   }
 }
 
 async function validateGame() {
+  setStatus("gameStatus", "正在校验目录", "正在检查 exe、XP3/PCK 包和目录结构...");
   try {
     const data = await api("/api/local/validate-game", {method:"POST", body:{game_path:gamePath.value}});
-    setText("gameStatus", data);
+    if (data.valid) {
+      const files = (data.found_files || []).slice(0, 4).join("、");
+      setStatus("gameStatus", "目录校验成功", `已找到真实游戏文件${files ? `：${files}` : "。"}`, "success", data);
+    } else {
+      setStatus("gameStatus", "目录校验失败", "没有找到可识别的千恋万花游戏文件，请检查安装目录。", "error", data);
+    }
   } catch (err) {
     showError("gameStatus", err);
   }
 }
 
 async function launchGame() {
+  setStatus("gameStatus", "正在启动游戏", "正在调用本机游戏 exe...");
   try {
     const data = await api("/api/local/launch-game", {method:"POST", body:{game_path:gamePath.value}});
-    setText("gameStatus", data);
+    if (data.launched) {
+      setStatus("gameStatus", "游戏已启动", "如果没有看到游戏窗口，请检查杀毒软件拦截或游戏本身启动弹窗。", "success", data);
+    } else {
+      setStatus("gameStatus", "游戏启动失败", data.error || "没有找到可启动的 exe。", "error", data);
+    }
   } catch (err) {
     showError("gameStatus", err);
   }
@@ -1202,19 +1306,41 @@ class Handler(BaseHTTPRequestHandler):
                 cfg.update({key: payload.get(key, cfg.get(key, "")) for key in ("site_url", "api_base_url", "game_path")})
                 json_response(self, save_config(cfg))
             elif self.path == "/api/local/auth/login":
-                json_response(self, remote_request("POST", "/auth/login", {"email": payload.get("email", "")}))
+                email = str(payload.get("email", "")).strip()
+                data = remote_request("POST", "/auth/login", {"email": email})
+                cfg = load_config()
+                cfg.update(
+                    {
+                        "pending_login_email": email,
+                        "pending_login_challenge_id": data.get("challenge_id", ""),
+                        "pending_login_expires_at": data.get("expires_at", ""),
+                    }
+                )
+                save_config(cfg)
+                json_response(self, data)
             elif self.path == "/api/local/auth/verify":
+                cfg = load_config()
+                email = str(payload.get("email") or cfg.get("pending_login_email", "")).strip()
+                challenge_id = str(payload.get("challenge_id") or cfg.get("pending_login_challenge_id", "")).strip()
                 data = remote_request(
                     "POST",
                     "/auth/login/verify",
                     {
-                        "email": payload.get("email", ""),
-                        "challenge_id": payload.get("challenge_id", ""),
+                        "email": email,
+                        "challenge_id": challenge_id,
                         "code": payload.get("code", ""),
                     },
                 )
-                cfg = load_config()
-                cfg.update({"user_id": data.get("user_id", ""), "user_secret": data.get("user_secret", ""), "handle": data.get("handle", "")})
+                cfg.update(
+                    {
+                        "user_id": data.get("user_id", ""),
+                        "user_secret": data.get("user_secret", ""),
+                        "handle": data.get("handle", ""),
+                        "pending_login_email": "",
+                        "pending_login_challenge_id": "",
+                        "pending_login_expires_at": "",
+                    }
+                )
                 save_config(cfg)
                 json_response(self, {"logged_in": True, "handle": data.get("handle", ""), "user_id": data.get("user_id", "")})
             elif self.path == "/api/local/validate-game":
