@@ -14,6 +14,34 @@ from urllib import error, request
 
 
 APP_NAME = "DistilledTI Senren Companion"
+
+
+def app_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def load_env_file() -> None:
+    env_path = app_base_dir() / ".env"
+    if not env_path.exists():
+        return
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        os.environ[key] = value.strip().strip('"')
+
+
+load_env_file()
 DEFAULT_PORT = int(os.environ.get("SENREN_COMPANION_PORT", "17877"))
 VALID_GAME_FILES = (
     "data.xp3",
@@ -1046,10 +1074,11 @@ def main() -> None:
     url = f"http://127.0.0.1:{port}"
     print(f"{APP_NAME} listening on {url}")
     print(f"Config: {CONFIG_PATH}")
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
+    if os.environ.get("SENREN_COMPANION_OPEN_BROWSER", "true").strip().lower() not in {"0", "false", "no", "off"}:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
     server.serve_forever()
 
 

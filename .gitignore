@@ -18,6 +18,7 @@ ENV/
 *.egg-info/
 dist/
 build/
+*.spec
 
 # Local backend caches
 backend/.pip-audit-cache/

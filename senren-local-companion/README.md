@@ -103,6 +103,32 @@ cd senren-local-companion
 python companion.py
 ```
 
+## Windows release exe
+
+构建单文件 exe：
+
+```powershell
+cd senren-local-companion
+.\build-release.ps1
+```
+
+构建产物会写入仓库根目录 `dist/`：
+
+```text
+dist/senren-local-companion-<version>-windows.zip
+```
+
+release zip 包含：
+
+- `DistilledTI-Senren-Companion.exe`
+- `run.bat`
+- `.env.example`
+- `README.md`
+- `DEPLOYMENT.md`
+- `QUICKSTART.md`
+
+exe 会自动读取同目录 `.env`。如果只用剪贴板捕获，不需要安装 OCR 依赖；如果启用 OCR，需要本机安装 Tesseract，并按 `.env.example` 配置 `TESSERACT_CMD`、`SENREN_OCR_LANG`、`SENREN_OCR_REGION`。
+
 启动后打开：
 
 ```text
