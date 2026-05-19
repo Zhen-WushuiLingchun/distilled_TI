@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import os
 import subprocess
@@ -9,6 +10,7 @@ import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from html import unescape
 from pathlib import Path
 from urllib import error, request
 
@@ -61,6 +63,74 @@ XP3_STORY_NAMES = {"data.xp3", "scenario.xp3", "script.xp3", "scripts.xp3"}
 XP3_ASSET_HINTS = ("bg", "fg", "ev", "image", "sound", "voice", "video", "movie", "music", "asset")
 SCAN_SKIP_DIRS = {"savedata", "save", "userdata", ".git", "node_modules"}
 MAX_LAYOUT_SCAN_FILES = 2000
+REMOTE_ERROR_EXCERPT_LIMIT = 900
+CLOUDFLARE_CHALLENGE_MARKERS = (
+    "just a moment",
+    "__cf_chl",
+    "challenge-platform",
+    "challenges.cloudflare.com",
+    "cf-ray",
+    "cloudflare",
+)
+
+
+class RemoteRequestError(RuntimeError):
+    def __init__(
+        self,
+        error_code: str,
+        message: str,
+        *,
+        status_code: int | None = None,
+        url: str = "",
+        detail: str = "",
+        hint: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.status_code = status_code
+        self.url = url
+        self.detail = detail
+        self.hint = hint
+
+    def to_payload(self) -> dict:
+        payload: dict[str, object] = {
+            "error": self.error_code,
+            "message": self.message,
+        }
+        if self.hint:
+            payload["hint"] = self.hint
+        if self.status_code is not None:
+            payload["remote_status"] = self.status_code
+        if self.url:
+            payload["url"] = self.url
+        if self.detail:
+            payload["detail_excerpt"] = self.detail[:REMOTE_ERROR_EXCERPT_LIMIT]
+        return payload
+
+
+def _plain_text_excerpt(raw: str) -> str:
+    text = raw or ""
+    text = re.sub(r"<script\b[^>]*>.*?</script>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<style\b[^>]*>.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = unescape(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:REMOTE_ERROR_EXCERPT_LIMIT]
+
+
+def _looks_like_cloudflare_challenge(status_code: int, content_type: str, body: str) -> bool:
+    haystack = f"{content_type}\n{body[:6000]}".lower()
+    if status_code not in {403, 429, 503}:
+        return False
+    return any(marker in haystack for marker in CLOUDFLARE_CHALLENGE_MARKERS)
+
+
+def error_payload(exc: Exception) -> dict:
+    if isinstance(exc, RemoteRequestError):
+        return exc.to_payload()
+    message = str(exc)[:REMOTE_ERROR_EXCERPT_LIMIT] or exc.__class__.__name__
+    return {"error": "local_companion_error", "message": message}
 
 
 def config_dir() -> Path:
@@ -406,7 +476,11 @@ def remote_request(method: str, path: str, payload: dict | None = None, *, inclu
     config = load_config()
     api_base_url = config["api_base_url"].rstrip("/")
     url = f"{api_base_url}{path}"
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "DistilledTI-Senren-Companion/1.0",
+    }
     if include_user:
         headers["X-User-Id"] = config.get("user_id", "")
         headers["X-User-Secret"] = config.get("user_secret", "")
@@ -417,12 +491,55 @@ def remote_request(method: str, path: str, payload: dict | None = None, *, inclu
     try:
         with request.urlopen(req, timeout=20) as resp:
             raw = resp.read().decode("utf-8")
-            return json.loads(raw) if raw else {}
+            if not raw:
+                return {}
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError as json_exc:
+                raise RemoteRequestError(
+                    "remote_invalid_json",
+                    "远端 API 返回的不是 JSON，companion 无法继续解析。",
+                    status_code=getattr(resp, "status", None),
+                    url=url,
+                    detail=_plain_text_excerpt(raw),
+                    hint="检查 API 地址是否正确指向后端 /api，而不是前端页面或 Cloudflare 挑战页。",
+                ) from json_exc
     except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"remote_http_{exc.code}: {detail}") from exc
+        body = exc.read().decode("utf-8", errors="ignore")
+        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
+        detail = _plain_text_excerpt(body)
+        if _looks_like_cloudflare_challenge(exc.code, content_type, body):
+            raise RemoteRequestError(
+                "cloudflare_challenge",
+                "远端 API 被 Cloudflare 浏览器挑战页拦截。",
+                status_code=exc.code,
+                url=url,
+                detail=detail,
+                hint=(
+                    "本机 companion 是 API 客户端，不能执行浏览器 JS challenge。"
+                    "请在 Cloudflare 为 /api/health、/api/auth/*、/api/user/*、/api/senren/*"
+                    " 或整个 /api/* 配置 WAF Skip/Allow，关闭 Managed Challenge、Bot Fight、"
+                    "Browser Integrity Check 对 API 路由的挑战；也可以改用不经过挑战页的 API 子域名。"
+                ),
+            ) from exc
+        raise RemoteRequestError(
+            f"remote_http_{exc.code}",
+            f"远端 API 返回 HTTP {exc.code}。",
+            status_code=exc.code,
+            url=url,
+            detail=detail,
+            hint="检查登录状态、API 地址、服务端日志和反向代理规则。",
+        ) from exc
+    except RemoteRequestError:
+        raise
     except Exception as exc:
-        raise RuntimeError(f"remote_request_failed: {exc}") from exc
+        raise RemoteRequestError(
+            "remote_request_failed",
+            "无法连接远端 API。",
+            url=url,
+            detail=str(exc),
+            hint="检查 API 地址、网络连接、证书、Cloudflare 和后端服务状态。",
+        ) from exc
 
 
 def _utc_now_iso() -> str:
@@ -694,6 +811,7 @@ HTML = r"""<!doctype html>
       <div class="row" style="margin-top:12px">
         <button onclick="saveServerConfig()">保存地址</button>
         <button class="secondary" onclick="openSite()">打开网站</button>
+        <button class="secondary" onclick="testRemoteApi()">测试 API</button>
       </div>
       <label>登录邮箱</label>
       <input id="email" placeholder="your@email.com" />
@@ -784,12 +902,25 @@ async function api(path, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || data.detail || res.statusText);
+  if (!res.ok) {
+    const err = new Error(data.message || data.error || data.detail || res.statusText);
+    err.payload = data;
+    throw err;
+  }
   return data;
 }
 
 function setText(id, data) {
   document.getElementById(id).textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+}
+
+function formatError(err) {
+  if (err?.payload) return err.payload;
+  return {error: "client_error", message: err?.message || String(err)};
+}
+
+function showError(id, err) {
+  setText(id, formatError(err));
 }
 
 async function loadConfig() {
@@ -800,44 +931,102 @@ async function loadConfig() {
   setText("authStatus", cfg.handle ? `已保存账号：${cfg.handle}` : "尚未登录。");
 }
 
-async function saveServerConfig() {
+async function saveServerConfig(options = {}) {
   const cfg = await api("/api/local/config", {method:"POST", body:{site_url:siteUrl.value, api_base_url:apiBaseUrl.value, game_path:gamePath.value}});
-  setText("authStatus", {saved:true, site_url:cfg.site_url, api_base_url:cfg.api_base_url});
+  if (!options.silent) setText("authStatus", {saved:true, site_url:cfg.site_url, api_base_url:cfg.api_base_url});
+  return cfg;
+}
+
+async function testRemoteApi() {
+  setText("authStatus", "正在测试远端 API...");
+  try {
+    const data = await api("/api/local/remote-health");
+    setText("authStatus", data);
+  } catch (err) {
+    showError("authStatus", err);
+  }
 }
 
 async function requestLoginCode() {
-  await saveServerConfig();
-  const data = await api("/api/local/auth/login", {method:"POST", body:{email:email.value}});
-  challengeId = data.challenge_id;
-  setText("authStatus", data.dev_code ? `本地开发验证码：${data.dev_code}` : "验证码已发送，请查看邮箱。");
+  if (!email.value.trim()) {
+    setText("authStatus", "请先填写登录邮箱。");
+    return;
+  }
+  setText("authStatus", "正在保存地址并发送验证码...");
+  try {
+    await saveServerConfig({silent:true});
+    const data = await api("/api/local/auth/login", {method:"POST", body:{email:email.value.trim()}});
+    challengeId = data.challenge_id || "";
+    setText("authStatus", data.dev_code ? {
+      status: "本地开发验证码已生成",
+      dev_code: data.dev_code,
+      challenge_id: challengeId,
+    } : {
+      status: "验证码已发送，请查看邮箱。",
+      email: email.value.trim(),
+      challenge_id: challengeId,
+    });
+  } catch (err) {
+    showError("authStatus", err);
+  }
 }
 
 async function verifyLoginCode() {
-  const data = await api("/api/local/auth/verify", {method:"POST", body:{email:email.value, challenge_id:challengeId, code:code.value}});
-  setText("authStatus", data);
+  if (!challengeId) {
+    setText("authStatus", "请先点击“获取验证码”。");
+    return;
+  }
+  setText("authStatus", "正在验证登录...");
+  try {
+    const data = await api("/api/local/auth/verify", {method:"POST", body:{email:email.value.trim(), challenge_id:challengeId, code:code.value.trim()}});
+    setText("authStatus", data);
+  } catch (err) {
+    showError("authStatus", err);
+  }
 }
 
 async function loadMe() {
-  const data = await api("/api/local/me");
-  setText("authStatus", data);
+  setText("authStatus", "正在测试账号...");
+  try {
+    const data = await api("/api/local/me");
+    setText("authStatus", data);
+  } catch (err) {
+    showError("authStatus", err);
+  }
 }
 
 async function validateGame() {
-  const data = await api("/api/local/validate-game", {method:"POST", body:{game_path:gamePath.value}});
-  setText("gameStatus", data);
+  try {
+    const data = await api("/api/local/validate-game", {method:"POST", body:{game_path:gamePath.value}});
+    setText("gameStatus", data);
+  } catch (err) {
+    showError("gameStatus", err);
+  }
 }
 
 async function launchGame() {
-  const data = await api("/api/local/launch-game", {method:"POST", body:{game_path:gamePath.value}});
-  setText("gameStatus", data);
+  try {
+    const data = await api("/api/local/launch-game", {method:"POST", body:{game_path:gamePath.value}});
+    setText("gameStatus", data);
+  } catch (err) {
+    showError("gameStatus", err);
+  }
 }
 
 async function loadRoadmap() {
-  const data = await api("/api/local/roadmap");
-  roadmap = data.nodes || [];
-  choiceSelect.innerHTML = roadmap.map((node, idx) => `<option value="${idx}">${node.chapter} · ${node.location} · ${node.choice_id}</option>`).join("");
-  renderOptions();
-  setText("syncStatus", `已加载 ${roadmap.length} 个真实选择节点。`);
+  setText("syncStatus", "正在读取服务器选择树...");
+  try {
+    const data = await api("/api/local/roadmap");
+    roadmap = data.nodes || [];
+    choiceSelect.innerHTML = roadmap.map((node, idx) => `<option value="${idx}">${node.chapter} · ${node.location} · ${node.choice_id}</option>`).join("");
+    renderOptions();
+    setText("syncStatus", `已加载 ${roadmap.length} 个真实选择节点。`);
+  } catch (err) {
+    roadmap = [];
+    choiceSelect.innerHTML = "";
+    choiceOptions.innerHTML = "";
+    showError("syncStatus", err);
+  }
 }
 
 function renderOptions() {
@@ -849,48 +1038,75 @@ function renderOptions() {
 }
 
 async function startSession() {
-  await saveServerConfig();
-  const validation = await api("/api/local/validate-game", {method:"POST", body:{game_path:gamePath.value}});
-  const data = await api("/api/local/sessions/start", {method:"POST", body:{game_info: validation}});
-  setText("syncStatus", data);
-  await loadRoadmap();
+  setText("syncStatus", "正在启动服务器记录...");
+  try {
+    await saveServerConfig({silent:true});
+    const validation = await api("/api/local/validate-game", {method:"POST", body:{game_path:gamePath.value}});
+    const data = await api("/api/local/sessions/start", {method:"POST", body:{game_info: validation}});
+    setText("syncStatus", data);
+    try {
+      await loadRoadmap();
+    } catch (_) {
+      // loadRoadmap already renders the error; a started session should remain usable for manual context sync.
+    }
+  } catch (err) {
+    showError("syncStatus", err);
+  }
 }
 
 async function syncContextEvent() {
   const node = roadmap[Number(choiceSelect.value || 0)];
   const visibleChoices = (node?.options || []).map(opt => opt.text);
-  const data = await api("/api/local/sessions/event", {method:"POST", body:{
-    event_type:"scene_text",
-    scene_title: sceneTitle.value || node?.location || "",
-    dialogue_text: dialogueText.value || node?.context || "",
-    visible_choices: visibleChoices,
-    route_marker: node?.choice_id || "",
-    source:"manual",
-  }});
-  setText("syncStatus", data);
+  try {
+    const data = await api("/api/local/sessions/event", {method:"POST", body:{
+      event_type:"scene_text",
+      scene_title: sceneTitle.value || node?.location || "",
+      dialogue_text: dialogueText.value || node?.context || "",
+      visible_choices: visibleChoices,
+      route_marker: node?.choice_id || "",
+      source:"manual",
+    }});
+    setText("syncStatus", data);
+  } catch (err) {
+    showError("syncStatus", err);
+  }
 }
 
 async function submitChoice(choiceId, optionKey) {
   const node = roadmap[Number(choiceSelect.value || 0)];
   const option = (node?.options || []).find(item => item.key === optionKey);
-  const data = await api("/api/local/sessions/choice", {method:"POST", body:{
-    choice_id:choiceId,
-    option_key:optionKey,
-    choice_text: choiceTextOverride.value || option?.text || "",
-    dialogue_text: dialogueText.value || "",
-    scene_title: sceneTitle.value || node?.location || "",
-  }});
-  setText("syncStatus", data);
+  try {
+    const data = await api("/api/local/sessions/choice", {method:"POST", body:{
+      choice_id:choiceId,
+      option_key:optionKey,
+      choice_text: choiceTextOverride.value || option?.text || "",
+      dialogue_text: dialogueText.value || "",
+      scene_title: sceneTitle.value || node?.location || "",
+    }});
+    setText("syncStatus", data);
+  } catch (err) {
+    showError("syncStatus", err);
+  }
 }
 
 async function loadSessions() {
-  const data = await api("/api/local/sessions");
-  setText("syncStatus", data);
+  setText("syncStatus", "正在读取我的记录...");
+  try {
+    const data = await api("/api/local/sessions");
+    setText("syncStatus", data);
+  } catch (err) {
+    showError("syncStatus", err);
+  }
 }
 
 async function generateReport() {
-  const data = await api("/api/local/sessions/report");
-  setText("reportStatus", data);
+  setText("reportStatus", "正在生成报告...");
+  try {
+    const data = await api("/api/local/sessions/report");
+    setText("reportStatus", data);
+  } catch (err) {
+    showError("reportStatus", err);
+  }
 }
 
 async function loadCaptureStatus() {
@@ -901,24 +1117,39 @@ async function loadCaptureStatus() {
 }
 
 async function startCapture() {
-  const data = await api("/api/local/capture/start", {method:"POST", body:{mode:captureMode.value, interval_seconds:Number(captureInterval.value || 2)}});
-  setText("captureStatus", data);
+  try {
+    const data = await api("/api/local/capture/start", {method:"POST", body:{mode:captureMode.value, interval_seconds:Number(captureInterval.value || 2)}});
+    setText("captureStatus", data);
+  } catch (err) {
+    showError("captureStatus", err);
+  }
 }
 
 async function stopCapture() {
-  const data = await api("/api/local/capture/stop", {method:"POST", body:{}});
-  setText("captureStatus", data);
+  try {
+    const data = await api("/api/local/capture/stop", {method:"POST", body:{}});
+    setText("captureStatus", data);
+  } catch (err) {
+    showError("captureStatus", err);
+  }
 }
 
 async function probeCapture(send) {
-  const data = await api("/api/local/capture/probe", {method:"POST", body:{mode:captureMode.value, send}});
-  setText("captureStatus", data);
+  try {
+    const data = await api("/api/local/capture/probe", {method:"POST", body:{mode:captureMode.value, send}});
+    setText("captureStatus", data);
+  } catch (err) {
+    showError("captureStatus", err);
+  }
 }
 
 function openSite() { window.open(siteUrl.value || "https://dsti.hydrogenoxide18.com", "_blank"); }
 function openHistory() { window.open((siteUrl.value || "https://dsti.hydrogenoxide18.com").replace(/\/$/, "") + "/history", "_blank"); }
 
-loadConfig().then(loadRoadmap).then(loadCaptureStatus).catch(err => setText("syncStatus", String(err)));
+loadConfig()
+  .then(loadCaptureStatus)
+  .then(() => setText("syncStatus", "未自动读取选择树；如需同步真实选择，请先确认 API 可用，再点击“刷新选择树”。"))
+  .catch(err => showError("syncStatus", err));
 setInterval(() => loadCaptureStatus().catch(() => {}), 3000);
 </script>
 </body>
@@ -942,6 +1173,8 @@ class Handler(BaseHTTPRequestHandler):
                 text_response(self, HTML)
             elif self.path == "/api/local/config":
                 json_response(self, load_config())
+            elif self.path == "/api/local/remote-health":
+                json_response(self, {"ok": True, "remote": remote_request("GET", "/health")})
             elif self.path == "/api/local/me":
                 json_response(self, remote_request("GET", "/user/me", include_user=True))
             elif self.path == "/api/local/roadmap":
@@ -959,7 +1192,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 json_response(self, {"error": "not_found"}, 404)
         except Exception as exc:
-            json_response(self, {"error": str(exc)}, 500)
+            json_response(self, error_payload(exc), 500)
 
     def do_POST(self) -> None:
         try:
@@ -1065,7 +1298,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 json_response(self, {"error": "not_found"}, 404)
         except Exception as exc:
-            json_response(self, {"error": str(exc)}, 500)
+            json_response(self, error_payload(exc), 500)
 
 
 def main() -> None:

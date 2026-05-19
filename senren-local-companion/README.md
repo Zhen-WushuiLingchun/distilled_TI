@@ -160,6 +160,29 @@ http://127.0.0.1:17877
 8. 达到报告阈值后，点击“生成/刷新报告”。
 9. 回到网站账号查看本地游戏测量历史。
 
+## Cloudflare / 反代要求
+
+companion 是本机 API 客户端，不是浏览器页面。它不能执行 Cloudflare Managed Challenge、Bot Fight 或 Browser Integrity Check 这类 JavaScript 挑战。如果服务器在 `/api/*` 上返回 `Just a moment...` HTML，companion 会显示 `cloudflare_challenge`，并提示修复 Cloudflare 规则。
+
+部署时需要确保这些 API 路径对本机客户端直接返回 JSON：
+
+- `GET /api/health`
+- `POST /api/auth/login`
+- `POST /api/auth/login/verify`
+- `GET /api/user/me`
+- `GET /api/senren/roadmap`
+- `GET/POST /api/senren/companion/*`
+
+Cloudflare 推荐做法：创建 WAF 自定义规则，匹配 URI Path `starts_with "/api/"`，对该规则执行 Skip/Allow，至少跳过 Managed Challenge、Super Bot Fight/Bot Fight、Browser Integrity Check 和会把 API 客户端重定向到挑战页的安全级别。另一种做法是给 API 单独配置一个不启用 JS challenge 的子域名。
+
+本机验证：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:17877/api/local/remote-health
+```
+
+期望返回 `{"ok":true,"remote":{"status":"ok"}}`。如果返回 `error=cloudflare_challenge`，先修 Cloudflare/反代规则，再测试登录和选择同步。
+
 ## 验收
 
 最小本机验收：

@@ -145,9 +145,56 @@ python backend/scripts/check_public_api_deployment.py --api-base-url $env:DSTI_A
 - `senren_companion_start_authorized`
 - `senren_companion_event_authorized`
 
+## Cloudflare / 网关配置
+
+本机 companion 访问的是 JSON API，不是网页浏览器。Cloudflare 如果对 `/api/*` 触发 Managed Challenge、Bot Fight、Browser Integrity Check 或类似 JS challenge，本机程序只会收到 `Just a moment...` HTML，无法继续登录、刷新选择树或同步事件。
+
+生产环境必须保证以下路径直接返回 JSON：
+
+- `GET /api/health`
+- `POST /api/auth/login`
+- `POST /api/auth/login/verify`
+- `GET /api/user/me`
+- `GET /api/senren/roadmap`
+- `GET/POST /api/senren/companion/*`
+
+Cloudflare 推荐规则：
+
+```text
+When: URI Path starts with "/api/"
+Then: Skip/Allow security features that issue browser challenges
+Scope: at least Managed Challenge, Super Bot Fight/Bot Fight, Browser Integrity Check
+```
+
+如果不想放行整个 `/api/*`，至少放行上面列出的账号和 Senren companion 路由。也可以把 API 放到单独子域名，例如 `api.example.com`，该子域名不启用浏览器挑战，只保留必要的限流、鉴权和服务器侧日志。
+
+本机 companion 已内置诊断：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:17877/api/local/remote-health
+```
+
+正常结果：
+
+```json
+{"ok":true,"remote":{"status":"ok"}}
+```
+
+如果看到：
+
+```json
+{
+  "error": "cloudflare_challenge",
+  "message": "远端 API 被 Cloudflare 浏览器挑战页拦截。"
+}
+```
+
+说明不是 companion 登录逻辑问题，而是网关把 API 请求挡成了网页挑战；先修 Cloudflare/反代规则。
+
 ## 常见问题
 
 - `no_active_session`：先登录并点击“开始服务器记录”。
+- `cloudflare_challenge`：Cloudflare/反代对 API 路由发了浏览器挑战，按上一节放行 API JSON 路由。
 - `remote_http_401`：用户凭证缺失或过期，重新邮箱登录。
 - `remote_http_403`：session secret 不匹配，重新开始服务器记录。
 - 事件有了但没有推进路线：正常，`event` 只用于上下文归档和分析；只有 `choice` 会推进 Senren 测量路线。
