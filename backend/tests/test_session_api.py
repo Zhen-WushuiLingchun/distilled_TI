@@ -1,5 +1,6 @@
 import pytest
 import json
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -19,6 +20,10 @@ public_client = TestClient(public_app)
 
 def create_test_invite(max_uses: int = 1) -> str:
     return user_service.create_invite(label="test invite", max_uses=max_uses).code
+
+
+def unique_email(prefix: str) -> str:
+    return f"{prefix}-{uuid4().hex}@example.com"
 
 
 def session_headers(session_secret: str) -> dict[str, str]:
@@ -69,6 +74,19 @@ def test_senren_local_mode_serves_registered_local_assets(tmp_path):
     asset_response = public_client.get(scene["character_asset"]["url"])
     assert asset_response.status_code == 200
     assert asset_response.content == b"fake-character"
+
+
+def test_galgame_generated_asset_route_serves_public_cache(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "background"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "sample.png").write_bytes(b"fake-generated-background")
+    monkeypatch.setattr(settings, "galgame_asset_public_dir", str(tmp_path))
+
+    response = public_client.get("/api/galgame/assets/background/sample.png")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.content == b"fake-generated-background"
 
 
 def test_senren_local_game_validate_reports_missing_path(tmp_path):
@@ -136,6 +154,128 @@ def test_senren_choice_best_effort_records_context_analysis(monkeypatch):
     assert len(captured["messages"]) == 2
 
 
+def test_senren_companion_persists_user_bound_real_choice_context(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_analyze(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(context_analysis_service, "analyze", fake_analyze)
+    invite_code = create_test_invite()
+    redeem_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": invite_code, "email": f"senren-companion-{uuid4().hex}@example.com"},
+    )
+    assert redeem_response.status_code == 200
+    user = redeem_response.json()
+    user_headers = {
+        "X-User-Id": user["user_id"],
+        "X-User-Secret": user["user_secret"],
+    }
+
+    start_response = public_client.post(
+        "/api/senren/companion/start",
+        headers=user_headers,
+        json={
+            "client_id": "windows-local-client",
+            "game_title": "Senren Banka",
+            "game_path": "D:\\Games\\SenrenBanka",
+            "game_path_fingerprint": "path-fp-1",
+            "game_info": {"valid": True, "found_files": ["SenrenBanka.exe"]},
+        },
+    )
+    assert start_response.status_code == 200
+    start_payload = start_response.json()
+    assert start_payload["record"]["user_id"] == user["user_id"]
+    assert start_payload["record"]["game_path"] == "D:\\Games\\SenrenBanka"
+
+    choice_response = public_client.post(
+        f"/api/senren/companion/{start_payload['session_id']}/choice",
+        headers={**user_headers, "X-Session-Secret": start_payload["session_secret"]},
+        json={
+            "choice_id": "senren-c1",
+            "option_key": "honest",
+            "choice_text": "正面告诉她自己也很在意这件事。",
+            "dialogue_text": "真实游戏里的最近几句对话。",
+            "scene_title": "共通线第 1 章 · 神社前",
+        },
+    )
+    assert choice_response.status_code == 200
+    record = choice_response.json()["record"]
+    assert record["choices_count"] == 1
+    assert record["choices"][0]["choice_text"] == "正面告诉她自己也很在意这件事。"
+    assert record["choices"][0]["dialogue_text"] == "真实游戏里的最近几句对话。"
+    assert record["choices"][0]["scene_title"] == "共通线第 1 章 · 神社前"
+    assert captured["application_id"] == "senren-companion"
+    assert captured["external_user_id"] == user["user_id"]
+
+    list_response = public_client.get("/api/senren/companion/sessions", headers=user_headers)
+    assert list_response.status_code == 200
+    assert any(item["session_id"] == start_payload["session_id"] for item in list_response.json()["items"])
+
+
+def test_senren_companion_event_records_hook_context_without_advancing_choice(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_analyze(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(context_analysis_service, "analyze", fake_analyze)
+    invite_code = create_test_invite()
+    redeem_response = public_client.post(
+        "/api/invite/redeem",
+        json={"invite_code": invite_code, "email": f"senren-hook-{uuid4().hex}@example.com"},
+    )
+    assert redeem_response.status_code == 200
+    user = redeem_response.json()
+    user_headers = {
+        "X-User-Id": user["user_id"],
+        "X-User-Secret": user["user_secret"],
+    }
+    start_response = public_client.post(
+        "/api/senren/companion/start",
+        headers=user_headers,
+        json={
+            "client_id": "windows-local-hook",
+            "game_title": "Senren Banka",
+            "game_path": "D:\\Games\\SenrenBanka",
+            "game_path_fingerprint": "path-fp-2",
+            "game_info": {
+                "valid": True,
+                "found_files": ["data.xp3"],
+                "game_layout": {"primary_story_archive": {"relative_path": "data.xp3"}},
+            },
+        },
+    )
+    assert start_response.status_code == 200
+    start_payload = start_response.json()
+
+    event_response = public_client.post(
+        f"/api/senren/companion/{start_payload['session_id']}/event",
+        headers={**user_headers, "X-Session-Secret": start_payload["session_secret"]},
+        json={
+            "event_type": "choice_snapshot",
+            "scene_title": "共通线 · 神社前",
+            "dialogue_text": "真实游戏当前显示的台词。",
+            "visible_choices": ["追上去问清楚", "先留在原地观察"],
+            "route_marker": "common_ch1_choice_03",
+            "source": "hook",
+            "metadata": {"hook_version": "test"},
+        },
+    )
+
+    assert event_response.status_code == 200
+    payload = event_response.json()
+    assert payload["stored_events_count"] == 1
+    assert payload["event"]["source"] == "hook"
+    assert payload["event"]["visible_choices"] == ["追上去问清楚", "先留在原地观察"]
+    assert payload["record"]["choices_count"] == 0
+    assert payload["record"]["events"][0]["route_marker"] == "common_ch1_choice_03"
+    assert captured["application_id"] == "senren-companion"
+    assert captured["channel"] == "local_game_event"
+    assert captured["metadata"]["event_type"] == "choice_snapshot"
+
+
 def test_senren_session_listing_is_public_monitor_state():
     response = public_client.get("/api/senren/sessions")
 
@@ -146,7 +286,7 @@ def test_senren_session_listing_is_public_monitor_state():
 def test_email_login_requires_one_time_code(monkeypatch):
     monkeypatch.setattr(settings, "auth_login_code_return_in_response", True)
     invite_code = create_test_invite()
-    email = "login-code-user@example.com"
+    email = unique_email("login-code-user")
     redeem_response = public_client.post(
         "/api/invite/redeem",
         json={"invite_code": invite_code, "email": email},
@@ -191,7 +331,7 @@ def test_email_login_sends_code_when_dev_echo_disabled(monkeypatch):
     monkeypatch.setattr(settings, "auth_login_code_return_in_response", False)
     monkeypatch.setattr(email_service, "send_login_code", fake_send_login_code)
     invite_code = create_test_invite()
-    email = "login-email-delivery@example.com"
+    email = unique_email("login-email-delivery")
     redeem_response = public_client.post(
         "/api/invite/redeem",
         json={"invite_code": invite_code, "email": email},
@@ -396,7 +536,7 @@ def test_invite_user_can_keep_long_lived_session_history():
     invite_code = create_test_invite()
     redeem_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": invite_code, "email": "history-user@example.com"},
+        json={"invite_code": invite_code, "email": unique_email("history-user")},
     )
     assert redeem_response.status_code == 200
     user_access = redeem_response.json()
@@ -446,7 +586,7 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
     inviter_signup_code = create_test_invite()
     inviter_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": inviter_signup_code, "email": "inviter@example.com"},
+        json={"invite_code": inviter_signup_code, "email": unique_email("inviter")},
     )
     assert inviter_response.status_code == 200
     inviter = inviter_response.json()
@@ -464,7 +604,7 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
 
     new_user_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": inviter_profile["invite_code"], "email": "invited-new@example.com"},
+        json={"invite_code": inviter_profile["invite_code"], "email": unique_email("invited-new")},
     )
     assert new_user_response.status_code == 200
     used_share_invite = local_session_store.load_invite_code(inviter_profile["invite_code"])
@@ -490,7 +630,7 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
     existing_signup_code = create_test_invite()
     existing_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": existing_signup_code, "email": "existing-claimant@example.com"},
+        json={"invite_code": existing_signup_code, "email": unique_email("existing-claimant")},
     )
     assert existing_response.status_code == 200
     existing = existing_response.json()
@@ -515,15 +655,16 @@ def test_share_invite_belongs_to_sharer_and_can_be_claimed_by_existing_user():
 
 def test_invite_registration_requires_unique_email():
     invite_code = create_test_invite(max_uses=2)
+    unique_local_part = uuid4().hex
     first_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": invite_code, "email": "Unique.User@example.com"},
+        json={"invite_code": invite_code, "email": f"Unique.User.{unique_local_part}@example.com"},
     )
     assert first_response.status_code == 200
 
     duplicate_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": invite_code, "email": "unique.user@example.com"},
+        json={"invite_code": invite_code, "email": f"unique.user.{unique_local_part}@example.com"},
     )
     assert duplicate_response.status_code == 422
     assert duplicate_response.json()["detail"] == "email_already_registered"
@@ -827,7 +968,7 @@ def test_invite_user_can_manage_private_galgame_story_templates(monkeypatch):
     invite_code = create_test_invite()
     redeem_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": invite_code, "email": "story-template-owner@example.com"},
+        json={"invite_code": invite_code, "email": unique_email("story-template-owner")},
     )
     assert redeem_response.status_code == 200
     user_access = redeem_response.json()

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { SenrenDisabledNotice } from "@/components/SenrenDisabledNotice";
+import { SENREN_ENABLED } from "@/lib/features";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
@@ -33,6 +35,10 @@ export default function SenrenLandingPage() {
       setExistingSession(sid);
     }
   }, []);
+
+  if (!SENREN_ENABLED) {
+    return <SenrenDisabledNotice />;
+  }
 
   async function handleValidate() {
     if (!gamePath.trim()) return;

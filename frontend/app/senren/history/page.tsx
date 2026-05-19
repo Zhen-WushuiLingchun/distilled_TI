@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { SenrenDisabledNotice } from "@/components/SenrenDisabledNotice";
+import { SENREN_ENABLED } from "@/lib/features";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
 
@@ -22,6 +24,7 @@ export default function SenrenHistoryPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!SENREN_ENABLED) return;
     fetchSessions();
   }, []);
 
@@ -49,6 +52,9 @@ export default function SenrenHistoryPage() {
   }
 
   if (loading) {
+    if (!SENREN_ENABLED) {
+      return <SenrenDisabledNotice />;
+    }
     return (
       <div className="min-h-[calc(100vh-41px)] flex items-center justify-center">
         <p className="text-[var(--senren-ink-muted)] animate-pulse">加载历史记录...</p>

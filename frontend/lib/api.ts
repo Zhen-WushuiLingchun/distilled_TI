@@ -173,6 +173,7 @@ export type GalgameAssetStatus = {
   sdwebui_available: boolean;
   comfyui_available: boolean;
   cloud_configured: boolean;
+  diagnostics: string[];
 };
 
 export type GalgameTextInference = {
@@ -410,6 +411,51 @@ export type UserEvolutionEntry = {
   active_modules: string[];
   updated_at: string;
   core_delta_from_previous: Record<string, number>;
+};
+
+export type SenrenCompanionChoice = {
+  choice_id: string;
+  option_key: string;
+  option_text: string;
+  choice_text: string;
+  dialogue_text: string;
+  scene_title: string;
+  context: string;
+  location: string;
+  characters: string[];
+  timestamp: string;
+};
+
+export type SenrenCompanionEvent = {
+  event_id: string;
+  event_type: "scene_text" | "choice_snapshot" | "route_marker" | "heartbeat";
+  scene_title: string;
+  dialogue_text: string;
+  visible_choices: string[];
+  route_marker: string;
+  source: "manual" | "hook" | "ocr" | "clipboard" | "save_parser";
+  metadata: Record<string, unknown>;
+  timestamp: string;
+};
+
+export type SenrenCompanionSessionRecord = {
+  session_id: string;
+  user_id: string;
+  handle?: string | null;
+  client_id: string;
+  game_title: string;
+  game_path: string;
+  game_path_fingerprint: string;
+  game_info: Record<string, unknown>;
+  status: "active" | "completed" | "abandoned";
+  events: SenrenCompanionEvent[];
+  choices: SenrenCompanionChoice[];
+  choices_count: number;
+  current_route?: string | null;
+  state_snapshot: Record<string, unknown>;
+  report_snapshot?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type RewritePreview = {
@@ -679,6 +725,22 @@ export function updateCurrentUser(user: UserAccessBundle, payload: {
 
 export function listUserSessions(user: UserAccessBundle) {
   return publicRequest<{ user: UserProfile; sessions: SessionHistoryEntry[] }>("/user/sessions", undefined, { user });
+}
+
+export function listSenrenCompanionSessions(user: UserAccessBundle, limit = 50) {
+  return publicRequest<{ items: SenrenCompanionSessionRecord[] }>(
+    `/senren/companion/sessions?limit=${encodeURIComponent(String(limit))}`,
+    undefined,
+    { user }
+  );
+}
+
+export function getSenrenCompanionReport(user: UserAccessBundle, sessionId: string) {
+  return publicRequest<{ record: SenrenCompanionSessionRecord; report: Record<string, unknown> }>(
+    `/senren/companion/${encodeURIComponent(sessionId)}/report`,
+    undefined,
+    { user }
+  );
 }
 
 export function getUserEvolution(user: UserAccessBundle) {

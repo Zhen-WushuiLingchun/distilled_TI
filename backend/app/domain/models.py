@@ -501,6 +501,51 @@ class UserRecommendation(BaseModel):
     via_relationship: str | None = None
 
 
+class SenrenCompanionChoice(BaseModel):
+    choice_id: str
+    option_key: str
+    option_text: str = ""
+    choice_text: str = ""
+    dialogue_text: str = ""
+    scene_title: str = ""
+    context: str = ""
+    location: str = ""
+    characters: list[str] = Field(default_factory=list)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SenrenCompanionEvent(BaseModel):
+    event_id: str
+    event_type: Literal["scene_text", "choice_snapshot", "route_marker", "heartbeat"] = "scene_text"
+    scene_title: str = ""
+    dialogue_text: str = ""
+    visible_choices: list[str] = Field(default_factory=list)
+    route_marker: str = ""
+    source: Literal["manual", "hook", "ocr", "clipboard", "save_parser"] = "manual"
+    metadata: dict[str, object] = Field(default_factory=dict)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SenrenCompanionSessionRecord(BaseModel):
+    session_id: str
+    user_id: str
+    handle: str | None = None
+    client_id: str = ""
+    game_title: str = "Senren Banka"
+    game_path: str = ""
+    game_path_fingerprint: str = ""
+    game_info: dict[str, object] = Field(default_factory=dict)
+    status: Literal["active", "completed", "abandoned"] = "active"
+    events: list[SenrenCompanionEvent] = Field(default_factory=list)
+    choices: list[SenrenCompanionChoice] = Field(default_factory=list)
+    choices_count: int = 0
+    current_route: str | None = None
+    state_snapshot: dict[str, object] = Field(default_factory=dict)
+    report_snapshot: dict[str, object] | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class EmbeddingScoreBreakdown(BaseModel):
     enabled: bool = False
     source_similarity: float = 0.0

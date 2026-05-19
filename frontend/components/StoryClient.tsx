@@ -67,6 +67,35 @@ const EMPTY_TEMPLATE_FORM: TemplateFormState = {
   scenarioTags: "campus, relationship, team_mode",
 };
 
+const DEFAULT_BACKGROUND_URL = "/galgame-assets/backgrounds/campus_courtyard.svg";
+const DEFAULT_CHARACTER_URL = "/galgame-assets/sprites/desk_mate.svg";
+const PUBLIC_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api";
+
+function apiOrigin() {
+  try {
+    const base = typeof window === "undefined" ? "http://127.0.0.1" : window.location.origin;
+    return new URL(PUBLIC_API_BASE_URL, base).origin;
+  } catch {
+    return "";
+  }
+}
+
+function normalizeStoryAssetUrl(url: string | null | undefined, fallback: string) {
+  const value = (url ?? "").trim();
+  if (!value) return fallback;
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  if (value.startsWith("/api/")) {
+    const origin = apiOrigin();
+    return origin ? `${origin}${value}` : value;
+  }
+  if (value.startsWith("/generated/galgame/")) {
+    const upgraded = value.replace(/^\/generated\/galgame/, "/api/galgame/assets");
+    const origin = apiOrigin();
+    return origin ? `${origin}${upgraded}` : upgraded;
+  }
+  return value.startsWith("/") ? value : `/${value}`;
+}
+
 function moodLabel(mood: string) {
   if (mood === "追问") return "Probe";
   if (mood === "低电量") return "Low Battery";
@@ -142,6 +171,7 @@ export function StoryClient() {
   const [showLog, setShowLog] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [assetFailures, setAssetFailures] = useState({ background: false, character: false });
   const [needsSetup, setNeedsSetup] = useState(false);
   const [resumeAccess, setResumeAccess] = useState<SessionAccessBundle | null>(null);
   const [characterProfiles, setCharacterProfiles] = useState<GalgameCharacterProfile[]>([]);
@@ -191,6 +221,7 @@ export function StoryClient() {
 
   useEffect(() => {
     if (!scene) return;
+    setAssetFailures({ background: false, character: false });
     setDialogueLog((current) => {
       if (current.some((entry) => entry.id === scene.scene_id)) return current;
       return [...current, sceneLogEntry(scene)].slice(-18);
@@ -407,8 +438,10 @@ export function StoryClient() {
     }
   }
 
-  const backgroundUrl = scene?.background_asset?.url ?? "/galgame-assets/backgrounds/campus_courtyard.svg";
-  const characterUrl = scene?.character_asset?.url ?? "/galgame-assets/sprites/desk_mate.svg";
+  const generatedBackgroundUrl = normalizeStoryAssetUrl(scene?.background_asset?.url, DEFAULT_BACKGROUND_URL);
+  const generatedCharacterUrl = normalizeStoryAssetUrl(scene?.character_asset?.url, DEFAULT_CHARACTER_URL);
+  const backgroundUrl = assetFailures.background ? DEFAULT_BACKGROUND_URL : generatedBackgroundUrl;
+  const characterUrl = assetFailures.character ? DEFAULT_CHARACTER_URL : generatedCharacterUrl;
   const selectedChoice =
     scene?.choices.find((choice) => choice.option_key === selectedOptionKey) ??
     scene?.choices[0] ??
@@ -540,11 +573,23 @@ export function StoryClient() {
     <main className={`story-shell story-shell-vn ${hideUI ? "is-ui-hidden" : ""}`}>
       <section className="story-vn-frame">
         <div className="story-vn-bg" data-background-key={scene?.background_key ?? "campus_window"}>
-          <img className="story-vn-bg-image" src={backgroundUrl} alt="" />
+          {/* eslint-disable-next-line @next/next/no-img-element -- VN assets are dynamic backend/cache URLs. */}
+          <img
+            className="story-vn-bg-image"
+            src={backgroundUrl}
+            alt=""
+            onError={() => setAssetFailures((current) => ({ ...current, background: true }))}
+          />
         </div>
         <div className="story-vn-atmosphere" />
         <div className="story-vn-character" data-character-key={scene?.character_key ?? "desk_mate"} aria-hidden>
-          <img className="story-vn-sprite-image" src={characterUrl} alt="" />
+          {/* eslint-disable-next-line @next/next/no-img-element -- Sprite URLs may come from backend-generated cache. */}
+          <img
+            className="story-vn-sprite-image"
+            src={characterUrl}
+            alt=""
+            onError={() => setAssetFailures((current) => ({ ...current, character: true }))}
+          />
         </div>
         {scene?.audio_asset?.url ? <audio ref={audioRef} src={scene.audio_asset.url} loop /> : null}
 
@@ -584,7 +629,11 @@ export function StoryClient() {
 
         {!hideUI ? (
           <>
-            <section className="story-vn-choice-board" aria-label="剧情选项">
+            <section className="story-vn-choice-board" aria-label="剧情分支">
+              <div className="story-vn-choice-heading">
+                <span>Branch Select</span>
+                <strong>选一句行动倾向，也可以直接手写台词</strong>
+              </div>
               {scene?.choices.map((choice, index) => {
                 const isSelected = choice.option_key === selectedChoice?.option_key;
                 return (
@@ -596,8 +645,12 @@ export function StoryClient() {
                     style={{ animationDelay: `${120 + index * 70}ms` }}
                     onClick={() => setSelectedOptionKey(choice.option_key)}
                   >
-                    <span>{choice.text}</span>
-                    {isSelected ? <em>当前</em> : null}
+                    <span className="story-choice-index">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="story-choice-body">
+                      <span>{choice.text}</span>
+                      <small>{isSelected ? "已选中，可用自由台词改写推进" : "点击切换这一条分支倾向"}</small>
+                    </span>
+                    {isSelected ? <em>Selected</em> : null}
                   </button>
                 );
               })}
@@ -614,12 +667,18 @@ export function StoryClient() {
                 <textarea
                   value={customText}
                   onChange={(event) => setCustomText(event.target.value)}
-                  placeholder="自己写一句台词，例如：我低声问，那封信是谁放在这里的？"
+                  placeholder="写一句自己的台词或行动，例如：我压低声音问，那封信是谁放在这里的？"
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && selectedChoice && customText.trim()) {
+                      event.preventDefault();
+                      void handleChoice(selectedChoice.option_key, customText);
+                    }
+                  }}
                 />
                 <div className="story-vn-free-actions">
                   <div className="story-vn-current-choice">
-                    <span>当前选择</span>
-                    <strong>{selectedChoice?.text ?? "请选择左侧选项"}</strong>
+                    <span>备用分支</span>
+                    <strong>{selectedChoice?.text ?? "请选择一个分支倾向"}</strong>
                   </div>
                   <button
                     type="button"
@@ -629,7 +688,7 @@ export function StoryClient() {
                       void handleChoice(selectedChoice.option_key, customText);
                     }}
                   >
-                    发送自由台词
+                    用自写台词推进
                   </button>
                   <button
                     type="button"
@@ -639,7 +698,7 @@ export function StoryClient() {
                       void handleChoice(selectedChoice.option_key, "");
                     }}
                   >
-                    按当前选项推进
+                    直接走此分支
                   </button>
                 </div>
               </div>

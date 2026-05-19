@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from collections import deque
 import hashlib
+import logging
 import re
 from pathlib import Path
 import time
@@ -19,6 +20,8 @@ try:
     from PIL import Image
 except Exception:  # pragma: no cover - optional runtime safety net
     Image = None
+
+logger = logging.getLogger(__name__)
 
 
 class GalgameAssetService:
@@ -67,6 +70,8 @@ class GalgameAssetService:
         return background, character, audio
 
     def status(self) -> dict[str, object]:
+        sdwebui_available = self._probe("sdwebui")
+        comfyui_available = self._probe("comfyui")
         return {
             "generation_enabled": settings.galgame_asset_generation_enabled,
             "backend": settings.galgame_asset_backend,
@@ -87,10 +92,31 @@ class GalgameAssetService:
             "cache_max_files": settings.galgame_asset_cache_max_files,
             "cache_max_age_days": settings.galgame_asset_cache_max_age_days,
             "cleanup_enabled": settings.galgame_asset_cleanup_enabled,
-            "sdwebui_available": self._probe("sdwebui"),
-            "comfyui_available": self._probe("comfyui"),
+            "sdwebui_available": sdwebui_available,
+            "comfyui_available": comfyui_available,
             "cloud_configured": self._cloud_configured(),
+            "diagnostics": self.diagnostics(sdwebui_available=sdwebui_available),
         }
+
+    def diagnostics(self, *, sdwebui_available: bool | None = None) -> list[str]:
+        hints: list[str] = []
+        backend = settings.galgame_asset_backend.lower()
+        if not settings.galgame_asset_generation_enabled:
+            hints.append("GALGAME_ASSET_GENERATION_ENABLED=false：当前只会使用本地 fallback 图。")
+        if backend in {"volcengine", "volcengine_seedream", "seedream", "openai_images", "openai-image", "image_api"}:
+            if not settings.galgame_asset_api_key.strip():
+                hints.append("缺少 GALGAME_ASSET_API_KEY，云端生图请求会失败。")
+            if not settings.galgame_asset_model.strip():
+                hints.append("缺少 GALGAME_ASSET_MODEL，例如 doubao-seedream-5-0-260128。")
+        if backend == "sdwebui" and not (self._probe("sdwebui") if sdwebui_available is None else sdwebui_available):
+            hints.append("SD WebUI 不可达：确认 http://127.0.0.1:7860 已启动并开启 --api。")
+        if settings.galgame_asset_public_url_prefix.rstrip("/") == "/generated/galgame":
+            hints.append("GALGAME_ASSET_PUBLIC_URL_PREFIX 仍是旧前端静态路径，服务器部署建议改为 /api/galgame/assets。")
+        hints.append(
+            "资产管线自检：python backend/scripts/check_galgame_assets.py --kind background --key smoke-library --prompt \"quiet school library, no humans\" --force"
+        )
+        hints.append("状态接口：GET /api/admin/galgame/assets/status；生成图访问接口：GET /api/galgame/assets/{background|character}/{filename}")
+        return hints
 
     def generate_image_asset(
         self,
@@ -113,7 +139,21 @@ class GalgameAssetService:
                 source="generated",
                 status="ready",
             )
-        self._generate_image(kind, prompt, output_path, normalized_key)
+        try:
+            self._generate_image(kind, prompt, output_path, normalized_key)
+        except Exception as exc:
+            logger.warning(
+                "galgame_asset_manual_generation_failed kind=%s key=%s backend=%s error=%s; "
+                "run `python backend/scripts/check_galgame_assets.py --kind %s --key %s --prompt %r --force`",
+                kind,
+                normalized_key,
+                settings.galgame_asset_backend,
+                exc,
+                kind,
+                normalized_key,
+                prompt,
+            )
+            raise
         return GalgameAssetReference(
             kind=kind,  # type: ignore[arg-type]
             key=normalized_key,
@@ -208,7 +248,19 @@ class GalgameAssetService:
                 source="generated",
                 status="ready",
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "galgame_asset_generation_failed kind=%s key=%s backend=%s error=%s; "
+                "run `python backend/scripts/check_galgame_assets.py --kind %s --key %s --prompt %r --force` "
+                "and check GALGAME_ASSET_BACKEND/GALGAME_ASSET_BASE_URL/GALGAME_ASSET_MODEL/GALGAME_ASSET_PUBLIC_URL_PREFIX",
+                kind,
+                normalized_key,
+                settings.galgame_asset_backend,
+                exc,
+                kind,
+                normalized_key,
+                prompt,
+            )
             return GalgameAssetReference(
                 kind=kind,  # type: ignore[arg-type]
                 key=normalized_key,
@@ -595,6 +647,17 @@ class GalgameAssetService:
 
     def _public_url(self, kind: str, filename: str) -> str:
         return f"{settings.galgame_asset_public_url_prefix.rstrip('/')}/{kind}/{filename}"
+
+    def resolve_generated_asset_path(self, kind: str, filename: str) -> Path:
+        if kind not in {"background", "character"}:
+            raise KeyError("galgame_asset_kind_not_found")
+        if Path(filename).name != filename or not filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+            raise KeyError("galgame_asset_filename_not_found")
+        base = self._output_dir(kind).resolve()
+        path = (base / filename).resolve()
+        if path.parent != base or not path.is_file():
+            raise KeyError("galgame_asset_file_not_found")
+        return path
 
     def _slug(self, value: str) -> str:
         slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", value.strip().lower()).strip("_")

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -187,7 +188,7 @@ def test_admin_invites_users_and_public_opt_in_recommendations():
 
     redeem_response = public_client.post(
         "/api/invite/redeem",
-        json={"invite_code": invite["code"], "email": "admin-invite-user@example.com"},
+        json={"invite_code": invite["code"], "email": f"admin-invite-user-{uuid4().hex}@example.com"},
     )
     assert redeem_response.status_code == 200
     user = redeem_response.json()

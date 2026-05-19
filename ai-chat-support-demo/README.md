@@ -71,7 +71,7 @@ npm install --ignore-scripts --legacy-peer-deps --package-lock=false
 npm run dev
 ```
 
-配置见 [nextchat/README_DISTILLED_TI.md](nextchat/README_DISTILLED_TI.md)。聊天页本身不展示心理分析，后台查看地址为 `http://127.0.0.1:3000/support-admin`。
+配置见 [nextchat/README_DISTILLED_TI.md](nextchat/README_DISTILLED_TI.md) 和 [nextchat/DEPLOYMENT.md](nextchat/DEPLOYMENT.md)。聊天页本身不展示心理分析，后台查看地址为 `http://127.0.0.1:3101/support-admin`。
 
 ## 边界
 

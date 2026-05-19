@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     galgame_asset_sequential_image_generation: str = "disabled"
     galgame_asset_stream: bool = False
     galgame_asset_public_dir: str = "frontend/public/generated/galgame"
-    galgame_asset_public_url_prefix: str = "/generated/galgame"
+    galgame_asset_public_url_prefix: str = "/api/galgame/assets"
     galgame_asset_timeout_seconds: float = 45.0
     galgame_asset_generate_backgrounds: bool = True
     galgame_asset_generate_characters: bool = False

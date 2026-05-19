@@ -5,13 +5,25 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from app.api.schemas import (
+    SenrenCompanionChoiceRequest,
+    SenrenCompanionChoiceResponse,
+    SenrenCompanionEventRequest,
+    SenrenCompanionEventResponse,
+    SenrenCompanionReportResponse,
+    SenrenCompanionSessionListResponse,
+    SenrenCompanionStartRequest,
+    SenrenCompanionStartResponse,
+)
 from app.core.config import settings
-from app.domain.models import ContextAnalysisMessage
+from app.domain.models import ContextAnalysisMessage, SenrenCompanionChoice, SenrenCompanionEvent, SenrenCompanionSessionRecord
 from app.domain.senren_choice_tree import ALL_CHOICES, ALL_ROUTES, get_choice_by_id
 from app.domain.senren_dimension_mapping import (
     CHARACTER_PROFILES,
@@ -23,6 +35,8 @@ from app.domain.senren_dimension_mapping import (
 )
 from app.services.context_analysis_service import context_analysis_service
 from app.services.senren_monitor_service import senren_monitor_service
+from app.services.storage import local_session_store
+from app.services.user_service import user_service
 
 router = APIRouter(prefix="/api/senren")
 
@@ -36,6 +50,26 @@ def _require_session(session_id: str, session_secret: str | None):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _require_user(user_id: str | None, user_secret: str | None):
+    if not user_id:
+        raise HTTPException(status_code=401, detail="user_id_required")
+    try:
+        return user_service.authenticate(user_id, user_secret)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _require_companion_record(session_id: str, user_id: str) -> SenrenCompanionSessionRecord:
+    record = local_session_store.load_senren_companion_session(session_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="senren_companion_session_not_found")
+    if record.user_id != user_id:
+        raise HTTPException(status_code=403, detail="senren_companion_session_user_mismatch")
+    return record
 
 
 # ============================================================
@@ -315,6 +349,264 @@ def delete_session(
         raise HTTPException(status_code=403, detail="delete_token_mismatch")
     senren_monitor_service.delete_session(session_id)
     return {"deleted": True}
+
+
+# ============================================================
+# 本地 Companion 同步 API
+# ============================================================
+
+@router.post("/companion/start", response_model=SenrenCompanionStartResponse)
+def start_companion_session(
+    payload: SenrenCompanionStartRequest,
+    request: Request,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> SenrenCompanionStartResponse:
+    """由本机 companion 启动一条用户绑定的 Senren 测量记录。"""
+    profile = _require_user(x_user_id, x_user_secret)
+    result = senren_monitor_service.start_session(
+        mode="local_companion",
+        owner_key=request.client.host if request.client else "",
+        user_id=profile.user_id,
+    )
+    now = datetime.now(UTC)
+    record = SenrenCompanionSessionRecord(
+        session_id=result["session_id"],
+        user_id=profile.user_id,
+        handle=profile.handle,
+        client_id=payload.client_id,
+        game_title=payload.game_title,
+        game_path=payload.game_path,
+        game_path_fingerprint=payload.game_path_fingerprint,
+        game_info=payload.game_info,
+        choices_count=0,
+        state_snapshot=result.get("state", {}),
+        created_at=now,
+        updated_at=now,
+    )
+    local_session_store.save_senren_companion_session(record)
+    return SenrenCompanionStartResponse(
+        session_id=result["session_id"],
+        session_secret=result["session_secret"],
+        delete_token=result["delete_token"],
+        roadmap=result.get("roadmap", {}),
+        total_choices=int(result.get("total_choices", 0)),
+        record=record,
+    )
+
+
+@router.get("/companion/sessions", response_model=SenrenCompanionSessionListResponse)
+def list_companion_sessions(
+    limit: int = 50,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> SenrenCompanionSessionListResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    return SenrenCompanionSessionListResponse(
+        items=local_session_store.list_senren_companion_sessions(profile.user_id, limit=limit)
+    )
+
+
+@router.get("/companion/{session_id}", response_model=SenrenCompanionSessionRecord)
+def get_companion_session(
+    session_id: str,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> SenrenCompanionSessionRecord:
+    profile = _require_user(x_user_id, x_user_secret)
+    return _require_companion_record(session_id, profile.user_id)
+
+
+@router.post("/companion/{session_id}/choice", response_model=SenrenCompanionChoiceResponse)
+def submit_companion_choice(
+    session_id: str,
+    payload: SenrenCompanionChoiceRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+    x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
+) -> SenrenCompanionChoiceResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    record = _require_companion_record(session_id, profile.user_id)
+    _require_session(session_id, x_session_secret)
+    try:
+        result = senren_monitor_service.submit_game_choice(session_id, payload.choice_id, payload.option_key)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    choice_recorded = result.get("choice_recorded", {})
+    try:
+        choice = SenrenCompanionChoice.model_validate(choice_recorded)
+    except Exception:
+        choice = SenrenCompanionChoice(
+            choice_id=payload.choice_id,
+            option_key=payload.option_key,
+            timestamp=datetime.now(UTC),
+        )
+    choice = choice.model_copy(
+        update={
+            "choice_text": payload.choice_text or choice.option_text,
+            "option_text": payload.choice_text or choice.option_text,
+            "dialogue_text": payload.dialogue_text,
+            "scene_title": payload.scene_title,
+            "context": payload.dialogue_text or choice.context,
+        }
+    )
+    updated = record.model_copy(
+        update={
+            "choices": [*record.choices, choice],
+            "choices_count": int(result.get("total_choices_made", record.choices_count + 1)),
+            "current_route": result.get("current_route"),
+            "state_snapshot": result.get("state", {}),
+            "updated_at": datetime.now(UTC),
+        }
+    )
+    local_session_store.save_senren_companion_session(updated)
+
+    try:
+        context_analysis_service.analyze(
+            application_id="senren-companion",
+            external_user_id=profile.user_id,
+            conversation_id=f"senren-companion-{session_id}",
+            messages=[
+                ContextAnalysisMessage(
+                    role="assistant",
+                    content=(
+                        f"[Senren companion scene] 地点: {choice.location or '未知'}。"
+                        f"角色: {', '.join(choice.characters) if choice.characters else '未知'}。"
+                        f"场景: {choice.scene_title or payload.choice_id}。"
+                        f"上下文: {choice.dialogue_text or choice.context or payload.choice_id}"
+                    ),
+                ),
+                ContextAnalysisMessage(role="user", content=f"玩家选择了: {choice.choice_text or choice.option_text or payload.option_key}"),
+            ],
+            consent_basis="user logged in and connected a local Senren companion for game-choice analysis",
+            channel="local_game_choice",
+            locale="zh-CN",
+            metadata={"session_id": session_id, "choice_id": payload.choice_id, "option_key": payload.option_key},
+            persist=True,
+            persist_messages=False,
+        )
+    except Exception:
+        pass
+
+    return SenrenCompanionChoiceResponse(
+        record=updated,
+        state=result.get("state", {}),
+        choice_recorded=choice_recorded,
+        total_choices_made=int(result.get("total_choices_made", updated.choices_count)),
+        current_route=result.get("current_route"),
+        can_generate_report=bool(result.get("can_generate_report", False)),
+        remaining_until_report=int(result.get("remaining_until_report", 0)),
+    )
+
+
+_COMPANION_EVENT_TYPES = {"scene_text", "choice_snapshot", "route_marker", "heartbeat"}
+_COMPANION_EVENT_SOURCES = {"manual", "hook", "ocr", "clipboard", "save_parser"}
+_MAX_COMPANION_EVENTS_PER_SESSION = 500
+
+
+@router.post("/companion/{session_id}/event", response_model=SenrenCompanionEventResponse)
+def submit_companion_event(
+    session_id: str,
+    payload: SenrenCompanionEventRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+    x_session_secret: str | None = Header(default=None, alias="X-Session-Secret"),
+) -> SenrenCompanionEventResponse:
+    """Record a local companion/hook event without advancing the measurement route.
+
+    The game directory, XP3 archive and hook implementation stay on the user's
+    machine. This endpoint only receives the authorized local client's text
+    snapshot, visible choices or route marker for later analysis/report context.
+    """
+    profile = _require_user(x_user_id, x_user_secret)
+    record = _require_companion_record(session_id, profile.user_id)
+    _require_session(session_id, x_session_secret)
+
+    event_type = payload.event_type if payload.event_type in _COMPANION_EVENT_TYPES else "scene_text"
+    source = payload.source if payload.source in _COMPANION_EVENT_SOURCES else "manual"
+    visible_choices = [choice[:500] for choice in payload.visible_choices[:12] if choice.strip()]
+    event = SenrenCompanionEvent(
+        event_id=f"senren-event-{uuid4().hex}",
+        event_type=event_type,  # type: ignore[arg-type]
+        scene_title=payload.scene_title,
+        dialogue_text=payload.dialogue_text,
+        visible_choices=visible_choices,
+        route_marker=payload.route_marker,
+        source=source,  # type: ignore[arg-type]
+        metadata=payload.metadata,
+    )
+    events = [*record.events, event][-_MAX_COMPANION_EVENTS_PER_SESSION:]
+    updated = record.model_copy(
+        update={
+            "events": events,
+            "updated_at": datetime.now(UTC),
+        }
+    )
+    local_session_store.save_senren_companion_session(updated)
+
+    if event.dialogue_text or event.visible_choices:
+        try:
+            context_analysis_service.analyze(
+                application_id="senren-companion",
+                external_user_id=profile.user_id,
+                conversation_id=f"senren-companion-{session_id}",
+                messages=[
+                    ContextAnalysisMessage(
+                        role="assistant",
+                        content=(
+                            f"[Senren local event] 来源: {event.source}。"
+                            f"场景: {event.scene_title or event.route_marker or '未知'}。"
+                            f"文本: {event.dialogue_text or '无'}。"
+                            f"可见选项: {' / '.join(event.visible_choices) if event.visible_choices else '无'}"
+                        ),
+                    )
+                ],
+                consent_basis="user logged in and connected a local Senren companion for game-context analysis",
+                channel="local_game_event",
+                locale="zh-CN",
+                metadata={"session_id": session_id, "event_id": event.event_id, "event_type": event.event_type},
+                persist=True,
+                persist_messages=False,
+            )
+        except Exception:
+            pass
+
+    return SenrenCompanionEventResponse(
+        record=updated,
+        event=event,
+        stored_events_count=len(updated.events),
+    )
+
+
+@router.get("/companion/{session_id}/report", response_model=SenrenCompanionReportResponse)
+def get_companion_report(
+    session_id: str,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    x_user_secret: str | None = Header(default=None, alias="X-User-Secret"),
+) -> SenrenCompanionReportResponse:
+    profile = _require_user(x_user_id, x_user_secret)
+    record = _require_companion_record(session_id, profile.user_id)
+    try:
+        report = senren_monitor_service.generate_report(session_id)
+    except KeyError:
+        if record.report_snapshot is None:
+            raise HTTPException(status_code=409, detail="senren_companion_runtime_session_missing")
+        report = record.report_snapshot
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    updated = record.model_copy(
+        update={
+            "report_snapshot": report,
+            "status": "completed",
+            "updated_at": datetime.now(UTC),
+        }
+    )
+    local_session_store.save_senren_companion_session(updated)
+    return SenrenCompanionReportResponse(record=updated, report=report)
 
 
 # ============================================================

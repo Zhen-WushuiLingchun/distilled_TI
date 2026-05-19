@@ -5,6 +5,8 @@ support-signal API. Users chat normally in NextChat; recent chat context is
 sent to the backend through a server-side route, and admins review support
 signals at `/support-admin`.
 
+完整部署、验收和故障排查见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+
 ## Run
 
 1. Start the Distilled TI backend on `http://127.0.0.1:8000`.

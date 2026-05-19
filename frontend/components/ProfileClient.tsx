@@ -7,9 +7,11 @@ import {
   getCurrentUser,
   generateUserInvite,
   issueUserSessionAccess,
+  listSenrenCompanionSessions,
   listCurrentUserRecommendations,
   listUserSessions,
   updateCurrentUser,
+  type SenrenCompanionSessionRecord,
   type SessionHistoryEntry,
   type UserProfile,
   type UserRecommendation,
@@ -27,6 +29,7 @@ export function ProfileClient() {
   const [access, setAccess] = useState<UserAccessBundle | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
+  const [senrenSessions, setSenrenSessions] = useState<SenrenCompanionSessionRecord[]>([]);
   const [recommendations, setRecommendations] = useState<UserRecommendation[]>([]);
   const [recommendationsEnabled, setRecommendationsEnabled] = useState(false);
   const [error, setError] = useState("");
@@ -43,9 +46,10 @@ export function ProfileClient() {
       setRecommendationsEnabled(false);
       return;
     }
-    const [profilePayload, sessionPayload, recommendationPayload] = await Promise.all([
+    const [profilePayload, sessionPayload, senrenPayload, recommendationPayload] = await Promise.all([
       getCurrentUser(stored),
       listUserSessions(stored),
+      listSenrenCompanionSessions(stored).catch(() => ({ items: [] })),
       listCurrentUserRecommendations(stored).catch(() => ({ enabled: false, items: [] })),
     ]);
     const refreshed = {
@@ -58,6 +62,7 @@ export function ProfileClient() {
     setAccess(refreshed);
     setProfile(profilePayload);
     setSessions(sessionPayload.sessions);
+    setSenrenSessions(senrenPayload.items);
     setRecommendations(recommendationPayload.items);
     setRecommendationsEnabled(recommendationPayload.enabled);
   }
@@ -166,6 +171,7 @@ export function ProfileClient() {
             <div className="flex flex-wrap gap-2">
               <button className="btn btn-ghost" onClick={() => router.push("/")}>首页</button>
               <button className="btn btn-ghost" onClick={() => router.push("/evolution")}>历史演化</button>
+              <button className="btn btn-ghost" onClick={() => router.push("/senren")}>本地游戏接入</button>
               <button className="btn btn-primary" onClick={() => router.push("/session")}>继续测量</button>
             </div>
           </div>
@@ -307,6 +313,42 @@ export function ProfileClient() {
                 </article>
               ))
             )}
+            <div className="hairline my-4" />
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="label-mini">Local Game Archive</p>
+                  <h3 className="text-xl">Senren Companion</h3>
+                </div>
+                <span className="chip">{senrenSessions.length} records</span>
+              </div>
+              {senrenSessions.length === 0 ? (
+                <p className="surface-sunken p-4 text-sm text-[color:var(--ink-muted)]">
+                  还没有本地游戏 companion 记录。进入本地游戏接入页查看下载和 API 地址。
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {senrenSessions.map((session) => (
+                    <article key={session.session_id} className="surface-sunken p-4">
+                      <div className="mb-1 flex flex-wrap gap-1.5">
+                        <span className="chip">Senren</span>
+                        <span className="chip">{session.status}</span>
+                        {session.current_route ? <span className="chip">{session.current_route}</span> : null}
+                      </div>
+                      <p className="text-sm text-[color:var(--ink-strong)]">{session.game_title || "Senren Banka"}</p>
+                      <p className="num mt-1 text-xs text-[color:var(--ink-muted)]">
+                        {session.choices_count} choices · {new Date(session.updated_at).toLocaleString()}
+                      </p>
+                      {session.game_path ? (
+                        <p className="num mt-1 truncate text-[0.7rem] text-[color:var(--ink-faint)]">
+                          path {session.game_path}
+                        </p>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </section>

@@ -501,6 +501,7 @@ GALGAME_ASSET_MODEL=doubao-seedream-5-0-260128
 GALGAME_ASSET_RESPONSE_FORMAT=url
 GALGAME_ASSET_SIZE_BACKGROUND=2K
 GALGAME_ASSET_SIZE_CHARACTER=2K
+GALGAME_ASSET_PUBLIC_URL_PREFIX=/api/galgame/assets
 ```
 
 切到本地 SD WebUI：
@@ -519,6 +520,14 @@ GALGAME_ASSET_GENERATION_ENABLED=false
 ```
 
 关闭后仍会显示 fallback/static 图或已缓存图片，不阻塞剧情。
+
+资产链路自检：
+
+```powershell
+python backend/scripts/check_galgame_assets.py --kind background --key smoke-library --prompt "quiet school library, no humans" --force
+```
+
+这个脚本会输出当前生图配置、可执行的诊断提示，尝试生成/复用一张图片，并用 FastAPI TestClient 验证 `/api/galgame/assets/{background|character}/{filename}` 是否能读到生成文件。服务器上如果 Story 出现破图，优先跑这条命令，再看后端日志里的 `galgame_asset_generation_failed` 提示。
 
 ### 邀请制、邮箱和社交推荐
 
@@ -605,7 +614,58 @@ Story Mode 的目标是让测量过程不再像问卷。用户看到的是视觉
 - `指定 Skill 角色`：手动选择一个角色，用于测试同一角色下的长期一致性。
 - `原创自由生成`：使用项目内置原创 profile 池，不绑定既有角色，更适合每局不同的体验。
 
-后端接口是 `GET /api/galgame/character-profiles` 和 `POST /api/session/start` 的 `story_character_mode/story_character_slug` 字段。Senren 本地模式已恢复为 `/senren`，用于本地千恋万花目录验证、启动监视、VN 场景、路线历史和报告；Web Story 继续复用角色 skill 数据，两条路径互不覆盖。
+后端接口是 `GET /api/galgame/character-profiles` 和 `POST /api/session/start` 的 `story_character_mode/story_character_slug` 字段。Web Story 继续复用角色 skill 数据。Senren 不再由网页直接读取本机路径，改为独立 `senren-local-companion/` 本机程序接入。
+
+## Senren Local Companion
+
+入口：网站 `/senren` 页面只展示 companion 下载/源码地址、当前网站地址和 API 地址；默认不再提供网页内本地路径输入。
+
+本机程序目录：`senren-local-companion/`
+
+部署模型：
+
+- 服务器只部署 DSTI 后端、前端、数据库、向量库和模型/API 配置。
+- `senren-local-companion/` 是用户本机客户端，不部署到服务器。
+- 用户下载 companion 后，在本机填写网站地址、API 地址、邮箱验证码和本地游戏目录。
+- 自动捕获只安装在用户本机；剪贴板桥接、OCR 或后续文本层 hook 捕获到的文本/选项先发给本机 companion，再由 companion 带账号凭证转发到服务器。
+- 任何用户只要有 DSTI 账号、可访问的 API 地址和本机真实游戏目录，就可以接入同一个服务器。
+
+运行方式：
+
+```powershell
+cd senren-local-companion
+.\start-companion.ps1
+```
+
+打开本机面板：
+
+```text
+http://127.0.0.1:17877
+```
+
+设计边界：
+
+- 本地优先：真实千恋万花仍在用户电脑运行，companion 在旁边作为同步面板。
+- 服务端只做 Senren companion 专属账号、会话、分析、报告和归档，不读取用户本地文件、不解析 `data.xp3`、不启动服务器上的游戏。
+- Companion 本机校验游戏目录并启动真实 exe；`data.xp3`/XP3 布局识别只发生在用户本机，用于确认目录和选择 hook 入口。
+- Companion 向服务器同步 `game_path` 指纹、选择节点、真实选项文本、当前场景标题、可选对话上下文和本机捕获事件；服务器只保存测量需要的结构化摘要。
+- 当前版本支持手动同步、剪贴板桥接和可选 OCR。手动选择仍是最稳 fallback；自动捕获用于持续同步上下文，不会自动推进路线。
+- 更深的文本层 hook、存档/日志解析只能继续在本机 companion 内扩展，不能放到云端服务器。
+
+后端 companion API：
+
+- `POST /api/senren/companion/start`：登录用户启动一条本地游戏测量记录。
+- `POST /api/senren/companion/{session_id}/event`：本机 companion 或 hook 上传当前台词、可见选项、route marker，不推进测量路线，需要 `X-User-Id`、`X-User-Secret`、`X-Session-Secret`。
+- `POST /api/senren/companion/{session_id}/choice`：提交真实游戏选择和对话上下文，需要 `X-User-Id`、`X-User-Secret`、`X-Session-Secret`。
+- `GET /api/senren/companion/sessions`：列出当前用户的本地游戏记录。
+- `GET /api/senren/companion/{session_id}/report`：生成或读取 Senren companion 专属报告。
+
+本机 hook 不应直接打云端 API，也不应携带游戏文件。推荐路径是：hook/注入组件 -> `http://127.0.0.1:17877/api/local/hook/event` -> companion 带本机保存的账号凭证和 session secret 转发到服务器。
+
+独立部署文档：
+
+- [senren-local-companion/DEPLOYMENT.md](senren-local-companion/DEPLOYMENT.md)
+- [senren-local-companion/README.md](senren-local-companion/README.md)
 
 ### Story Mode 怎么用
 
@@ -750,6 +810,8 @@ frontend/public/generated/galgame
 
 该目录已在 `.gitignore` 中忽略，不会提交到仓库。
 
+部署时不要让浏览器直接依赖 `/generated/galgame/...` 这种前端静态路径。后端默认通过 `/api/galgame/assets/...` 服务生成缓存，前端会把旧路径自动升级到新接口，并在图片加载失败时退回内置 fallback 图，避免 VN 主画面出现破图框。
+
 缓存控制：
 
 - `GALGAME_ASSET_CACHE_MAX_FILES=300`
@@ -890,6 +952,11 @@ Context API 输出的是：
 | `PUT` | `/api/user/galgame/story-templates/{template_id}` | 更新用户 Story 模板 |
 | `DELETE` | `/api/user/galgame/story-templates/{template_id}` | 删除用户 Story 模板 |
 | `GET` | `/api/galgame/character-profiles` | Web Story 可选角色 profile / skill 列表 |
+| `POST` | `/api/senren/companion/start` | 本机 Senren companion 启动用户绑定记录 |
+| `POST` | `/api/senren/companion/{session_id}/event` | 本机 hook/companion 上报当前台词、可见选项和 route marker |
+| `POST` | `/api/senren/companion/{session_id}/choice` | 本机 companion 提交真实游戏选择 |
+| `GET` | `/api/senren/companion/sessions` | 当前用户的本地游戏同步记录 |
+| `GET` | `/api/senren/companion/{session_id}/report` | Senren companion 专属报告 |
 | `POST` | `/api/session/start` | 开始测量会话 |
 | `POST` | `/api/question/next` | 获取下一题 |
 | `POST` | `/api/response/submit` | 提交选择题回答 |
@@ -1051,6 +1118,7 @@ distilled TI/
 ├─ ai-chat-support-demo/
 │  ├─ static/                    # 轻量聊天 demo
 │  └─ nextchat/                  # NextChat 改造版
+├─ senren-local-companion/       # 用户本机真实游戏同步客户端
 ├─ docs/
 │  ├─ context-support-api.md
 │  ├─ development-guide.md
@@ -1069,9 +1137,9 @@ distilled TI/
 | `/` | Landing、注册、入口选择 |
 | `/session` | 标准答题 |
 | `/story` | Galgame / VN 模式 |
-| `/senren` | Senren 本地游戏入口，验证本地游戏目录并启动监视会话 |
-| `/senren/monitor` | Senren 本地游戏 VN 监视视图 |
-| `/senren/history` | Senren 路线历史 |
+| `/senren` | Senren Local Companion 接入页，展示下载/源码、网站地址和 API 地址 |
+| `/senren/monitor` | 旧网页调试入口；默认关闭，需要 `NEXT_PUBLIC_SENREN_ENABLED=true` |
+| `/senren/history` | 旧网页调试历史；默认关闭，需要 `NEXT_PUBLIC_SENREN_ENABLED=true` |
 | `/report` | 当前报告 |
 | `/report/[sessionId]` | 历史报告 |
 | `/history` | 历史会话恢复 |
@@ -1241,7 +1309,71 @@ python scripts\vector_acceptance.py
 
 如果使用 `QDRANT_LOCAL_PATH=.qdrant-local`，不需要 Docker。如果改成 `QDRANT_URL=http://127.0.0.1:6333`，先启动 Qdrant。
 
-### 5. 启动主应用
+### 5. Galgame 资产管线验收
+
+这个步骤专门防止 `/story` 出现破图框、生成图写入了但浏览器读不到、或者云端/SD 生图配置实际未生效。
+
+先确认 `backend/.env` 至少包含：
+
+```env
+GALGAME_ASSET_GENERATION_ENABLED=true
+GALGAME_ASSET_PUBLIC_URL_PREFIX=/api/galgame/assets
+```
+
+如果使用火山 Ark：
+
+```env
+GALGAME_ASSET_BACKEND=volcengine_seedream
+GALGAME_ASSET_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+GALGAME_ASSET_API_KEY=<server_secret>
+GALGAME_ASSET_MODEL=doubao-seedream-5-0-260128
+GALGAME_ASSET_RESPONSE_FORMAT=url
+GALGAME_ASSET_SIZE_BACKGROUND=2K
+GALGAME_ASSET_SIZE_CHARACTER=2K
+```
+
+如果使用本地 SD WebUI：
+
+```env
+GALGAME_ASSET_BACKEND=sdwebui
+GALGAME_ASSET_BASE_URL=http://127.0.0.1:7860
+```
+
+SD WebUI 必须用 `--api` 启动；默认检查地址是：
+
+```text
+http://127.0.0.1:7860/sdapi/v1/sd-models
+```
+
+运行后端自检：
+
+```powershell
+cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
+python backend/scripts/check_galgame_assets.py --kind background --key smoke-library --prompt "quiet school library, visual novel background, no humans" --force
+```
+
+可选再测角色图：
+
+```powershell
+python backend/scripts/check_galgame_assets.py --kind character --key smoke-companion --prompt "original visual novel companion sprite, upper body, transparent background" --force
+```
+
+期望输出：
+
+- `public_url_prefix` 是 `/api/galgame/assets`。
+- 没有 `ERROR`。
+- 出现 `GET /api/galgame/assets/... -> 200`。
+- `bytes` 大于 `0`。
+
+如果失败，按输出修：
+
+- `GALGAME_ASSET_GENERATION_ENABLED=false`：改 `.env` 后重启 Public/Admin API。
+- `缺少 GALGAME_ASSET_API_KEY` 或 `缺少 GALGAME_ASSET_MODEL`：补齐云端生图 key/model。
+- `SD WebUI 不可达`：确认 `7860` 已启动，并且启动参数包含 `--api`。
+- `generated file was not served by backend`：检查 `GALGAME_ASSET_PUBLIC_DIR`、服务端工作目录、文件权限，以及 `GALGAME_ASSET_PUBLIC_URL_PREFIX=/api/galgame/assets`。
+- 前端仍破图：打开浏览器 Network，看图片 URL 是否是 `/api/galgame/assets/...`；如果还是 `/generated/galgame/...`，说明前端未部署最新构建或缓存未刷新。
+
+### 6. 启动主应用
 
 ```powershell
 cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
@@ -1258,11 +1390,111 @@ cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
 
 - `/session`：标准答题。
 - `/story`：Web Galgame Story Mode。
-- `/senren`：Senren 本地游戏模式；用于本地目录验证、启动游戏、选择监视和路线报告。
+- `/senren`：Senren Local Companion 接入页；网页只提供下载/源码和 API 地址，本地游戏校验/启动/选择同步由 `senren-local-companion/` 完成。
 - `/history`、`/evolution`、`/profile`：长期历史、演化、用户邀请。
 - `/admin`：本机管理端。
 
-### 6. 手工 smoke
+### 7. 服务端 DSTI API 开放性验收
+
+这个步骤给部署服务器的智能体使用，目标是确认外部 AI 助手、NextChat demo、Senren local companion 这类客户端能接入 DSTI API，同时确认敏感接口没有裸奔。
+
+先在服务器或能访问公网域名的机器上设置：
+
+```powershell
+$env:CONTEXT_ANALYSIS_API_KEY="<backend .env 里的 CONTEXT_ANALYSIS_API_KEY>"
+```
+
+如果要连同 Senren companion 授权事件一起测，再准备一个已经注册过的 DSTI 用户凭证：
+
+```powershell
+$env:DSTI_USER_ID="<user_id>"
+$env:DSTI_USER_SECRET="<user_secret>"
+```
+
+运行公网 API 验收：
+
+```powershell
+cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
+python backend/scripts/check_public_api_deployment.py `
+  --api-base-url https://dsti.hydrogenoxide18.com/api `
+  --site-url https://dsti.hydrogenoxide18.com `
+  --context-api-key $env:CONTEXT_ANALYSIS_API_KEY `
+  --user-id $env:DSTI_USER_ID `
+  --user-secret $env:DSTI_USER_SECRET `
+  --production
+```
+
+期望：
+
+- `root_health`、`api_health` 都是 `PASS`。
+- `context_requires_api_key` 是 `PASS`，说明公网 Context API 不能无 key 调用。
+- `context_authorized_analyze` 是 `PASS`，说明外部 AI 助手可以接入长期上下文分析。
+- `public_session_start`、`public_session_summary_authorized` 是 `PASS`，说明公开测量 API 可用。
+- `senren_companion_sessions_requires_user` 是 `PASS`，说明 companion 历史记录不能无账号读取。
+- 如果提供了 `DSTI_USER_ID/DSTI_USER_SECRET`，`senren_companion_start_authorized` 和 `senren_companion_event_authorized` 也应为 `PASS`，说明本地 hook/companion 可以向服务器持续上报上下文。
+
+如果失败，按脚本输出修：
+
+- `api_health` 失败：检查反向代理、Public API 进程、`/api` 路由转发。
+- `context_requires_api_key` 失败且返回 `200`：生产环境必须设置 `CONTEXT_ANALYSIS_API_KEY` 并重启 Public API。
+- `context_authorized_analyze` 失败：检查 `CONTEXT_ANALYSIS_API_KEY` 是否和服务器 `.env` 一致，或者 Context API 后端日志是否有 LLM/embedding 异常。
+- `context_cors_preflight` 是 `WARN`：浏览器型第三方客户端可能被 CORS 拦截；检查 `CORS_ALLOW_ORIGINS` 是否包含前端域名或接入方域名。
+- `senren_companion_event_authorized` 失败：确认用户凭证有效，且 companion session 使用返回的 `session_secret` 调用事件接口。
+
+### 8. Senren companion 本机捕获验收
+
+这个步骤必须在用户本机运行，不要在服务器上跑。服务器只接收 API。
+
+```powershell
+cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e\senren-local-companion"
+python -m py_compile companion.py
+.\start-companion.ps1
+```
+
+打开 `http://127.0.0.1:17877` 后先测剪贴板：
+
+```powershell
+Set-Clipboard "Senren companion clipboard smoke: 当前台词测试"
+Invoke-RestMethod http://127.0.0.1:17877/api/local/capture/probe `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"mode":"clipboard","send":false}'
+```
+
+期望：
+
+- `ok=true`。
+- `text_excerpt` 包含 smoke 文本。
+
+登录、校验游戏目录并点击“开始服务器记录”后再测发送：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:17877/api/local/capture/probe `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"mode":"clipboard","send":true}'
+```
+
+期望：
+
+- 返回体包含 `sent`。
+- 网站账号的 Senren companion record 中 `events` 增加。
+- 事件 `source=clipboard`，不会推进路线；只有手动或 hook 提交 `choice` 才会增加 `choices_count`。
+
+如需 OCR：
+
+```powershell
+pip install Pillow pytesseract
+$env:TESSERACT_CMD="C:\Program Files\Tesseract-OCR\tesseract.exe"
+Invoke-RestMethod http://127.0.0.1:17877/api/local/capture/probe `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"mode":"ocr","send":false}'
+```
+
+如果 OCR 失败，按 `error` 字段修：缺 Tesseract、缺 Python 包、语言包缺失或 `SENREN_OCR_REGION` 区域不对。
+
+### 9. 手工 smoke
 
 最少验收：
 
@@ -1270,14 +1502,16 @@ cd "F:\学习和研究\新鲜玩意\distilled TI-codex-795e"
 2. 打开 `/`，用 invite + 邮箱注册。
 3. 打开 `/session`，答 2-3 题，确认能继续出题。
 4. 打开 `/story`，确认剧情不是问卷措辞，选项可推进。
-5. 打开 `/senren`，输入本地千恋万花目录，确认验证、启动监视、`/senren/monitor` 和 `/senren/report` 可用。
-6. Admin 执行 vector reindex：`templates`、`instances`、`sessions`、`galgame_turns`。
-7. Admin 查看 similar templates/sessions/galgame turns。
-8. Admin 查看 `vector_sync_failures`，期望为空。
-9. Admin 查看 Galgame asset status，若开启云端生图，应显示 `cloud_configured=true`。
-10. 用 Story 或 Admin 手动生成一张背景，确认保存到 `frontend/public/generated/galgame`。
+5. 打开 `/senren`，确认页面展示 companion 下载/源码、网站地址和 API 地址。
+6. 在本机运行 `senren-local-companion/start-companion.ps1`，填写 API 地址、邮箱验证码登录、千恋万花目录，确认可校验并启动真实游戏。
+7. 在 companion 里开始服务器记录，选择一个真实游戏分支并同步，回到 `/history` 或 `/profile` 确认本地游戏记录出现。
+8. Admin 执行 vector reindex：`templates`、`instances`、`sessions`、`galgame_turns`。
+9. Admin 查看 similar templates/sessions/galgame turns。
+10. Admin 查看 `vector_sync_failures`，期望为空。
+11. Admin 查看 Galgame asset status，若开启云端生图，应显示 `cloud_configured=true`，且 Diagnostics 不应有关键缺失项。
+12. 用 Story 或 Admin 手动生成一张背景，确认后台返回 `/api/galgame/assets/...`，浏览器无破图框。
 
-### 7. 回归命令
+### 10. 回归命令
 
 ```powershell
 cd backend
@@ -1288,15 +1522,16 @@ npm run lint
 npm run build
 ```
 
-当前允许存在的已知前端 lint 警告：`StoryClient.tsx` 的两个 `<img>` 性能警告。新增错误或构建失败必须修。
+当前标准：`pytest`、`npm run lint`、`npm run build` 都必须通过。新增 warning、错误或构建失败必须修。
 
-### 8. 常见故障
+### 11. 常见故障
 
 | 现象 | 常见原因 | 处理 |
 | --- | --- | --- |
 | Story Scene 一直 fallback | 没执行 `ai_acceptance.py --save`，或 provider 返回非 JSON | 先跑脚本；必要时在 Admin 重新保存 provider |
 | 有云端生图 key 但不生成图 | `GALGAME_ASSET_GENERATION_ENABLED=false` 或 backend 没重启 | 改 `.env` 后重启 Public/Admin API |
 | 火山返回尺寸错误 | 使用了 `1024x576` 这类低像素尺寸 | 用 `GALGAME_ASSET_SIZE_BACKGROUND=2K` |
+| Story 出现破图框 | 生成图写到了后端缓存，但前端静态路径不可访问，或 `GALGAME_ASSET_PUBLIC_URL_PREFIX` 仍是旧值 | 设置 `GALGAME_ASSET_PUBLIC_URL_PREFIX=/api/galgame/assets`，然后跑 `python backend/scripts/check_galgame_assets.py --force` |
 | SD WebUI 不通 | 没用 `--api` 启动，或端口不是 `7860` | 检查 `http://127.0.0.1:7860/sdapi/v1/sd-models` |
 | Context API 401 | 没带 `X-Context-API-Key` | 配置同一个 `CONTEXT_ANALYSIS_API_KEY` 到 demo |
 | 登录收不到邮件 | Resend 域名未验证、`EMAIL_FROM` 域名不匹配、key 错 | 先用 minimal 模板 dev code；再修 Resend |
@@ -1327,6 +1562,8 @@ npm run build
 - [docs/plans/2026-05-12-galgame-story-mode.md](docs/plans/2026-05-12-galgame-story-mode.md)
 - [ai-chat-support-demo/README.md](ai-chat-support-demo/README.md)
 - [ai-chat-support-demo/nextchat/README_DISTILLED_TI.md](ai-chat-support-demo/nextchat/README_DISTILLED_TI.md)
+- [ai-chat-support-demo/nextchat/DEPLOYMENT.md](ai-chat-support-demo/nextchat/DEPLOYMENT.md)
+- [senren-local-companion/DEPLOYMENT.md](senren-local-companion/DEPLOYMENT.md)
 
 ## 免责声明
 

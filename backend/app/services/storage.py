@@ -17,6 +17,7 @@ from app.domain.models import (
     ItemInstance,
     ItemTemplate,
     LoginChallenge,
+    SenrenCompanionSessionRecord,
     SessionHistoryEntry,
     SessionRecord,
     UserProfile,
@@ -251,6 +252,24 @@ class LocalSessionStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS senren_companion_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_senren_companion_user_updated
+                ON senren_companion_sessions(user_id, updated_at)
                 """
             )
             story_columns = {
@@ -1151,6 +1170,61 @@ class LocalSessionStore:
         with self._connect() as connection:
             connection.execute("DELETE FROM galgame_story_templates WHERE template_id = ?", (template_id,))
             connection.commit()
+
+    def save_senren_companion_session(self, record: SenrenCompanionSessionRecord) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO senren_companion_sessions (
+                    session_id,
+                    user_id,
+                    status,
+                    payload_json,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    status = excluded.status,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    record.session_id,
+                    record.user_id,
+                    record.status,
+                    record.model_dump_json(),
+                    record.created_at.isoformat(),
+                    record.updated_at.isoformat(),
+                ),
+            )
+            connection.commit()
+
+    def load_senren_companion_session(self, session_id: str) -> SenrenCompanionSessionRecord | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM senren_companion_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        return SenrenCompanionSessionRecord.model_validate_json(row[0]) if row else None
+
+    def list_senren_companion_sessions(
+        self,
+        user_id: str,
+        limit: int = 50,
+    ) -> list[SenrenCompanionSessionRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM senren_companion_sessions
+                WHERE user_id = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (user_id, max(1, min(limit, 200))),
+            ).fetchall()
+        return [SenrenCompanionSessionRecord.model_validate_json(row[0]) for row in rows]
 
     def save_vector_sync_failure(self, failure: VectorSyncFailure) -> None:
         with self._connect() as connection:

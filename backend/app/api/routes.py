@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 import secrets
 from uuid import uuid4
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from app.api.schemas import (
     ClaimInviteRequest,
@@ -51,6 +53,7 @@ from app.domain.galgame_character_profiles import list_story_character_profiles
 from app.domain.models import GalgameStoryTemplate
 from app.services.context_analysis_service import context_analysis_service
 from app.services.email_service import EmailDeliveryError, email_service
+from app.services.galgame_asset_service import galgame_asset_service
 from app.services.session_service import session_service
 from app.services.storage import local_session_store
 from app.services.user_service import user_service
@@ -68,6 +71,21 @@ def list_galgame_character_profiles() -> GalgameCharacterProfileListResponse:
             for profile in list_story_character_profiles()
         ]
     )
+
+
+@router.get("/galgame/assets/{kind}/{filename}")
+def get_generated_galgame_asset(kind: str, filename: str) -> FileResponse:
+    try:
+        asset_path = galgame_asset_service.resolve_generated_asset_path(kind, filename)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    media_type = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+    }.get(Path(filename).suffix.lower(), "application/octet-stream")
+    return FileResponse(asset_path, media_type=media_type)
 
 
 def _require_session_access(session_id: str, session_secret: str | None, request: Request) -> None:

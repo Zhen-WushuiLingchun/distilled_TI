@@ -564,6 +564,16 @@ export function AdminClient() {
                 <p className="num mt-1 text-[0.76rem] text-[color:var(--ink-faint)]">
                   cache {assetStatus?.cache_total_count ?? 0}/{assetStatus?.cache_max_files ?? 0} files · {(((assetStatus?.cache_total_bytes ?? 0) / 1024 / 1024)).toFixed(1)} MB · max age {assetStatus?.cache_max_age_days ?? 0}d
                 </p>
+                <p className="num mt-1 text-[0.76rem] text-[color:var(--ink-faint)]">
+                  public URL {assetStatus?.public_url_prefix || "-"}
+                </p>
+                {assetStatus?.diagnostics?.length ? (
+                  <div className="mt-3 rounded-[var(--r-md)] bg-[color:var(--bg-paper)] p-2.5 text-xs leading-5 text-[color:var(--ink-muted)]">
+                    {assetStatus.diagnostics.slice(0, 4).map((hint) => (
+                      <p key={hint}>- {hint}</p>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button className="btn btn-ghost px-3 py-1.5 text-xs" onClick={() => void handleGenerateAsset("background")}>
                     Generate BG from form

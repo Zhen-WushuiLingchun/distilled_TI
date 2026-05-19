@@ -8,7 +8,10 @@ import {
   issueAdminSessionAccess,
   issueUserSessionAccess,
   listAdminSessions,
+  listSenrenCompanionSessions,
   listUserSessions,
+  getSenrenCompanionReport,
+  type SenrenCompanionSessionRecord,
   type SessionHistoryEntry,
 } from "@/lib/api";
 import { getUserAccess, saveActiveSessionAccess, type UserAccessBundle } from "@/lib/runtime-store";
@@ -16,6 +19,7 @@ import { getUserAccess, saveActiveSessionAccess, type UserAccessBundle } from "@
 export function HistoryClient() {
   const router = useRouter();
   const [sessions, setSessions] = useState<SessionHistoryEntry[]>([]);
+  const [senrenSessions, setSenrenSessions] = useState<SenrenCompanionSessionRecord[]>([]);
   const [error, setError] = useState("");
   const [busySessionId, setBusySessionId] = useState("");
   const [userAccess, setUserAccess] = useState<UserAccessBundle | null>(null);
@@ -24,8 +28,18 @@ export function HistoryClient() {
     try {
       const storedUser = getUserAccess();
       setUserAccess(storedUser);
-      const payload = storedUser ? await listUserSessions(storedUser) : await listAdminSessions();
-      setSessions(payload.sessions);
+      if (storedUser) {
+        const [sessionPayload, senrenPayload] = await Promise.all([
+          listUserSessions(storedUser),
+          listSenrenCompanionSessions(storedUser).catch(() => ({ items: [] })),
+        ]);
+        setSessions(sessionPayload.sessions);
+        setSenrenSessions(senrenPayload.items);
+      } else {
+        const payload = await listAdminSessions();
+        setSessions(payload.sessions);
+        setSenrenSessions([]);
+      }
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "读取会话失败。");
@@ -57,6 +71,20 @@ export function HistoryClient() {
     }
   }
 
+  async function handleRefreshSenrenReport(sessionId: string) {
+    const storedUser = getUserAccess();
+    if (!storedUser) return;
+    try {
+      setBusySessionId(sessionId);
+      await getSenrenCompanionReport(storedUser, sessionId);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "刷新本地游戏报告失败。");
+    } finally {
+      setBusySessionId("");
+    }
+  }
+
   const storyCount = sessions.filter((session) => session.mode === "story").length;
   const coreCount = sessions.length - storyCount;
 
@@ -77,6 +105,7 @@ export function HistoryClient() {
             <div className="flex flex-wrap gap-2.5">
               <span className="chip">剧情档案 {storyCount}</span>
               <span className="chip">测评档案 {coreCount}</span>
+              <span className="chip">本地游戏 {senrenSessions.length}</span>
               <button className="btn btn-ghost" onClick={() => router.push("/")}>
                 返回首页
               </button>
@@ -145,6 +174,56 @@ export function HistoryClient() {
             ))
           )}
         </div>
+
+        {userAccess ? (
+          <section className="panel fade-rise p-5">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="label-mini">Local Game</p>
+                <h2 className="text-2xl">Senren Companion 记录</h2>
+              </div>
+              <button className="btn btn-ghost" type="button" onClick={() => router.push("/senren")}>
+                查看接入说明
+              </button>
+            </div>
+            {senrenSessions.length === 0 ? (
+              <p className="surface-sunken p-4 text-sm text-[color:var(--ink-muted)]">
+                当前账号还没有本地游戏 companion 同步记录。
+              </p>
+            ) : (
+              <div className="grid gap-3">
+                {senrenSessions.map((session) => (
+                  <article key={session.session_id} className="surface-sunken flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="mb-1 flex flex-wrap gap-1.5">
+                        <span className="chip">Senren</span>
+                        <span className="chip">{session.status}</span>
+                        {session.current_route ? <span className="chip">{session.current_route}</span> : null}
+                      </div>
+                      <p className="text-sm text-[color:var(--ink-strong)]">{session.game_title || "Senren Banka"}</p>
+                      <p className="num mt-1 text-xs text-[color:var(--ink-muted)]">
+                        {session.choices_count} choices · {new Date(session.updated_at).toLocaleString()}
+                      </p>
+                      {session.game_path ? (
+                        <p className="num mt-1 max-w-xl truncate text-[0.7rem] text-[color:var(--ink-faint)]">
+                          path {session.game_path}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      className="btn btn-primary"
+                      disabled={busySessionId === session.session_id}
+                      type="button"
+                      onClick={() => void handleRefreshSenrenReport(session.session_id)}
+                    >
+                      {busySessionId === session.session_id ? "刷新中..." : session.report_snapshot ? "刷新报告" : "生成报告"}
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
       </section>
     </main>
   );

@@ -23,6 +23,8 @@ from app.domain.models import (
     ItemTemplateCreate,
     RewriteRetrievalContext,
     RewritePreviewBundle,
+    SenrenCompanionEvent,
+    SenrenCompanionSessionRecord,
     SessionHistoryEntry,
     SessionReport,
     SessionState,
@@ -300,6 +302,7 @@ class GalgameAssetStatusResponse(BaseModel):
     sdwebui_available: bool = False
     comfyui_available: bool = False
     cloud_configured: bool = False
+    diagnostics: list[str] = Field(default_factory=list)
 
 
 class GalgameAssetGenerateRequest(BaseModel):
@@ -316,6 +319,66 @@ class GalgameStoryTemplateAssetGenerateRequest(BaseModel):
 
 class SenrenCharacterAssetGenerateRequest(BaseModel):
     force: bool = False
+
+
+class SenrenCompanionStartRequest(BaseModel):
+    client_id: str = Field(default="", max_length=160)
+    game_title: str = Field(default="Senren Banka", max_length=120)
+    game_path: str = Field(default="", max_length=500)
+    game_path_fingerprint: str = Field(default="", max_length=160)
+    game_info: dict[str, object] = Field(default_factory=dict)
+
+
+class SenrenCompanionChoiceRequest(BaseModel):
+    choice_id: str = Field(min_length=1, max_length=120)
+    option_key: str = Field(min_length=1, max_length=120)
+    choice_text: str = Field(default="", max_length=2000)
+    dialogue_text: str = Field(default="", max_length=6000)
+    scene_title: str = Field(default="", max_length=500)
+
+
+class SenrenCompanionEventRequest(BaseModel):
+    event_type: str = Field(default="scene_text", max_length=80)
+    scene_title: str = Field(default="", max_length=500)
+    dialogue_text: str = Field(default="", max_length=6000)
+    visible_choices: list[str] = Field(default_factory=list, max_length=12)
+    route_marker: str = Field(default="", max_length=500)
+    source: str = Field(default="manual", max_length=80)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class SenrenCompanionStartResponse(BaseModel):
+    session_id: str
+    session_secret: str
+    delete_token: str
+    record: SenrenCompanionSessionRecord
+    roadmap: dict[str, object] = Field(default_factory=dict)
+    total_choices: int = 0
+
+
+class SenrenCompanionChoiceResponse(BaseModel):
+    record: SenrenCompanionSessionRecord
+    state: dict[str, object] = Field(default_factory=dict)
+    choice_recorded: dict[str, object] = Field(default_factory=dict)
+    total_choices_made: int = 0
+    current_route: str | None = None
+    can_generate_report: bool = False
+    remaining_until_report: int = 0
+
+
+class SenrenCompanionEventResponse(BaseModel):
+    record: SenrenCompanionSessionRecord
+    event: SenrenCompanionEvent
+    stored_events_count: int = 0
+
+
+class SenrenCompanionSessionListResponse(BaseModel):
+    items: list[SenrenCompanionSessionRecord] = Field(default_factory=list)
+
+
+class SenrenCompanionReportResponse(BaseModel):
+    record: SenrenCompanionSessionRecord
+    report: dict[str, object]
 
 
 class GalgameAssetGenerateResponse(BaseModel):
